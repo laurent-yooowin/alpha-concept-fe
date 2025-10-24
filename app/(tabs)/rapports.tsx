@@ -23,6 +23,8 @@ import * as Linking from 'expo-linking';
 import { pdfService } from '@/services/pdfService';
 import { visitService } from '@/services/visitService';
 
+import * as MailComposer from 'expo-mail-composer';
+
 const { width } = Dimensions.get('window');
 
 export default function RapportsScreen() {
@@ -36,7 +38,7 @@ export default function RapportsScreen() {
     envoye: 0,
     archive: 0,
   });
-  const [selectedReport, setSelectedReport] = useState<any | null>(null);
+  const [selectedReport, setSelectedReport] = useState < any | null > (null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editedContent, setEditedContent] = useState('');
@@ -193,6 +195,7 @@ export default function RapportsScreen() {
           if (visitResponse.data && visitResponse.data.photos) {
             photos = visitResponse.data.photos.map((photo: any) => ({
               uri: photo.uri,
+              s3Url: photo.s3Url,
               comment: photo.comment,
             }));
           }
@@ -211,12 +214,16 @@ export default function RapportsScreen() {
         photos: photos,
       };
 
-      const pdfPath = await pdfService.generateReportPDF(pdfData);
+
 
       await reportService.updateReport(selectedReport.id, {
         status: 'envoye' as ReportStatus,
         recipientEmail: adminEmail,
       });
+
+      // console.log('pdfData >>> : ', pdfData);
+      const pdfPath = await pdfService.generateReportPDF(pdfData);
+      console.log('pdfData >>> : ', pdfData);
 
       const body = `Bonjour,
 
@@ -232,14 +239,38 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement`;
 
-      const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
-        adminEmail,
-        subject,
-        body,
-        pdfPath || undefined
-      );
+      // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
+      //   adminEmail,
+      //   subject,
+      //   body,
+      //   pdfPath || undefined
+      // );
 
-      await Linking.openURL(mailtoUrl);
+      // await Linking.openURL(mailtoUrl);
+
+      // 4️⃣ Vérifier si MailComposer est disponible
+      const isAvailable = await MailComposer.isAvailableAsync();
+      if (!isAvailable) {
+        console.warn('📧 MailComposer non disponible sur cet appareil.');
+        // return pdfPath;
+      }
+
+      // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
+      const mailOptions = {
+        recipients: [adminEmail],
+        subject: subject,
+        body: body,
+
+      };
+
+      if (pdfPath) {
+        mailOptions.attachments = [pdfPath] // pièce jointe
+      }
+
+      // 6️⃣ Ouvrir le mail ready-to-send
+      await MailComposer.composeAsync(mailOptions);
+
+      console.log('📤 Email prêt à être envoyé !');
 
       loadReports();
       setShowReportModal(false);
@@ -254,399 +285,6 @@ Cordialement`;
     { id: 'envoyes', label: 'Rapports envoyés', count: 15, color: '#10B981', icon: CheckCircle },
     { id: 'brouillons', label: 'Brouillons', count: 6, color: '#F59E0B', icon: Clock },
     { id: 'archives', label: 'Rapports archivés', count: 3, color: '#64748B', icon: Download },
-  ];
-
-  // Mock data removed - now using reports loaded from backend API via loadReports()
-  const mockRapports = [
-    // RAPPORTS ENVOYÉS
-    {
-      id: 1,
-      title: 'RAPPORT SPS - RÉSIDENCE LES JARDINS',
-      mission: 'Chantier Résidence Les Jardins',
-      client: 'Bouygues Construction',
-      date: '2025-01-15',
-      status: 'envoyes',
-      type: 'Visite mensuelle',
-      pages: 8,
-      photos: 12,
-      anomalies: 2,
-      conformity: 92,
-      aiGenerated: true,
-      gradient: ['#10B981', '#059669'],
-      backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 2,
-      title: 'CONTRÔLE FINAL - BUREAUX PART-DIEU',
-      mission: 'Rénovation Bureaux Part-Dieu',
-      client: 'Eiffage Construction',
-      date: '2025-01-14',
-      status: 'envoyes',
-      type: 'Contrôle final',
-      pages: 12,
-      photos: 18,
-      anomalies: 1,
-      conformity: 96,
-      aiGenerated: false,
-      gradient: ['#3B82F6', '#1D4ED8'],
-      backgroundImage: 'https://images.pexels.com/photos/325229/pexels-photo-325229.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 3,
-      title: 'INSPECTION SÉCURITÉ - LYCÉE ÉCOLOGIQUE',
-      mission: 'Construction Lycée Écologique',
-      client: 'GTM Bâtiment',
-      date: '2025-01-13',
-      status: 'envoyes',
-      type: 'Suivi hebdomadaire',
-      pages: 6,
-      photos: 10,
-      anomalies: 0,
-      conformity: 98,
-      aiGenerated: true,
-      gradient: ['#10B981', '#059669'],
-      backgroundImage: 'https://images.pexels.com/photos/256490/pexels-photo-256490.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 4,
-      title: 'RAPPORT CONFORMITÉ - ÉCOLE PRIMAIRE',
-      mission: 'Rénovation École Primaire',
-      client: 'Vinci Construction',
-      date: '2025-01-12',
-      status: 'envoyes',
-      type: 'Inspection préalable',
-      pages: 9,
-      photos: 14,
-      anomalies: 3,
-      conformity: 88,
-      aiGenerated: true,
-      gradient: ['#F59E0B', '#D97706'],
-      backgroundImage: 'https://images.pexels.com/photos/159844/school-building-windows-architecture-159844.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 5,
-      title: 'VISITE SÉCURITÉ - STATION MÉTRO B',
-      mission: 'Nouvelle Station Métro B',
-      client: 'SYTRAL',
-      date: '2025-01-11',
-      status: 'envoyes',
-      type: 'Contrôle périodique',
-      pages: 15,
-      photos: 22,
-      anomalies: 1,
-      conformity: 94,
-      aiGenerated: false,
-      gradient: ['#8B5CF6', '#A855F7'],
-      backgroundImage: 'https://images.pexels.com/photos/1267338/pexels-photo-1267338.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 6,
-      title: 'SUIVI - DATACENTER ORANGE',
-      mission: 'Construction Datacenter Orange',
-      client: 'Bouygues Energies',
-      date: '2025-01-10',
-      status: 'envoyes',
-      type: 'Suivi mensuel',
-      pages: 7,
-      photos: 12,
-      anomalies: 1,
-      conformity: 91,
-      aiGenerated: true,
-      gradient: ['#3B82F6', '#1D4ED8'],
-      backgroundImage: 'https://images.pexels.com/photos/442150/pexels-photo-442150.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 7,
-      title: 'CONTRÔLE - CENTRE RECHERCHE CNRS',
-      mission: 'Rénovation Centre Recherche',
-      client: 'Eiffage Construction',
-      date: '2025-01-09',
-      status: 'envoyes',
-      type: 'Contrôle laboratoires',
-      pages: 13,
-      photos: 20,
-      anomalies: 2,
-      conformity: 89,
-      aiGenerated: false,
-      gradient: ['#8B5CF6', '#A855F7'],
-      backgroundImage: 'https://images.pexels.com/photos/2280571/pexels-photo-2280571.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 8,
-      title: 'INSPECTION - RAFFINERIE TOTAL',
-      mission: 'Maintenance Raffinerie Total',
-      client: 'Technip Energies',
-      date: '2025-01-08',
-      status: 'envoyes',
-      type: 'Contrôle ATEX',
-      pages: 16,
-      photos: 24,
-      anomalies: 6,
-      conformity: 78,
-      aiGenerated: true,
-      gradient: ['#EF4444', '#DC2626'],
-      backgroundImage: 'https://images.pexels.com/photos/1108572/pexels-photo-1108572.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 9,
-      title: 'VISITE - TUNNEL CROIX-ROUSSE',
-      mission: 'Rénovation Tunnel Urbain',
-      client: 'Vinci Construction',
-      date: '2025-01-07',
-      status: 'envoyes',
-      type: 'Inspection tunnel',
-      pages: 11,
-      photos: 17,
-      anomalies: 4,
-      conformity: 83,
-      aiGenerated: false,
-      gradient: ['#F59E0B', '#D97706'],
-      backgroundImage: 'https://images.pexels.com/photos/2219024/pexels-photo-2219024.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 10,
-      title: 'RAPPORT - STADE OLYMPIQUE',
-      mission: 'Rénovation Groupama Stadium',
-      client: 'Bouygues Construction',
-      date: '2025-01-06',
-      status: 'envoyes',
-      type: 'Contrôle périodique',
-      pages: 9,
-      photos: 15,
-      anomalies: 0,
-      conformity: 99,
-      aiGenerated: true,
-      gradient: ['#10B981', '#059669'],
-      backgroundImage: 'https://images.pexels.com/photos/1263349/pexels-photo-1263349.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 11,
-      title: 'CONTRÔLE - AÉROPORT LYON',
-      mission: 'Extension Terminal 2',
-      client: 'Vinci Airports',
-      date: '2025-01-05',
-      status: 'envoyes',
-      type: 'Contrôle sécurité',
-      pages: 14,
-      photos: 23,
-      anomalies: 2,
-      conformity: 92,
-      aiGenerated: false,
-      gradient: ['#3B82F6', '#1D4ED8'],
-      backgroundImage: 'https://images.pexels.com/photos/2026324/pexels-photo-2026324.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 12,
-      title: 'INSPECTION - CENTRALE NUCLÉAIRE',
-      mission: 'Maintenance Centrale Bugey',
-      client: 'EDF',
-      date: '2025-01-04',
-      status: 'envoyes',
-      type: 'Inspection sécurité',
-      pages: 22,
-      photos: 31,
-      anomalies: 1,
-      conformity: 96,
-      aiGenerated: false,
-      gradient: ['#EF4444', '#DC2626'],
-      backgroundImage: 'https://images.pexels.com/photos/9800029/pexels-photo-9800029.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 13,
-      title: 'RAPPORT - BARRAGE RHÔNE',
-      mission: 'Inspection Barrage Hydroélectrique',
-      client: 'CNR',
-      date: '2025-01-03',
-      status: 'envoyes',
-      type: 'Inspection annuelle',
-      pages: 19,
-      photos: 26,
-      anomalies: 0,
-      conformity: 98,
-      aiGenerated: true,
-      gradient: ['#10B981', '#059669'],
-      backgroundImage: 'https://images.pexels.com/photos/433308/pexels-photo-433308.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 14,
-      title: 'VISITE - PARC ÉOLIEN',
-      mission: 'Base Logistique Éolien Offshore',
-      client: 'EDF Renouvelables',
-      date: '2025-01-02',
-      status: 'envoyes',
-      type: 'Inspection préparatoire',
-      pages: 8,
-      photos: 12,
-      anomalies: 1,
-      conformity: 94,
-      aiGenerated: true,
-      gradient: ['#8B5CF6', '#A855F7'],
-      backgroundImage: 'https://images.pexels.com/photos/433308/pexels-photo-433308.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 15,
-      title: 'CONTRÔLE - USINE AUTOMOBILE',
-      mission: 'Extension Usine Automobile',
-      client: 'Renault',
-      date: '2025-01-01',
-      status: 'envoyes',
-      type: 'Contrôle chaîne production',
-      pages: 10,
-      photos: 16,
-      anomalies: 3,
-      conformity: 86,
-      aiGenerated: false,
-      gradient: ['#F59E0B', '#D97706'],
-      backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-
-    // BROUILLONS
-    {
-      id: 16,
-      title: 'INSPECTION - CENTRE COMMERCIAL',
-      mission: 'Extension Centre Commercial',
-      client: 'Vinci Construction',
-      date: '2025-01-15',
-      status: 'brouillons',
-      type: 'Inspection préalable',
-      pages: 5,
-      photos: 8,
-      anomalies: 0,
-      conformity: 85,
-      aiGenerated: true,
-      gradient: ['#8B5CF6', '#A855F7'],
-      backgroundImage: 'https://images.pexels.com/photos/1040893/pexels-photo-1040893.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 17,
-      title: 'CONTRÔLE - RÉSIDENCE ÉTUDIANTE',
-      mission: 'Construction Résidence Étudiante',
-      client: 'Eiffage Construction',
-      date: '2025-01-15',
-      status: 'brouillons',
-      type: 'Visite intermédiaire',
-      pages: 7,
-      photos: 11,
-      anomalies: 2,
-      conformity: 90,
-      aiGenerated: true,
-      gradient: ['#3B82F6', '#1D4ED8'],
-      backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 18,
-      title: 'RAPPORT - HÔPITAL MODERNE',
-      mission: 'Construction Hôpital Moderne',
-      client: 'Bouygues Construction',
-      date: '2025-01-14',
-      status: 'brouillons',
-      type: 'Contrôle installations',
-      pages: 10,
-      photos: 16,
-      anomalies: 4,
-      conformity: 82,
-      aiGenerated: false,
-      gradient: ['#EF4444', '#DC2626'],
-      backgroundImage: 'https://images.pexels.com/photos/263402/pexels-photo-263402.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 19,
-      title: 'VISITE - USINE PHARMACEUTIQUE',
-      mission: 'Rénovation Usine Pharmaceutique',
-      client: 'Eiffage Construction',
-      date: '2025-01-14',
-      status: 'brouillons',
-      type: 'Contrôle salle blanche',
-      pages: 8,
-      photos: 13,
-      anomalies: 5,
-      conformity: 75,
-      aiGenerated: true,
-      gradient: ['#F59E0B', '#D97706'],
-      backgroundImage: 'https://images.pexels.com/photos/3735747/pexels-photo-3735747.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 20,
-      title: 'INSPECTION - COMPLEXE SPORTIF',
-      mission: 'Construction Complexe Sportif',
-      client: 'GTM Bâtiment',
-      date: '2025-01-13',
-      status: 'brouillons',
-      type: 'Contrôle équipements',
-      pages: 6,
-      photos: 9,
-      anomalies: 1,
-      conformity: 93,
-      aiGenerated: true,
-      gradient: ['#10B981', '#059669'],
-      backgroundImage: 'https://images.pexels.com/photos/1263349/pexels-photo-1263349.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 21,
-      title: 'RAPPORT - PONT AUTOROUTIER',
-      mission: 'Rénovation Pont Autoroutier A6',
-      client: 'Colas',
-      date: '2025-01-13',
-      status: 'brouillons',
-      type: 'Inspection structure',
-      pages: 11,
-      photos: 19,
-      anomalies: 3,
-      conformity: 87,
-      aiGenerated: false,
-      gradient: ['#8B5CF6', '#A855F7'],
-      backgroundImage: 'https://images.pexels.com/photos/2219024/pexels-photo-2219024.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-
-    // RAPPORTS ARCHIVÉS
-    {
-      id: 22,
-      title: 'RAPPORT FINAL - ANCIEN PROJET LYON',
-      mission: 'Rénovation Immeuble Historique',
-      client: 'Bouygues Construction',
-      date: '2024-12-20',
-      status: 'archives',
-      type: 'Rapport final',
-      pages: 25,
-      photos: 35,
-      anomalies: 0,
-      conformity: 100,
-      aiGenerated: false,
-      gradient: ['#64748B', '#475569'],
-      backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 23,
-      title: 'CLÔTURE - CENTRE LOGISTIQUE',
-      mission: 'Construction Centre Logistique',
-      client: 'Vinci Construction',
-      date: '2024-12-15',
-      status: 'archives',
-      type: 'Rapport de clôture',
-      pages: 18,
-      photos: 28,
-      anomalies: 2,
-      conformity: 95,
-      aiGenerated: false,
-      gradient: ['#64748B', '#475569'],
-      backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
-    {
-      id: 24,
-      title: 'BILAN - PARKING SOUTERRAIN',
-      mission: 'Construction Parking Souterrain',
-      client: 'GTM Bâtiment',
-      date: '2024-12-10',
-      status: 'archives',
-      type: 'Bilan final',
-      pages: 14,
-      photos: 21,
-      anomalies: 1,
-      conformity: 97,
-      aiGenerated: false,
-      gradient: ['#64748B', '#475569'],
-      backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-    },
   ];
 
   const getStatusInfo = (status: string) => {
