@@ -14,12 +14,14 @@ import {
   Platform,
   ActivityIndicator
 } from 'react-native';
-import { Search, Filter, Plus, MapPin, Calendar, Clock, Building, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, ArrowRight, Camera, FileText, Download, ChevronDown, X, User, Mail, Phone, Mic, MicOff, Check, CreditCard as Edit3, Save, Trash2, MapPin as Location, FileText as Description } from 'lucide-react-native';
+import { Search, Filter, Plus, MapPin, Calendar, Clock, Building, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, ArrowRight, Camera, FileText, Download, ChevronDown, X, User, Mail, Phone, Mic, MicOff, Check, CreditCard as Edit3, Save, Trash2, MapPin as Location, FileText as Description, Eye, Image as ImageIcon } from 'lucide-react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getMissionStatusInfo } from '@/utils/missionHelpers';
+import { visitService } from '@/services/visitService';
+import { reportService } from '@/services/reportService';
 
 const { width } = Dimensions.get('window');
 
@@ -59,6 +61,14 @@ export default function MissionsScreen() {
   // État pour la reconnaissance vocale
   const [isRecordingDescription, setIsRecordingDescription] = useState(false);
   const [speechRecognition, setSpeechRecognition] = useState < any > (null);
+
+  // État pour le modal de détails de visite
+  const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
+  const [selectedVisit, setSelectedVisit] = useState<any>(null);
+  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [showEditReportModal, setShowEditReportModal] = useState(false);
+  const [editedReportContent, setEditedReportContent] = useState('');
+  const [isSavingReport, setIsSavingReport] = useState(false);
 
   const filters = [
     { id: 'toutes', label: 'Toutes les missions', count: 15, color: '#8B5CF6', icon: FileText },
@@ -367,8 +377,34 @@ export default function MissionsScreen() {
       const response = await missionService.getMissions();
 
       if (response.data && Array.isArray(response.data)) {
-        const backendMissions = response.data.map((mission: any) => {
+        const backendMissions = await Promise.all(response.data.map(async (mission: any) => {
           const missionStatusInfo = getMissionStatusInfo(mission.status);
+
+          let hasVisit = false;
+          let visitId = null;
+          let reportId = null;
+
+          try {
+            const visitsResponse = await visitService.getVisits();
+            if (visitsResponse.data) {
+              const missionVisit = visitsResponse.data.find((v: any) => v.missionId === mission.id);
+              if (missionVisit) {
+                hasVisit = true;
+                visitId = missionVisit.id;
+
+                const reportsResponse = await reportService.getReports();
+                if (reportsResponse.data) {
+                  const visitReport = reportsResponse.data.find((r: any) => r.visitId === visitId);
+                  if (visitReport) {
+                    reportId = visitReport.id;
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.log('Error checking visit/report for mission:', mission.id, error);
+          }
+
           return {
             id: mission.id,
             title: mission.title?.toUpperCase() || 'MISSION SANS TITRE',
@@ -391,9 +427,12 @@ export default function MissionsScreen() {
               lastName: mission.contactLastName || '',
               email: mission.contactEmail || '',
               phone: mission.contactPhone || ''
-            }
+            },
+            hasVisit,
+            visitId,
+            reportId
           };
-        });
+        }));
 
         setMissions(backendMissions);
         setUserMissions(backendMissions);
@@ -488,6 +527,80 @@ export default function MissionsScreen() {
   // Toutes les missions peuvent maintenant avoir un bouton visite
   const canStartVisit = (status: string) => {
     return true; // Toutes les missions peuvent démarrer une visite
+  };
+
+  // Fonction pour ouvrir les détails de visite
+  const openVisitDetails = async (mission: any) => {
+    try {
+      if (!mission.visitId) {
+        Alert.alert('Erreur', 'Aucune visite trouvée pour cette mission.');
+        return;
+      }
+
+      const visitResponse = await visitService.getVisit(mission.visitId);
+      if (visitResponse.data) {
+        setSelectedVisit(visitResponse.data);
+
+        if (mission.reportId) {
+          const reportResponse = await reportService.getReport(mission.reportId);
+          if (reportResponse.data) {
+            setSelectedReport(reportResponse.data);
+          }
+        }
+
+        setShowVisitDetailModal(true);
+      }
+    } catch (error) {
+      console.error('Error loading visit details:', error);
+      Alert.alert('Erreur', 'Impossible de charger les détails de la visite.');
+    }
+  };
+
+  // Fonction pour modifier le rapport
+  const handleModifyReport = () => {
+    if (selectedReport) {
+      setEditedReportContent(selectedReport.content || '');
+      setShowEditReportModal(true);
+    }
+  };
+
+  // Fonction pour sauvegarder les modifications du rapport
+  const handleSaveReportModifications = async () => {
+    if (!selectedReport) return;
+
+    try {
+      setIsSavingReport(true);
+      await reportService.updateReport(selectedReport.id, {
+        content: editedReportContent,
+      });
+
+      if (selectedVisit) {
+        try {
+          const currentNotes = selectedVisit.notes || '';
+          const modificationNote = `\n\n[Modification du ${new Date().toLocaleString('fr-FR')}]\n${editedReportContent}`;
+          await visitService.updateVisit(selectedVisit.id, {
+            notes: currentNotes + modificationNote,
+          });
+        } catch (visitError) {
+          console.log('Note: Could not update related visit:', visitError);
+        }
+      }
+
+      Alert.alert('Succès', 'Le rapport a été modifié avec succès.');
+      setShowEditReportModal(false);
+
+      const reportResponse = await reportService.getReport(selectedReport.id);
+      if (reportResponse.data) {
+        setSelectedReport(reportResponse.data);
+      }
+
+      loadMissions();
+    } catch (error) {
+      console.error('Error updating report:', error);
+      Alert.alert('Erreur', 'Impossible de modifier le rapport.');
+    } finally {
+      setIsSavingReport(false);
+    }
   };
 
   const activeFilterData = updatedFilters.find(f => f.id === activeFilter);
@@ -1032,7 +1145,23 @@ export default function MissionsScreen() {
                             <Text style={styles.alertBadgeText}>{mission.alerts}</Text>
                           </View>
                         )}
-                        {showVisitButton ? (
+                        {mission.hasVisit ? (
+                          <TouchableOpacity
+                            style={styles.visitButton}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              openVisitDetails(mission);
+                            }}
+                          >
+                            <LinearGradient
+                              colors={['#10B981', '#059669']}
+                              style={styles.visitButtonGradient}
+                            >
+                              <Eye size={14} color="#FFFFFF" />
+                              <Text style={[styles.visitButtonText, { color: '#FFFFFF' }]}>DÉTAILS</Text>
+                            </LinearGradient>
+                          </TouchableOpacity>
+                        ) : showVisitButton ? (
                           <TouchableOpacity
                             style={styles.visitButton}
                             onPress={(e) => {
@@ -1904,6 +2033,165 @@ export default function MissionsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Visit Detail Modal */}
+      <Modal visible={showVisitDetailModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.visitDetailModal}>
+            {selectedVisit && selectedReport && (
+              <>
+                <LinearGradient
+                  colors={['#10B981', '#059669']}
+                  style={styles.visitDetailHeader}
+                >
+                  <View style={styles.visitDetailHeaderContent}>
+                    <View style={styles.visitDetailHeaderLeft}>
+                      <FileText size={24} color="#FFFFFF" />
+                      <View>
+                        <Text style={styles.visitDetailTitle}>Détails du Rapport</Text>
+                        <Text style={styles.visitDetailSubtitle}>
+                          {new Date(selectedVisit.visitDate).toLocaleDateString('fr-FR')}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.closeButton}
+                      onPress={() => {
+                        setShowVisitDetailModal(false);
+                        setSelectedVisit(null);
+                        setSelectedReport(null);
+                      }}
+                    >
+                      <X size={24} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                </LinearGradient>
+
+                <ScrollView style={styles.visitDetailContent} showsVerticalScrollIndicator={false}>
+                  <View style={styles.visitDetailSection}>
+                    <Text style={styles.visitDetailSectionTitle}>CONTENU DU RAPPORT</Text>
+                    <View style={styles.visitDetailContentBox}>
+                      <Text style={styles.visitDetailContentText}>
+                        {selectedReport.content || 'Aucun contenu disponible'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {selectedVisit.photos && selectedVisit.photos.length > 0 && (
+                    <View style={styles.visitDetailSection}>
+                      <Text style={styles.visitDetailSectionTitle}>
+                        PHOTOS ({selectedVisit.photos.length})
+                      </Text>
+                      {selectedVisit.photos.map((photo: any, index: number) => (
+                        <View key={index} style={styles.photoItem}>
+                          <View style={styles.photoPlaceholder}>
+                            <ImageIcon size={32} color="#64748B" />
+                            <Text style={styles.photoIndexText}>Photo {index + 1}</Text>
+                          </View>
+                          {photo.comment && (
+                            <Text style={styles.photoComment}>{photo.comment}</Text>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {selectedVisit.notes && (
+                    <View style={styles.visitDetailSection}>
+                      <Text style={styles.visitDetailSectionTitle}>NOTES</Text>
+                      <View style={styles.visitDetailContentBox}>
+                        <Text style={styles.visitDetailContentText}>
+                          {selectedVisit.notes}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </ScrollView>
+
+                {selectedReport.status !== 'valide' && (
+                  <View style={styles.visitDetailActions}>
+                    <TouchableOpacity
+                      style={styles.modifyReportButton}
+                      onPress={handleModifyReport}
+                    >
+                      <LinearGradient
+                        colors={['#F59E0B', '#D97706']}
+                        style={styles.modifyReportGradient}
+                      >
+                        <Edit3 size={20} color="#FFFFFF" />
+                        <Text style={styles.modifyReportText}>Modifier le rapport</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Report Modal */}
+      <Modal visible={showEditReportModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.visitDetailModal}>
+            <LinearGradient
+              colors={['#F59E0B', '#D97706']}
+              style={styles.visitDetailHeader}
+            >
+              <View style={styles.visitDetailHeaderContent}>
+                <View style={styles.visitDetailHeaderLeft}>
+                  <Edit3 size={24} color="#FFFFFF" />
+                  <View>
+                    <Text style={styles.visitDetailTitle}>Modifier le Rapport</Text>
+                    <Text style={styles.visitDetailSubtitle}>
+                      {selectedReport?.title || 'Rapport'}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => setShowEditReportModal(false)}
+                >
+                  <X size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+
+            <View style={styles.editReportContent}>
+              <Text style={styles.editReportLabel}>Contenu du rapport</Text>
+              <TextInput
+                style={styles.editReportTextInput}
+                value={editedReportContent}
+                onChangeText={setEditedReportContent}
+                multiline
+                numberOfLines={10}
+                placeholder="Saisissez le contenu du rapport..."
+                placeholderTextColor="#64748B"
+              />
+
+              <TouchableOpacity
+                style={styles.saveReportButton}
+                onPress={handleSaveReportModifications}
+                disabled={isSavingReport}
+              >
+                <LinearGradient
+                  colors={['#10B981', '#059669']}
+                  style={styles.saveReportGradient}
+                >
+                  {isSavingReport ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Save size={20} color="#FFFFFF" />
+                      <Text style={styles.saveReportText}>Enregistrer</Text>
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2677,6 +2965,148 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   webDateInput: {
+    color: '#FFFFFF',
+  },
+  visitDetailModal: {
+    width: width * 0.95,
+    height: '90%',
+    backgroundColor: '#1E293B',
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  visitDetailHeader: {
+    padding: 20,
+  },
+  visitDetailHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  visitDetailHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flex: 1,
+    gap: 12,
+  },
+  visitDetailTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  visitDetailSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  visitDetailContent: {
+    flex: 1,
+  },
+  visitDetailSection: {
+    padding: 20,
+  },
+  visitDetailSectionTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#94A3B8',
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  visitDetailContentBox: {
+    backgroundColor: '#0F172A',
+    padding: 16,
+    borderRadius: 12,
+    minHeight: 100,
+  },
+  visitDetailContentText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#E2E8F0',
+    lineHeight: 22,
+  },
+  photoItem: {
+    backgroundColor: '#0F172A',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  photoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: '#1E293B',
+    borderRadius: 8,
+  },
+  photoIndexText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#64748B',
+    marginTop: 8,
+  },
+  photoComment: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    marginTop: 12,
+    lineHeight: 18,
+  },
+  visitDetailActions: {
+    padding: 16,
+    backgroundColor: '#0F172A',
+  },
+  modifyReportButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modifyReportGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+  },
+  modifyReportText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+  },
+  editReportContent: {
+    flex: 1,
+    padding: 20,
+  },
+  editReportLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#94A3B8',
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  editReportTextInput: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#E2E8F0',
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  saveReportButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  saveReportGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+  },
+  saveReportText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
   },
 });
