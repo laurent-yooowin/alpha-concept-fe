@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "CSPS Webapp",
+    "slug": "csps-webapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "csps",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": ["expo-router", "expo-font", "expo-web-browser", "expo-camera"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

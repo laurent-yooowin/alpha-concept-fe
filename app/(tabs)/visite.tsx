@@ -1,0 +1,1883 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  ScrollView, 
+  TouchableOpacity, 
+  StyleSheet, 
+  SafeAreaView,
+  Dimensions,
+  Modal,
+  TextInput,
+  Alert,
+  Image,
+  ActivityIndicator
+} from 'react-native';
+import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight } from 'lucide-react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const { width, height } = Dimensions.get('window');
+
+interface Photo {
+  id: string;
+  uri: string;
+  timestamp: Date;
+  aiAnalysis?: {
+    observations: string[];
+    recommendations: string[];
+    riskLevel: 'low' | 'medium' | 'high';
+    confidence: number;
+  };
+  userComments: string;
+  validated: boolean;
+}
+
+interface Mission {
+  id: number;
+  title: string;
+  client: string;
+  location: string;
+  description: string;
+  nextVisit: string;
+  type: string;
+}
+
+export default function VisiteScreen() {
+  const params = useLocalSearchParams();
+  const [mission, setMission] = useState<Mission | null>(null);
+  const [availableMissions, setAvailableMissions] = useState<Mission[]>([]);
+  const [showMissionSelector, setShowMissionSelector] = useState(false);
+  
+  // États pour la caméra
+  const [showCamera, setShowCamera] = useState(false);
+  const [facing, setFacing] = useState<CameraType>('back');
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
+  
+  // États pour les photos et analyses
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
+  const [showPhotoDetail, setShowPhotoDetail] = useState(false);
+  const [editingComments, setEditingComments] = useState(false);
+  const [tempComments, setTempComments] = useState('');
+  
+  // États pour le rapport
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportContent, setReportContent] = useState('');
+  const [editingReport, setEditingReport] = useState(false);
+  const [reportValidated, setReportValidated] = useState(false);
+  
+  // États de chargement
+  const [analyzingPhoto, setAnalyzingPhoto] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
+
+  useEffect(() => {
+    loadAvailableMissions();
+    
+    if (params.mission) {
+      try {
+        const missionData = JSON.parse(params.mission as string);
+        selectMission(missionData);
+      } catch (error) {
+        console.error('Erreur parsing mission:', error);
+      }
+    }
+  }, [params.mission]);
+
+  const loadAvailableMissions = async () => {
+    try {
+      // Charger les missions utilisateur depuis AsyncStorage
+      const userMissions = await AsyncStorage.getItem('userMissions');
+      const parsedUserMissions = userMissions ? JSON.parse(userMissions) : [];
+      
+      // Missions par défaut
+      const defaultMissions = [
+        {
+          id: 1,
+          title: 'RÉSIDENCE LES JARDINS',
+          client: 'Bouygues Construction',
+          location: 'Lyon 69003',
+          description: 'Contrôle mensuel de sécurité',
+          nextVisit: '2025-01-15T14:00:00',
+          type: 'Visite mensuelle'
+        },
+        {
+          id: 2,
+          title: 'BUREAUX PART-DIEU',
+          client: 'Eiffage Construction',
+          location: 'Lyon 69003',
+          description: 'Finalisation rapport conformité',
+          nextVisit: '2025-01-15T16:30:00',
+          type: 'Contrôle final'
+        }
+      ];
+      
+      setAvailableMissions([...parsedUserMissions, ...defaultMissions]);
+    } catch (error) {
+      console.error('Erreur chargement missions:', error);
+    }
+  };
+
+  const selectMission = (selectedMission: Mission) => {
+    // Remettre les photos à zéro pour une nouvelle visite
+    if (!mission || mission.id !== selectedMission.id) {
+      setPhotos([]);
+      setReportContent('');
+      setReportValidated(false);
+    }
+    
+    setMission(selectedMission);
+    setShowMissionSelector(false);
+  };
+
+  // Simulation d'analyse IA pour une photo
+  const analyzePhoto = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
+    // Simulation d'un délai d'analyse
+    await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000));
+    
+    const analyses = [
+      {
+        observations: [
+          "Échafaudage installé selon les normes",
+          "Garde-corps présents et conformes",
+          "Zone de travail bien délimitée"
+        ],
+        recommendations: [
+          "Vérifier la fixation des garde-corps quotidiennement",
+          "Maintenir la signalisation visible"
+        ],
+        riskLevel: 'low' as const,
+        confidence: 92
+      },
+      {
+        observations: [
+          "Absence de protection collective",
+          "Matériaux stockés de manière désordonnée",
+          "Accès non sécurisé à la zone de travail"
+        ],
+        recommendations: [
+          "Installer immédiatement des garde-corps",
+          "Organiser le stockage des matériaux",
+          "Sécuriser les accès avec barrières"
+        ],
+        riskLevel: 'high' as const,
+        confidence: 88
+      },
+      {
+        observations: [
+          "EPI portés par les ouvriers",
+          "Signalisation présente mais partiellement masquée",
+          "Outillage en bon état"
+        ],
+        recommendations: [
+          "Repositionner la signalisation",
+          "Vérifier l'état des EPI régulièrement"
+        ],
+        riskLevel: 'medium' as const,
+        confidence: 85
+      }
+    ];
+    
+    return analyses[Math.floor(Math.random() * analyses.length)];
+  };
+
+  // Prendre une photo
+  const takePhoto = async () => {
+    if (!cameraRef.current) return;
+    
+    try {
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: false,
+      });
+      
+      if (photo) {
+        const newPhoto: Photo = {
+          id: Date.now().toString(),
+          uri: photo.uri,
+          timestamp: new Date(),
+          userComments: '',
+          validated: false
+        };
+        
+        setPhotos(prev => [...prev, newPhoto]);
+        setShowCamera(false);
+        
+        // Lancer l'analyse IA
+        setAnalyzingPhoto(true);
+        try {
+          const analysis = await analyzePhoto(photo.uri);
+          setPhotos(prev => prev.map(p => 
+            p.id === newPhoto.id 
+              ? { ...p, aiAnalysis: analysis }
+              : p
+          ));
+        } catch (error) {
+          console.error('Erreur analyse IA:', error);
+        } finally {
+          setAnalyzingPhoto(false);
+        }
+      }
+    } catch (error) {
+      console.error('Erreur prise de photo:', error);
+      Alert.alert('Erreur', 'Impossible de prendre la photo');
+    }
+  };
+
+  // Supprimer une photo
+  const deletePhoto = (photoId: string) => {
+    Alert.alert(
+      'Supprimer la photo',
+      'Êtes-vous sûr de vouloir supprimer cette photo et son analyse ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Supprimer', 
+          style: 'destructive',
+          onPress: () => {
+            setPhotos(prev => prev.filter(p => p.id !== photoId));
+            if (selectedPhoto?.id === photoId) {
+              setShowPhotoDetail(false);
+              setSelectedPhoto(null);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Valider une photo
+  const validatePhoto = (photoId: string) => {
+    setPhotos(prev => prev.map(p => 
+      p.id === photoId 
+        ? { ...p, validated: true }
+        : p
+    ));
+    
+    if (selectedPhoto?.id === photoId) {
+      setSelectedPhoto(prev => prev ? { ...prev, validated: true } : null);
+    }
+  };
+
+  // Sauvegarder les commentaires
+  const saveComments = () => {
+    if (!selectedPhoto) return;
+    
+    setPhotos(prev => prev.map(p => 
+      p.id === selectedPhoto.id 
+        ? { ...p, userComments: tempComments }
+        : p
+    ));
+    
+    setSelectedPhoto(prev => prev ? { ...prev, userComments: tempComments } : null);
+    setEditingComments(false);
+  };
+
+  // Générer le rapport
+  const generateReport = async () => {
+    if (photos.length < 3) {
+      Alert.alert('Photos insuffisantes', 'Vous devez prendre au minimum 3 photos pour générer un rapport.');
+      return;
+    }
+    
+    setGeneratingReport(true);
+    
+    // Simulation de génération de rapport
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    const validatedPhotos = photos.filter(p => p.validated);
+    const totalRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length;
+    const mediumRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'medium').length;
+    
+    const report = `RAPPORT DE VISITE SPS
+${mission?.title || 'Mission'}
+
+CLIENT: ${mission?.client || 'N/A'}
+LIEU: ${mission?.location || 'N/A'}
+DATE: ${new Date().toLocaleDateString('fr-FR')}
+COORDONNATEUR: Pierre Dupont
+
+RÉSUMÉ DE LA VISITE:
+${photos.length} photos prises et analysées
+${validatedPhotos.length} analyses validées
+${totalRisks} risques élevés identifiés
+${mediumRisks} risques moyens identifiés
+
+OBSERVATIONS PRINCIPALES:
+${photos.map((photo, index) => {
+  if (!photo.aiAnalysis) return '';
+  return `
+Photo ${index + 1} - Niveau de risque: ${photo.aiAnalysis.riskLevel.toUpperCase()}
+Observations:
+${photo.aiAnalysis.observations.map(obs => `• ${obs}`).join('\n')}
+
+Recommandations:
+${photo.aiAnalysis.recommendations.map(rec => `• ${rec}`).join('\n')}
+
+${photo.userComments ? `Commentaires du coordonnateur: ${photo.userComments}` : ''}
+`;
+}).join('\n')}
+
+CONCLUSION:
+${totalRisks > 0 
+  ? 'Des actions correctives immédiates sont nécessaires pour les risques élevés identifiés.'
+  : mediumRisks > 0 
+    ? 'Quelques améliorations sont recommandées pour optimiser la sécurité.'
+    : 'Le chantier présente un bon niveau de conformité sécurité.'
+}
+
+Rapport généré automatiquement par l'IA CSPS
+Coordonnateur: Pierre Dupont
+Date: ${new Date().toLocaleString('fr-FR')}`;
+
+    setReportContent(report);
+    setGeneratingReport(false);
+    setShowReportModal(true);
+  };
+
+  // Envoyer le rapport
+  const sendReport = async () => {
+    if (!reportValidated) {
+      Alert.alert('Validation requise', 'Vous devez valider le rapport avant de l\'envoyer.');
+      return;
+    }
+    
+    try {
+      // Créer le rapport pour la page rapports
+      const newReport = {
+        id: Date.now(),
+        title: `RAPPORT VISITE - ${mission?.title}`,
+        mission: mission?.title || 'Mission inconnue',
+        client: mission?.client || 'Client inconnu',
+        date: new Date().toISOString().split('T')[0],
+        status: 'envoyes',
+        type: mission?.type || 'Visite de contrôle',
+        pages: Math.ceil(reportContent.length / 500), // Estimation du nombre de pages
+        photos: photos.length,
+        anomalies: photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length,
+        conformity: Math.round(
+          photos.reduce((acc, p) => {
+            if (p.aiAnalysis?.riskLevel === 'low') return acc + 100;
+            if (p.aiAnalysis?.riskLevel === 'medium') return acc + 80;
+            if (p.aiAnalysis?.riskLevel === 'high') return acc + 60;
+            return acc + 85;
+          }, 0) / photos.length
+        ),
+        aiGenerated: true,
+        gradient: ['#10B981', '#059669'],
+        backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
+        reportContent: reportContent,
+        visitPhotos: photos
+      };
+      
+      // Sauvegarder le rapport dans AsyncStorage
+      const existingReports = await AsyncStorage.getItem('userReports');
+      const parsedReports = existingReports ? JSON.parse(existingReports) : [];
+      const updatedReports = [newReport, ...parsedReports];
+      await AsyncStorage.setItem('userReports', JSON.stringify(updatedReports));
+      
+    } catch (error) {
+      console.error('Erreur sauvegarde rapport:', error);
+    }
+    
+    Alert.alert(
+      'Rapport envoyé',
+      `Le rapport de visite pour "${mission?.title}" a été envoyé avec succès.`,
+      [
+        {
+          text: 'Retour aux missions',
+          onPress: () => router.push('/missions')
+        },
+        {
+          text: 'Voir mes rapports',
+          onPress: () => router.push('/rapports')
+        }
+      ]
+    );
+  };
+
+  const getRiskColor = (riskLevel: string) => {
+    switch (riskLevel) {
+      case 'high': return '#EF4444';
+      case 'medium': return '#F59E0B';
+      case 'low': return '#10B981';
+      default: return '#64748B';
+    }
+  };
+
+  const getRiskLabel = (riskLevel: string) => {
+    switch (riskLevel) {
+      case 'high': return 'RISQUE ÉLEVÉ';
+      case 'medium': return 'RISQUE MOYEN';
+      case 'low': return 'CONFORME';
+      default: return 'NON ANALYSÉ';
+    }
+  };
+
+  if (!mission) {
+    return (
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>VISITE SPS</Text>
+            <Text style={styles.headerSubtitle}>Sélectionnez une mission</Text>
+          </View>
+        </View>
+
+        <View style={styles.noMissionContainer}>
+          <LinearGradient
+            colors={['#1E293B', '#374151']}
+            style={styles.noMissionGradient}
+          >
+            <Clipboard size={64} color="#64748B" />
+            <Text style={styles.noMissionTitle}>AUCUNE MISSION SÉLECTIONNÉE</Text>
+            <Text style={styles.noMissionText}>
+              Vous devez sélectionner une mission depuis la page "Missions" pour commencer une visite.
+            </Text>
+            
+            <TouchableOpacity 
+              style={styles.selectMissionButton}
+              onPress={() => setShowMissionSelector(true)}
+            >
+              <LinearGradient
+                colors={['#3B82F6', '#1D4ED8']}
+                style={styles.selectMissionGradient}
+              >
+                <Clipboard size={20} color="#FFFFFF" />
+                <Text style={styles.selectMissionText}>SÉLECTIONNER UNE MISSION</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.goToMissionsButton}
+              onPress={() => router.push('/missions')}
+            >
+              <Text style={styles.goToMissionsText}>Aller à mes missions</Text>
+              <ArrowRight size={16} color="#3B82F6" />
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!permission) {
+    return <View />;
+  }
+
+  if (!permission.granted) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.permissionContainer}>
+          <Camera size={64} color="#64748B" />
+          <Text style={styles.permissionTitle}>Autorisation caméra requise</Text>
+          <Text style={styles.permissionText}>
+            Nous avons besoin d'accéder à votre caméra pour prendre des photos du chantier.
+          </Text>
+          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+            <LinearGradient
+              colors={['#3B82F6', '#1D4ED8']}
+              style={styles.permissionButtonGradient}
+            >
+              <Text style={styles.permissionButtonText}>AUTORISER LA CAMÉRA</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity 
+          style={styles.backButton} 
+          onPress={() => {
+            setMission(null);
+            setPhotos([]);
+            setReportContent('');
+            setReportValidated(false);
+          }}
+        >
+          <X size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>VISITE SPS</Text>
+          <Text style={styles.headerSubtitle}>{mission.title}</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.changeMissionButton}
+          onPress={() => setShowMissionSelector(true)}
+        >
+          <Clipboard size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Mission Info */}
+      <View style={styles.missionInfo}>
+        <LinearGradient
+          colors={['#1E293B', '#374151']}
+          style={styles.missionInfoGradient}
+        >
+          <Text style={styles.missionTitle}>{mission.title}</Text>
+          <Text style={styles.missionClient}>{mission.client}</Text>
+          <Text style={styles.missionLocation}>{mission.location}</Text>
+        </LinearGradient>
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Photos Section */}
+        <View style={styles.photosSection}>
+          <View style={styles.photosSectionHeader}>
+            <Text style={styles.sectionTitle}>PHOTOS DU CHANTIER ({photos.length}/10)</Text>
+            {photos.length >= 3 && (
+              <TouchableOpacity 
+                style={styles.generateReportButton}
+                onPress={generateReport}
+                disabled={generatingReport}
+              >
+                <LinearGradient
+                  colors={generatingReport ? ['#64748B', '#475569'] : ['#8B5CF6', '#A855F7']}
+                  style={styles.generateReportGradient}
+                >
+                  {generatingReport ? (
+                    <ActivityIndicator size={16} color="#FFFFFF" />
+                  ) : (
+                    <FileText size={16} color="#FFFFFF" />
+                  )}
+                  <Text style={styles.generateReportText}>
+                    {generatingReport ? 'GÉNÉRATION...' : 'GÉNÉRER RAPPORT'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Add Photo Button */}
+          {photos.length < 10 && (
+            <TouchableOpacity 
+              style={styles.addPhotoButton}
+              onPress={() => setShowCamera(true)}
+            >
+              <LinearGradient
+                colors={['#3B82F6', '#1D4ED8']}
+                style={styles.addPhotoGradient}
+              >
+                <Camera size={24} color="#FFFFFF" />
+                <Text style={styles.addPhotoText}>PRENDRE UNE PHOTO</Text>
+                <Text style={styles.addPhotoSubtext}>L'IA analysera automatiquement la sécurité</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+
+          {/* Photos Grid */}
+          {photos.length > 0 && (
+            <View style={styles.photosGrid}>
+              {photos.map((photo, index) => (
+                <TouchableOpacity 
+                  key={photo.id}
+                  style={styles.photoCard}
+                  onPress={() => {
+                    setSelectedPhoto(photo);
+                    setTempComments(photo.userComments);
+                    setShowPhotoDetail(true);
+                  }}
+                >
+                  <Image source={{ uri: photo.uri }} style={styles.photoImage} />
+                  
+                  {/* Photo Overlay */}
+                  <View style={styles.photoOverlay}>
+                    <View style={styles.photoHeader}>
+                      <Text style={styles.photoNumber}>#{index + 1}</Text>
+                      {photo.validated && (
+                        <View style={styles.validatedBadge}>
+                          <CheckCircle size={12} color="#FFFFFF" />
+                        </View>
+                      )}
+                    </View>
+                    
+                    {photo.aiAnalysis ? (
+                      <View style={styles.photoFooter}>
+                        <View style={[
+                          styles.riskBadge,
+                          { backgroundColor: getRiskColor(photo.aiAnalysis.riskLevel) }
+                        ]}>
+                          <Text style={styles.riskText}>
+                            {getRiskLabel(photo.aiAnalysis.riskLevel)}
+                          </Text>
+                        </View>
+                        <Text style={styles.confidenceText}>
+                          {photo.aiAnalysis.confidence}% confiance
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.analyzingBadge}>
+                        <ActivityIndicator size={12} color="#FFFFFF" />
+                        <Text style={styles.analyzingText}>Analyse IA...</Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Analysis in Progress */}
+          {analyzingPhoto && (
+            <View style={styles.analyzingContainer}>
+              <LinearGradient
+                colors={['#8B5CF6', '#A855F7']}
+                style={styles.analyzingGradient}
+              >
+                <ActivityIndicator size={20} color="#FFFFFF" />
+                <Text style={styles.analyzingTitle}>ANALYSE IA EN COURS</Text>
+                <Text style={styles.analyzingSubtitle}>
+                  L'intelligence artificielle analyse la photo pour identifier les risques sécurité...
+                </Text>
+              </LinearGradient>
+            </View>
+          )}
+        </View>
+
+        {/* Instructions */}
+        {photos.length === 0 && (
+          <View style={styles.instructionsSection}>
+            <LinearGradient
+              colors={['#1E293B', '#374151']}
+              style={styles.instructionsGradient}
+            >
+              <Sparkles size={32} color="#3B82F6" />
+              <Text style={styles.instructionsTitle}>VISITE ASSISTÉE PAR IA</Text>
+              <Text style={styles.instructionsText}>
+                1. Prenez des photos du chantier (3 minimum)
+              </Text>
+              <Text style={styles.instructionsText}>
+                2. L'IA analysera automatiquement chaque photo
+              </Text>
+              <Text style={styles.instructionsText}>
+                3. Validez ou modifiez les analyses
+              </Text>
+              <Text style={styles.instructionsText}>
+                4. Générez et envoyez votre rapport
+              </Text>
+            </LinearGradient>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Camera Modal */}
+      <Modal visible={showCamera} animationType="slide">
+        <View style={styles.cameraContainer}>
+          <CameraView
+            ref={cameraRef}
+            style={styles.camera}
+            facing={facing}
+          >
+            <View style={styles.cameraOverlay}>
+              <View style={styles.cameraHeader}>
+                <TouchableOpacity 
+                  style={styles.cameraCloseButton}
+                  onPress={() => setShowCamera(false)}
+                >
+                  <X size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+                <Text style={styles.cameraTitle}>PHOTO {photos.length + 1}/10</Text>
+                <TouchableOpacity 
+                  style={styles.cameraFlipButton}
+                  onPress={() => setFacing(current => current === 'back' ? 'front' : 'back')}
+                >
+                  <RotateCcw size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.cameraFooter}>
+                <TouchableOpacity 
+                  style={styles.captureButton}
+                  onPress={takePhoto}
+                >
+                  <LinearGradient
+                    colors={['#3B82F6', '#1D4ED8']}
+                    style={styles.captureButtonGradient}
+                  >
+                    <Camera size={32} color="#FFFFFF" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </CameraView>
+        </View>
+      </Modal>
+
+      {/* Photo Detail Modal */}
+      <Modal visible={showPhotoDetail} animationType="slide" transparent>
+        <View style={styles.photoDetailOverlay}>
+          <View style={styles.photoDetailModal}>
+            <LinearGradient
+              colors={['#1E293B', '#374151']}
+              style={styles.photoDetailGradient}
+            >
+              {selectedPhoto && (
+                <>
+                  <View style={styles.photoDetailHeader}>
+                    <Text style={styles.photoDetailTitle}>
+                      PHOTO #{photos.findIndex(p => p.id === selectedPhoto.id) + 1}
+                    </Text>
+                    <View style={styles.photoDetailActions}>
+                      <TouchableOpacity 
+                        style={styles.deletePhotoButton}
+                        onPress={() => deletePhoto(selectedPhoto.id)}
+                      >
+                        <Trash2 size={20} color="#EF4444" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.closePhotoDetailButton}
+                        onPress={() => setShowPhotoDetail(false)}
+                      >
+                        <X size={20} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false}>
+                    {/* Photo */}
+                    <Image source={{ uri: selectedPhoto.uri }} style={styles.detailPhotoImage} />
+                    
+                    {/* AI Analysis */}
+                    {selectedPhoto.aiAnalysis ? (
+                      <View style={styles.aiAnalysisSection}>
+                        <View style={styles.aiAnalysisHeader}>
+                          <Sparkles size={20} color="#8B5CF6" />
+                          <Text style={styles.aiAnalysisTitle}>ANALYSE IA</Text>
+                          <View style={[
+                            styles.riskBadgeDetail,
+                            { backgroundColor: getRiskColor(selectedPhoto.aiAnalysis.riskLevel) }
+                          ]}>
+                            <Text style={styles.riskTextDetail}>
+                              {getRiskLabel(selectedPhoto.aiAnalysis.riskLevel)}
+                            </Text>
+                          </View>
+                        </View>
+                        
+                        <Text style={styles.confidenceDetail}>
+                          Confiance: {selectedPhoto.aiAnalysis.confidence}%
+                        </Text>
+
+                        {/* Observations */}
+                        <View style={styles.analysisBlock}>
+                          <Text style={styles.analysisBlockTitle}>OBSERVATIONS</Text>
+                          {selectedPhoto.aiAnalysis.observations.map((obs, index) => (
+                            <View key={index} style={styles.analysisItem}>
+                              <Eye size={14} color="#94A3B8" />
+                              <Text style={styles.analysisText}>{obs}</Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {/* Recommendations */}
+                        <View style={styles.analysisBlock}>
+                          <Text style={styles.analysisBlockTitle}>RECOMMANDATIONS</Text>
+                          {selectedPhoto.aiAnalysis.recommendations.map((rec, index) => (
+                            <View key={index} style={styles.analysisItem}>
+                              <AlertTriangle size={14} color="#F59E0B" />
+                              <Text style={styles.analysisText}>{rec}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.analyzingDetailContainer}>
+                        <ActivityIndicator size={24} color="#8B5CF6" />
+                        <Text style={styles.analyzingDetailText}>Analyse IA en cours...</Text>
+                      </View>
+                    )}
+
+                    {/* User Comments */}
+                    <View style={styles.commentsSection}>
+                      <View style={styles.commentsSectionHeader}>
+                        <Text style={styles.commentsSectionTitle}>COMMENTAIRES</Text>
+                        <TouchableOpacity 
+                          style={styles.editCommentsButton}
+                          onPress={() => setEditingComments(true)}
+                        >
+                          <Edit3 size={16} color="#3B82F6" />
+                        </TouchableOpacity>
+                      </View>
+                      
+                      {editingComments ? (
+                        <View style={styles.commentsEditContainer}>
+                          <TextInput
+                            style={styles.commentsInput}
+                            placeholder="Ajoutez vos commentaires..."
+                            placeholderTextColor="#64748B"
+                            value={tempComments}
+                            onChangeText={setTempComments}
+                            multiline
+                            numberOfLines={4}
+                            textAlignVertical="top"
+                          />
+                          <View style={styles.commentsActions}>
+                            <TouchableOpacity 
+                              style={styles.cancelCommentsButton}
+                              onPress={() => {
+                                setEditingComments(false);
+                                setTempComments(selectedPhoto.userComments);
+                              }}
+                            >
+                              <Text style={styles.cancelCommentsText}>ANNULER</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                              style={styles.saveCommentsButton}
+                              onPress={saveComments}
+                            >
+                              <LinearGradient
+                                colors={['#10B981', '#059669']}
+                                style={styles.saveCommentsGradient}
+                              >
+                                <Check size={16} color="#FFFFFF" />
+                                <Text style={styles.saveCommentsText}>SAUVEGARDER</Text>
+                              </LinearGradient>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ) : (
+                        <View style={styles.commentsDisplay}>
+                          {selectedPhoto.userComments ? (
+                            <Text style={styles.commentsText}>{selectedPhoto.userComments}</Text>
+                          ) : (
+                            <Text style={styles.noCommentsText}>Aucun commentaire ajouté</Text>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  </ScrollView>
+
+                  {/* Validation Button */}
+                  {selectedPhoto.aiAnalysis && !selectedPhoto.validated && (
+                    <View style={styles.photoDetailFooter}>
+                      <TouchableOpacity 
+                        style={styles.validatePhotoButton}
+                        onPress={() => validatePhoto(selectedPhoto.id)}
+                      >
+                        <LinearGradient
+                          colors={['#10B981', '#059669']}
+                          style={styles.validatePhotoGradient}
+                        >
+                          <CheckCircle size={20} color="#FFFFFF" />
+                          <Text style={styles.validatePhotoText}>VALIDER L'ANALYSE</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              )}
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Report Modal */}
+      <Modal visible={showReportModal} animationType="slide" transparent>
+        <View style={styles.reportModalOverlay}>
+          <View style={styles.reportModal}>
+            <LinearGradient
+              colors={['#1E293B', '#374151']}
+              style={styles.reportModalGradient}
+            >
+              <View style={styles.reportModalHeader}>
+                <Text style={styles.reportModalTitle}>RAPPORT DE VISITE</Text>
+                <View style={styles.reportModalActions}>
+                  <TouchableOpacity 
+                    style={styles.editReportButton}
+                    onPress={() => setEditingReport(!editingReport)}
+                  >
+                    <Edit3 size={20} color={editingReport ? "#F59E0B" : "#3B82F6"} />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.closeReportButton}
+                    onPress={() => setShowReportModal(false)}
+                  >
+                    <X size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <ScrollView style={styles.reportContent} showsVerticalScrollIndicator={false}>
+                {editingReport ? (
+                  <TextInput
+                    style={styles.reportTextInput}
+                    value={reportContent}
+                    onChangeText={setReportContent}
+                    multiline
+                    textAlignVertical="top"
+                  />
+                ) : (
+                  <Text style={styles.reportText}>{reportContent}</Text>
+                )}
+              </ScrollView>
+
+              <View style={styles.reportModalFooter}>
+                <TouchableOpacity 
+                  style={[
+                    styles.validateReportButton,
+                    reportValidated && styles.validateReportButtonActive
+                  ]}
+                  onPress={() => setReportValidated(!reportValidated)}
+                >
+                  <View style={styles.validateReportContent}>
+                    {reportValidated ? (
+                      <CheckCircle size={20} color="#10B981" />
+                    ) : (
+                      <Clock size={20} color="#F59E0B" />
+                    )}
+                    <Text style={[
+                      styles.validateReportText,
+                      reportValidated && styles.validateReportTextActive
+                    ]}>
+                      {reportValidated ? 'RAPPORT VALIDÉ' : 'VALIDER LE RAPPORT'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[
+                    styles.sendReportButton,
+                    !reportValidated && styles.sendReportButtonDisabled
+                  ]}
+                  onPress={sendReport}
+                  disabled={!reportValidated}
+                >
+                  <LinearGradient
+                    colors={reportValidated ? ['#3B82F6', '#1D4ED8'] : ['#64748B', '#475569']}
+                    style={styles.sendReportGradient}
+                  >
+                    <Send size={20} color="#FFFFFF" />
+                    <Text style={styles.sendReportText}>ENVOYER</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mission Selector Modal */}
+      <Modal visible={showMissionSelector} animationType="slide" transparent>
+        <View style={styles.missionSelectorOverlay}>
+          <View style={styles.missionSelectorModal}>
+            <LinearGradient
+              colors={['#1E293B', '#374151']}
+              style={styles.missionSelectorGradient}
+            >
+              <View style={styles.missionSelectorHeader}>
+                <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE MISSION</Text>
+                <TouchableOpacity 
+                  style={styles.closeMissionSelectorButton}
+                  onPress={() => setShowMissionSelector(false)}
+                >
+                  <X size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.missionSelectorContent} showsVerticalScrollIndicator={false}>
+                {availableMissions.map((availableMission) => (
+                  <TouchableOpacity 
+                    key={availableMission.id}
+                    style={styles.missionSelectorItem}
+                    onPress={() => selectMission(availableMission)}
+                  >
+                    <LinearGradient
+                      colors={['#374151', '#4B5563']}
+                      style={styles.missionSelectorItemGradient}
+                    >
+                      <View style={styles.missionSelectorItemContent}>
+                        <View style={styles.missionSelectorItemLeft}>
+                          <Text style={styles.missionSelectorItemTitle}>{availableMission.title}</Text>
+                          <Text style={styles.missionSelectorItemClient}>{availableMission.client}</Text>
+                          <Text style={styles.missionSelectorItemLocation}>{availableMission.location}</Text>
+                        </View>
+                        <View style={styles.missionSelectorItemRight}>
+                          <Text style={styles.missionSelectorItemType}>{availableMission.type}</Text>
+                          <ArrowRight size={16} color="#94A3B8" />
+                        </View>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+  },
+  noMissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  noMissionGradient: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+    borderRadius: 20,
+  },
+  noMissionTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+    marginTop: 20,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  noMissionText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 32,
+  },
+  selectMissionButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  selectMissionGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  selectMissionText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  goToMissionsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  goToMissionsText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: '#3B82F6',
+  },
+  permissionContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    gap: 20,
+  },
+  permissionTitle: {
+    fontSize: 20,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  permissionText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  permissionButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginTop: 20,
+  },
+  permissionButtonGradient: {
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+  },
+  permissionButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
+    backgroundColor: '#0F172A',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  headerContent: {
+    flex: 1,
+  },
+  changeMissionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  missionInfo: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  missionInfoGradient: {
+    padding: 16,
+  },
+  missionTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  missionClient: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#94A3B8',
+    marginBottom: 2,
+  },
+  missionLocation: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#64748B',
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  photosSection: {
+    marginBottom: 40,
+  },
+  photosSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#94A3B8',
+    letterSpacing: 1,
+  },
+  generateReportButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  generateReportGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  generateReportText: {
+    fontSize: 11,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  addPhotoButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  addPhotoGradient: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+  },
+  addPhotoText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+    marginTop: 8,
+  },
+  addPhotoSubtext: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    opacity: 0.8,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  photosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  photoCard: {
+    width: (width - 52) / 2,
+    height: 160,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  photoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    padding: 8,
+    justifyContent: 'space-between',
+  },
+  photoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  photoNumber: {
+    fontSize: 12,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  validatedBadge: {
+    backgroundColor: '#10B981',
+    borderRadius: 12,
+    padding: 4,
+  },
+  photoFooter: {
+    gap: 4,
+  },
+  riskBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  riskText: {
+    fontSize: 9,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  confidenceText: {
+    fontSize: 10,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    opacity: 0.8,
+  },
+  analyzingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(139, 92, 246, 0.8)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  analyzingText: {
+    fontSize: 9,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
+  },
+  analyzingContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginTop: 20,
+  },
+  analyzingGradient: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+  },
+  analyzingTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+    marginTop: 8,
+  },
+  analyzingSubtitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    opacity: 0.9,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  instructionsSection: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginTop: 20,
+  },
+  instructionsGradient: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+  },
+  instructionsTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+    marginTop: 16,
+    marginBottom: 20,
+  },
+  instructionsText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  // Camera styles
+  cameraContainer: {
+    flex: 1,
+  },
+  camera: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'space-between',
+  },
+  cameraHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+  },
+  cameraCloseButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  cameraFlipButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraFooter: {
+    alignItems: 'center',
+    paddingBottom: 60,
+  },
+  captureButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: 'hidden',
+  },
+  captureButtonGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Photo Detail Modal styles
+  photoDetailOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'flex-end',
+  },
+  photoDetailModal: {
+    height: '90%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+  },
+  photoDetailGradient: {
+    flex: 1,
+  },
+  photoDetailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+  },
+  photoDetailTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  photoDetailActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  deletePhotoButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#374151',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closePhotoDetailButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#374151',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoDetailContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  detailPhotoImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  aiAnalysisSection: {
+    backgroundColor: '#374151',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  aiAnalysisHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  aiAnalysisTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+    flex: 1,
+    marginLeft: 8,
+  },
+  riskBadgeDetail: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  riskTextDetail: {
+    fontSize: 10,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  confidenceDetail: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    marginBottom: 16,
+  },
+  analysisBlock: {
+    marginBottom: 16,
+  },
+  analysisBlockTitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-Bold',
+    color: '#94A3B8',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  analysisItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 6,
+  },
+  analysisText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    flex: 1,
+    lineHeight: 18,
+  },
+  analyzingDetailContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  analyzingDetailText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#94A3B8',
+  },
+  commentsSection: {
+    backgroundColor: '#374151',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  commentsSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  commentsSectionTitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-Bold',
+    color: '#94A3B8',
+    letterSpacing: 1,
+  },
+  editCommentsButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commentsEditContainer: {
+    gap: 12,
+  },
+  commentsInput: {
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  commentsActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cancelCommentsButton: {
+    flex: 1,
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cancelCommentsText: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#94A3B8',
+    letterSpacing: 0.5,
+  },
+  saveCommentsButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  saveCommentsGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 6,
+  },
+  saveCommentsText: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  commentsDisplay: {
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  commentsText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    lineHeight: 20,
+  },
+  noCommentsText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#64748B',
+    fontStyle: 'italic',
+  },
+  photoDetailFooter: {
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#374151',
+  },
+  validatePhotoButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  validatePhotoGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  validatePhotoText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  // Report Modal styles
+  reportModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  reportModal: {
+    height: '80%',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  reportModalGradient: {
+    flex: 1,
+  },
+  reportModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+  },
+  reportModalTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  reportModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  editReportButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#374151',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeReportButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#374151',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  reportText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    lineHeight: 20,
+  },
+  reportTextInput: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    lineHeight: 20,
+    backgroundColor: '#374151',
+    borderRadius: 12,
+    padding: 16,
+    minHeight: 400,
+    textAlignVertical: 'top',
+  },
+  reportModalFooter: {
+    flexDirection: 'row',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#374151',
+    gap: 12,
+  },
+  validateReportButton: {
+    flex: 1,
+    backgroundColor: '#374151',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  validateReportButtonActive: {
+    backgroundColor: '#10B981',
+  },
+  validateReportContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  validateReportText: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#94A3B8',
+    letterSpacing: 0.5,
+  },
+  validateReportTextActive: {
+    color: '#FFFFFF',
+  },
+  sendReportButton: {
+    flex: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  sendReportButtonDisabled: {
+    opacity: 0.5,
+  },
+  sendReportGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  sendReportText: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  // Mission Selector Modal styles
+  missionSelectorOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'flex-end',
+  },
+  missionSelectorModal: {
+    maxHeight: '80%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+  },
+  missionSelectorGradient: {
+    flex: 1,
+    paddingTop: 24,
+  },
+  missionSelectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginBottom: 24,
+  },
+  missionSelectorTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  closeMissionSelectorButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#374151',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  missionSelectorContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  missionSelectorItem: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  missionSelectorItemGradient: {
+    padding: 16,
+  },
+  missionSelectorItemContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  missionSelectorItemLeft: {
+    flex: 1,
+  },
+  missionSelectorItemTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  missionSelectorItemClient: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#94A3B8',
+    marginBottom: 2,
+  },
+  missionSelectorItemLocation: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: '#64748B',
+  },
+  missionSelectorItemRight: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  missionSelectorItemType: {
+    fontSize: 10,
+    fontFamily: 'Inter-Medium',
+    color: '#94A3B8',
+    textAlign: 'right',
+  },
+});
