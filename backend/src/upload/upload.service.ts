@@ -1,0 +1,101 @@
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { v4 as uuidv4 } from 'uuid';
+
+@Injectable()
+export class UploadService {
+  private s3Client: S3Client;
+  private bucketArn = process.env.AWS_S3_ACCESS_POINT;
+  private region = process.env.AWS_REGION;
+  private bucketName = process.env.AWS_S3_BUCKET;
+
+  constructor() {
+    this.s3Client = new S3Client({
+      region: this.region,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+      },
+    });
+  }
+
+  async uploadFile(file: Express.Multer.File, folder: string = 'uploads'): Promise<{ url: string; key: string }> {
+    if (!file) {
+      throw new BadRequestException('Aucun fichier fourni');
+    }
+
+    // Validate file type
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/jpg',
+      'image/webp',
+      'application/pdf',
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ];
+
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Type de fichier non autorisé. Formats acceptés: images (JPEG, PNG, WebP), PDF, CSV, Excel');
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      throw new BadRequestException('Fichier trop volumineux. Taille maximale: 10MB');
+    }
+
+    // Generate unique file key
+    const fileExtension = file.originalname.split('.').pop();
+    const fileName = `${folder}/${uuidv4()}.${fileExtension}`;
+
+    try {
+      // Upload to S3 using access point ARN
+      const command = new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: `${fileName}`,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        // ACL: 'public-read',
+      });
+
+      await this.s3Client.send(command);
+
+      // Construct public URL
+      const publicUrl = `https://${this.bucketName}.s3.${this.region}.amazonaws.com/${fileName}`;
+
+      return {
+        url: publicUrl,
+        key: fileName,
+      };
+    } catch (error) {
+      console.error('Erreur lors de l\'upload S3:', error);
+      throw new BadRequestException('Échec de l\'upload du fichier vers S3');
+    }
+  }
+
+  async uploadMultipleFiles(files: Express.Multer.File[], folder: string = 'uploads'): Promise<Array<{ url: string; key: string }>> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('Aucun fichier fourni');
+    }
+
+    const uploadPromises = files.map(file => this.uploadFile(file, folder));
+    return Promise.all(uploadPromises);
+  }
+
+  async getSignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+      });
+
+      return await getSignedUrl(this.s3Client, command, { expiresIn });
+    } catch (error) {
+      console.error('Erreur lors de la génération de l\'URL signée:', error);
+      throw new BadRequestException('Impossible de générer l\'URL signée');
+    }
+  }
+}
