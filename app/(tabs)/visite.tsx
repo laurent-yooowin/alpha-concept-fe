@@ -32,6 +32,7 @@ const { width, height } = Dimensions.get('window');
 interface Photo {
   id: string;
   uri: string;
+  s3Url?: string;
   timestamp: Date;
   aiAnalysis?: {
     observations: string[];
@@ -205,9 +206,10 @@ export default function VisiteScreen() {
   const loadExistingVisitData = async (missionId: number) => {
     try {
       const response = await visitService.getVisits(missionId);
-      console.log('response.data >>> ', response.data)
+      console.log('getVisits - response.data >>> ', response.data)
 
       if (response.data && response.data.length > 0) {
+        setPhotos([]);
         const visit = response.data[0];
 
         if (visit.photos && visit.photos.length > 0) {
@@ -226,10 +228,11 @@ export default function VisiteScreen() {
             validated: true
           }));
 
-          console.log('visit.photos >>> ', visit.photos)
-
+          console.log('visit.photos >>> ', visit.photos);
           setPhotos(loadedPhotos);
-          setUploadedPhotoUrls(visit.photos.map((p: any) => p.url));
+          setUploadedPhotoUrls(visit.photos.map((p: any) => p.s3Url));
+          // setTimeout(() => {
+          // }, 300)
         }
 
         if (visit.report) {
