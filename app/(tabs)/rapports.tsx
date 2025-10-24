@@ -20,6 +20,8 @@ import { reportService, ReportStatus } from '@/services/reportService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getReportStatusInfo } from '@/utils/missionHelpers';
 import * as Linking from 'expo-linking';
+import { pdfService } from '@/services/pdfService';
+import { visitService } from '@/services/visitService';
 
 const { width } = Dimensions.get('window');
 
@@ -62,6 +64,7 @@ export default function RapportsScreen() {
           const statusInfo = getReportStatusInfo(report.status);
           return {
             id: report.id,
+            visitId: report.visitId,
             title: report.title,
             mission: report.mission?.title || 'Mission inconnue',
             client: report.mission?.client || 'Client inconnu',
@@ -134,6 +137,21 @@ export default function RapportsScreen() {
         content: editedContent,
       });
 
+      if (selectedReport.visitId) {
+        try {
+          const visitResponse = await visitService.getVisit(selectedReport.visitId);
+          if (visitResponse.data) {
+            const currentNotes = visitResponse.data.notes || '';
+            const modificationNote = `\n\n[Modification du ${new Date().toLocaleString('fr-FR')}]\n${editedContent}`;
+            await visitService.updateVisit(selectedReport.visitId, {
+              notes: currentNotes + modificationNote,
+            });
+          }
+        } catch (visitError) {
+          console.log('Note: Could not update related visit:', visitError);
+        }
+      }
+
       Alert.alert('Succès', 'Le rapport a été modifié avec succès.');
       setShowEditModal(false);
       loadReports();
@@ -164,7 +182,43 @@ export default function RapportsScreen() {
 
     const adminEmail = 'admin@csps.fr';
     const subject = `Rapport SPS: ${selectedReport.title}`;
-    const body = `Bonjour,
+
+    try {
+      Alert.alert('Génération du PDF', 'Veuillez patienter...');
+
+      let photos: any[] = [];
+      if (selectedReport.visitId) {
+        try {
+          const visitResponse = await visitService.getVisit(selectedReport.visitId);
+          if (visitResponse.data && visitResponse.data.photos) {
+            photos = visitResponse.data.photos.map((photo: any) => ({
+              uri: photo.uri,
+              comment: photo.comment,
+            }));
+          }
+        } catch (error) {
+          console.log('Could not load visit photos:', error);
+        }
+      }
+
+      const pdfData = {
+        title: selectedReport.title,
+        mission: selectedReport.mission,
+        client: selectedReport.client,
+        date: selectedReport.date,
+        conformity: selectedReport.conformity,
+        content: selectedReport.reportContent || 'Contenu non disponible',
+        photos: photos,
+      };
+
+      const pdfPath = await pdfService.generateReportPDF(pdfData);
+
+      await reportService.updateReport(selectedReport.id, {
+        status: 'envoye' as ReportStatus,
+        recipientEmail: adminEmail,
+      });
+
+      const body = `Bonjour,
 
 Veuillez trouver ci-joint le rapport de visite suivant:
 
@@ -174,18 +228,17 @@ Client: ${selectedReport.client}
 Date: ${selectedReport.date}
 Conformité: ${selectedReport.conformity}%
 
-Contenu du rapport:
-${selectedReport.reportContent || 'Contenu non disponible'}
+Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement`;
 
-    try {
-      await reportService.updateReport(selectedReport.id, {
-        status: 'envoye' as ReportStatus,
-        recipientEmail: adminEmail,
-      });
+      const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
+        adminEmail,
+        subject,
+        body,
+        pdfPath || undefined
+      );
 
-      const mailtoUrl = `mailto:${adminEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       await Linking.openURL(mailtoUrl);
 
       loadReports();

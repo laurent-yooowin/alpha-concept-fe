@@ -24,6 +24,8 @@ import { reportService } from '@/services/reportService';
 import { uploadService } from '@/services/uploadService';
 import { aiService } from '@/services/aiService';
 import { getMissionStatusInfo } from '@/utils/missionHelpers';
+import { pdfService } from '@/services/pdfService';
+import * as Linking from 'expo-linking';
 
 const { width, height } = Dimensions.get('window');
 
@@ -629,6 +631,49 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
       const parsedReports = existingReports ? JSON.parse(existingReports) : [];
       const updatedReports = [newReport, ...parsedReports];
       await AsyncStorage.setItem('userReports', JSON.stringify(updatedReports));
+
+      const pdfPhotos = photos.map(p => ({
+        uri: p.s3Url || p.uri,
+        comment: p.userComments,
+      }));
+
+      const pdfData = {
+        title: `RAPPORT VISITE - ${mission?.title}`,
+        mission: mission?.title || 'Mission inconnue',
+        client: mission?.client || 'Client inconnu',
+        date: new Date().toLocaleDateString('fr-FR'),
+        conformity,
+        content: reportContent,
+        photos: pdfPhotos,
+      };
+
+      Alert.alert('Génération du PDF', 'Veuillez patienter...');
+      const pdfPath = await pdfService.generateReportPDF(pdfData);
+
+      const adminEmail = mission?.contactEmail || 'admin@csps.fr';
+      const subject = `Rapport de visite - ${mission?.title}`;
+      const body = `Bonjour,
+
+Veuillez trouver ci-joint le rapport de visite suivant:
+
+Mission: ${mission?.title}
+Client: ${mission?.client}
+Date: ${new Date().toLocaleDateString('fr-FR')}
+Conformité: ${conformity}%
+Photos: ${photos.length}
+
+Le rapport complet avec les photos est disponible en pièce jointe PDF.
+
+Cordialement`;
+
+      const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
+        adminEmail,
+        subject,
+        body,
+        pdfPath || undefined
+      );
+
+      await Linking.openURL(mailtoUrl);
 
     } catch (error) {
       console.error('Erreur sauvegarde rapport:', error);
