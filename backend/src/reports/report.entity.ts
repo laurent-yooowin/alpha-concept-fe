@@ -6,6 +6,8 @@ import { Visit } from '../visits/visit.entity';
 export enum ReportStatus {
   DRAFT = 'brouillon',
   SENT = 'envoye',
+  VALIDATED = 'valide',
+  REJECTED = 'rejete',
   ARCHIVED = 'archive',
 }
 

@@ -1,6 +1,6 @@
 import { api } from './api';
 
-export type ReportStatus = 'brouillon' | 'envoye' | 'archive';
+export type ReportStatus = 'brouillon' | 'envoye' | 'valide' | 'rejete' | 'archive';
 
 export interface Report {
   id: string;
@@ -61,5 +61,13 @@ export const reportService = {
 
   async getReportCounts() {
     return api.get<{ [key: string]: number }>('/reports/counts');
+  },
+
+  async sendReportEmail(id: string, email: string, subject: string, message: string) {
+    return api.post(`/reports/${id}/send`, { email, subject, message });
+  },
+
+  async validateReport(id: string) {
+    return api.put<Report>(`/reports/${id}`, { status: 'valide' as ReportStatus });
   },
 };
