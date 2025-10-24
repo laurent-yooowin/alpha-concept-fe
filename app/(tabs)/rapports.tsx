@@ -1358,7 +1358,7 @@ const styles = StyleSheet.create({
   },
   reportDetailModal: {
     width: width * 0.95,
-    maxHeight: '90%',
+    height: '90%',
     backgroundColor: '#1E293B',
     borderRadius: 24,
     overflow: 'hidden',
