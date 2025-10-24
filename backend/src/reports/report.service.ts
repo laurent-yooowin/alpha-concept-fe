@@ -86,6 +86,8 @@ export class ReportService {
     return {
       [ReportStatus.DRAFT]: reports.filter(r => r.status === ReportStatus.DRAFT).length,
       [ReportStatus.SENT]: reports.filter(r => r.status === ReportStatus.SENT).length,
+      [ReportStatus.VALIDATED]: reports.filter(r => r.status === ReportStatus.VALIDATED).length,
+      [ReportStatus.REJECTED]: reports.filter(r => r.status === ReportStatus.REJECTED).length,
       [ReportStatus.ARCHIVED]: reports.filter(r => r.status === ReportStatus.ARCHIVED).length,
     };
   }

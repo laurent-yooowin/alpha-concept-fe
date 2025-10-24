@@ -14,11 +14,12 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
-import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X } from 'lucide-react-native';
+import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X, Edit, Mail } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { reportService, ReportStatus } from '@/services/reportService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getReportStatusInfo } from '@/utils/missionHelpers';
+import * as Linking from 'expo-linking';
 
 const { width } = Dimensions.get('window');
 
@@ -35,6 +36,9 @@ export default function RapportsScreen() {
   });
   const [selectedReport, setSelectedReport] = useState<any | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editedContent, setEditedContent] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     loadReports();
@@ -111,6 +115,84 @@ export default function RapportsScreen() {
       }
     } catch (error) {
       console.log('Error loading report counts:', error);
+    }
+  };
+
+  const handleModifyReport = () => {
+    if (selectedReport) {
+      setEditedContent(selectedReport.reportContent || '');
+      setShowEditModal(true);
+    }
+  };
+
+  const handleSaveModifications = async () => {
+    if (!selectedReport) return;
+
+    try {
+      setIsSaving(true);
+      await reportService.updateReport(selectedReport.id, {
+        content: editedContent,
+      });
+
+      Alert.alert('Succès', 'Le rapport a été modifié avec succès.');
+      setShowEditModal(false);
+      loadReports();
+    } catch (error) {
+      console.error('Error updating report:', error);
+      Alert.alert('Erreur', 'Impossible de modifier le rapport.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleValidateReport = async () => {
+    if (!selectedReport) return;
+
+    try {
+      await reportService.validateReport(selectedReport.id);
+      Alert.alert('Succès', 'Le rapport a été validé avec succès.');
+      setShowReportModal(false);
+      loadReports();
+    } catch (error) {
+      console.error('Error validating report:', error);
+      Alert.alert('Erreur', 'Impossible de valider le rapport.');
+    }
+  };
+
+  const handleSendReport = async () => {
+    if (!selectedReport) return;
+
+    const adminEmail = 'admin@csps.fr';
+    const subject = `Rapport SPS: ${selectedReport.title}`;
+    const body = `Bonjour,
+
+Veuillez trouver ci-joint le rapport de visite suivant:
+
+Titre: ${selectedReport.title}
+Mission: ${selectedReport.mission}
+Client: ${selectedReport.client}
+Date: ${selectedReport.date}
+Conformité: ${selectedReport.conformity}%
+
+Contenu du rapport:
+${selectedReport.reportContent || 'Contenu non disponible'}
+
+Cordialement`;
+
+    try {
+      await reportService.updateReport(selectedReport.id, {
+        status: 'envoye' as ReportStatus,
+        recipientEmail: adminEmail,
+      });
+
+      const mailtoUrl = `mailto:${adminEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      await Linking.openURL(mailtoUrl);
+
+      loadReports();
+      setShowReportModal(false);
+    } catch (error) {
+      console.error('Error sending report:', error);
+      Alert.alert('Erreur', "Impossible d'ouvrir l'application mail.");
     }
   };
 
@@ -905,8 +987,112 @@ export default function RapportsScreen() {
                     </View>
                   )}
                 </ScrollView>
+
+                {selectedReport && selectedReport.originalStatus !== 'valide' && (
+                  <View style={styles.reportDetailActions}>
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={handleModifyReport}
+                    >
+                      <LinearGradient
+                        colors={['#F59E0B', '#D97706']}
+                        style={styles.actionButtonGradient}
+                      >
+                        <Edit size={20} color="#FFFFFF" />
+                        <Text style={styles.actionButtonText}>Modifier</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={handleValidateReport}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        style={styles.actionButtonGradient}
+                      >
+                        <CheckCircle size={20} color="#FFFFFF" />
+                        <Text style={styles.actionButtonText}>Valider</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={handleSendReport}
+                    >
+                      <LinearGradient
+                        colors={['#3B82F6', '#1D4ED8']}
+                        style={styles.actionButtonGradient}
+                      >
+                        <Mail size={20} color="#FFFFFF" />
+                        <Text style={styles.actionButtonText}>Envoyer</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Report Modal */}
+      <Modal visible={showEditModal} animationType="slide" transparent>
+        <View style={styles.reportDetailModalOverlay}>
+          <View style={styles.reportDetailModal}>
+            <LinearGradient
+              colors={['#F59E0B', '#D97706']}
+              style={styles.reportDetailHeader}
+            >
+              <View style={styles.reportDetailHeaderContent}>
+                <View style={styles.reportDetailHeaderLeft}>
+                  <Edit size={24} color="#FFFFFF" />
+                  <View style={styles.reportDetailHeaderText}>
+                    <Text style={styles.reportDetailTitle}>Modifier le rapport</Text>
+                    <Text style={styles.reportDetailSubtitle}>{selectedReport?.title}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.closeReportDetailButton}
+                  onPress={() => setShowEditModal(false)}
+                >
+                  <X size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+
+            <View style={styles.editModalContent}>
+              <Text style={styles.editModalLabel}>Contenu du rapport</Text>
+              <TextInput
+                style={styles.editModalTextInput}
+                value={editedContent}
+                onChangeText={setEditedContent}
+                multiline
+                numberOfLines={10}
+                placeholder="Saisissez le contenu du rapport..."
+                placeholderTextColor="#64748B"
+              />
+
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleSaveModifications}
+                disabled={isSaving}
+              >
+                <LinearGradient
+                  colors={['#10B981', '#059669']}
+                  style={styles.saveButtonGradient}
+                >
+                  {isSaving ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <CheckCircle size={20} color="#FFFFFF" />
+                      <Text style={styles.saveButtonText}>Enregistrer</Text>
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1469,5 +1655,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#F59E0B',
+  },
+  reportDetailActions: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 16,
+    backgroundColor: '#0F172A',
+  },
+  actionButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  actionButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+  },
+  editModalContent: {
+    flex: 1,
+    padding: 20,
+  },
+  editModalLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#94A3B8',
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  editModalTextInput: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#E2E8F0',
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  saveButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  saveButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
   },
 });

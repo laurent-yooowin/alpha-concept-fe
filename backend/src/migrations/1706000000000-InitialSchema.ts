@@ -87,7 +87,7 @@ export class InitialSchema1706000000000 implements MigrationInterface {
         userId VARCHAR(36) NOT NULL,
         title VARCHAR(255) NOT NULL,
         content TEXT NOT NULL,
-        status ENUM('brouillon', 'envoye', 'archive') DEFAULT 'brouillon',
+        status ENUM('brouillon', 'envoye', 'valide', 'rejete', 'archive') DEFAULT 'brouillon',
         conformityPercentage FLOAT DEFAULT 0,
         sentAt TIMESTAMP NULL,
         recipientEmail VARCHAR(255),
