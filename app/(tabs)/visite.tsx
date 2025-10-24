@@ -91,6 +91,8 @@ export default function VisiteScreen() {
   const [existingVisitId, setExistingVisitId] = useState<string | null>(null);
   const [existingReportId, setExistingReportId] = useState<string | null>(null);
   const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
+  const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
     loadAvailableMissions();
@@ -224,8 +226,11 @@ export default function VisiteScreen() {
           const visitReport = reportsResponse.data.find((r: any) => r.visitId === visit.id);
           if (visitReport) {
             setExistingReportId(visitReport.id);
+            setReportStatus(visitReport.status);
           }
         }
+
+        setHasChanges(false);
 
         if (visit.photos && visit.photos.length > 0) {
           const loadedPhotos: Photo[] = visit.photos.map((photo: any) => {
@@ -371,6 +376,7 @@ export default function VisiteScreen() {
 
         setPhotos(prev => [...prev, newPhoto]);
         setShowCamera(false);
+        setHasChanges(true);
 
         // Upload photo to S3
         setUploadingPhotos(true);
@@ -439,6 +445,7 @@ export default function VisiteScreen() {
           style: 'destructive',
           onPress: () => {
             setPhotos(prev => prev.filter(p => p.id !== photoId));
+            setHasChanges(true);
             if (selectedPhoto?.id === photoId) {
               setShowPhotoDetail(false);
               setSelectedPhoto(null);
@@ -474,6 +481,7 @@ export default function VisiteScreen() {
 
     setSelectedPhoto(prev => prev ? { ...prev, userComments: tempComments } : null);
     setEditingComments(false);
+    setHasChanges(true);
   };
 
   // Sauvegarder la visite
@@ -942,7 +950,7 @@ Cordialement`;
           <View style={styles.photosSectionHeader}>
             <Text style={styles.sectionTitle}>{`PHOTOS DU CHANTIER \n`}             ({photos.length}/10)</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {hasExistingVisit && existingReportId ? (
+              {hasExistingVisit && existingReportId && !hasChanges ? (
                 <TouchableOpacity
                   style={styles.generateReportButton}
                   onPress={() => {
@@ -984,7 +992,7 @@ Cordialement`;
           </View>
 
           {/* Add Photo Button */}
-          {photos.length < 10 && (
+          {photos.length < 10 && reportStatus !== 'valide' && (
             <TouchableOpacity
               style={styles.addPhotoButton}
               onPress={() => setShowCamera(true)}
@@ -1153,7 +1161,7 @@ Cordialement`;
                       PHOTO #{photos.findIndex(p => p.id === selectedPhoto.id) + 1}
                     </Text>
                     <View style={styles.photoDetailActions}>
-                      {(!mission || (mission as any).originalStatus !== 'terminee') && (
+                      {reportStatus !== 'valide' && (!mission || (mission as any).originalStatus !== 'terminee') && (
                         <TouchableOpacity
                           style={styles.deletePhotoButton}
                           onPress={() => deletePhoto(selectedPhoto.id)}
@@ -1227,7 +1235,7 @@ Cordialement`;
                     <View style={styles.commentsSection}>
                       <View style={styles.commentsSectionHeader}>
                         <Text style={styles.commentsSectionTitle}>COMMENTAIRES</Text>
-                        {(!mission || (mission as any).originalStatus !== 'terminee') && (
+                        {reportStatus !== 'valide' && (!mission || (mission as any).originalStatus !== 'terminee') && (
                           <TouchableOpacity
                             style={styles.editCommentsButton}
                             onPress={() => setEditingComments(true)}
