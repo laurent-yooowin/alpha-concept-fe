@@ -86,6 +86,12 @@ export default function VisiteScreen() {
   const [savingVisit, setSavingVisit] = useState(false);
   const [uploadedPhotoUrls, setUploadedPhotoUrls] = useState < string[] > ([]);
 
+  // États pour visite existante
+  const [hasExistingVisit, setHasExistingVisit] = useState(false);
+  const [existingVisitId, setExistingVisitId] = useState<string | null>(null);
+  const [existingReportId, setExistingReportId] = useState<string | null>(null);
+  const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
+
   useEffect(() => {
     loadAvailableMissions();
 
@@ -194,9 +200,7 @@ export default function VisiteScreen() {
       setReportValidated(false);
 
       console.log('selectedMission >>> ', selectedMission)
-      if (selectedMission.originalStatus === 'en_cours') {
-        await loadExistingVisitData(selectedMission.id);
-      }
+      await loadExistingVisitData(selectedMission.id);
     }
 
     setMission(selectedMission);
@@ -212,35 +216,69 @@ export default function VisiteScreen() {
         setPhotos([]);
         const visit = response.data[0];
 
+        setHasExistingVisit(true);
+        setExistingVisitId(visit.id);
+
+        const reportsResponse = await reportService.getReports();
+        if (reportsResponse.data) {
+          const visitReport = reportsResponse.data.find((r: any) => r.visitId === visit.id);
+          if (visitReport) {
+            setExistingReportId(visitReport.id);
+          }
+        }
+
         if (visit.photos && visit.photos.length > 0) {
-          const loadedPhotos: Photo[] = visit.photos.map((photo: any) => ({
-            id: photo.id || `photo-${Date.now()}-${Math.random()}`,
-            uri: photo.uri,
-            s3Url: photo.s3Url,
-            timestamp: new Date(photo.createdAt || Date.now()),
-            aiAnalysis: photo.analysis ? {
-              observations: photo.analysis.observations || [],
-              recommendations: photo.analysis.recommendations || [],
-              riskLevel: photo.analysis.riskLevel || 'low',
-              confidence: photo.analysis.confidence || 0
-            } : undefined,
-            userComments: photo.comments || '',
-            validated: true
-          }));
+          const loadedPhotos: Photo[] = visit.photos.map((photo: any) => {
+            const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+              'faible': 'low',
+              'moyen': 'medium',
+              'eleve': 'high',
+              'low': 'low',
+              'medium': 'medium',
+              'high': 'high'
+            };
 
-          console.log('visit.photos >>> ', visit.photos);
+            const observationText = photo.analysis?.observation || '';
+            const recommendationText = photo.analysis?.recommendation || '';
+
+            return {
+              id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+              uri: photo.uri || photo.s3Url,
+              s3Url: photo.s3Url,
+              timestamp: new Date(photo.createdAt || Date.now()),
+              aiAnalysis: photo.analysis ? {
+                observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
+                recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+                riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                confidence: Math.round((photo.analysis.confidence || 0) * 100)
+              } : undefined,
+              userComments: photo.comment || '',
+              validated: photo.validated || true
+            };
+          });
+
+          console.log('Loaded photos with analysis:', loadedPhotos);
           setPhotos(loadedPhotos);
-          setUploadedPhotoUrls(visit.photos.map((p: any) => p.s3Url));
-          // setTimeout(() => {
-          // }, 300)
+          setUploadedPhotoUrls(visit.photos.map((p: any) => p.s3Url || p.uri).filter(Boolean));
         }
 
-        if (visit.report) {
-          setReportContent(visit.report);
+        if (visit.notes) {
+          setReportContent(visit.notes);
         }
+
+        if (visit.reportGenerated) {
+          setReportValidated(true);
+        }
+      } else {
+        setHasExistingVisit(false);
+        setExistingVisitId(null);
+        setExistingReportId(null);
       }
     } catch (error) {
       console.error('Erreur chargement visite existante:', error);
+      setHasExistingVisit(false);
+      setExistingVisitId(null);
+      setExistingReportId(null);
     }
   };
 
@@ -904,7 +942,24 @@ Cordialement`;
           <View style={styles.photosSectionHeader}>
             <Text style={styles.sectionTitle}>{`PHOTOS DU CHANTIER \n`}             ({photos.length}/10)</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {photos.length >= 3 && (
+              {hasExistingVisit && existingReportId ? (
+                <TouchableOpacity
+                  style={styles.generateReportButton}
+                  onPress={() => {
+                    router.push(`/rapports`);
+                  }}
+                >
+                  <LinearGradient
+                    colors={['#10B981', '#059669']}
+                    style={styles.generateReportGradient}
+                  >
+                    <Eye size={16} color="#FFFFFF" />
+                    <Text style={styles.generateReportText}>
+                      Détails \nrapport
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : photos.length >= 3 && (
                 <TouchableOpacity
                   style={styles.generateReportButton}
                   onPress={generateReport}
