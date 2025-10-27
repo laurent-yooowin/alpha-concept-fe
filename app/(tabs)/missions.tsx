@@ -69,7 +69,9 @@ export default function MissionsScreen() {
   const [photos, setPhotos] = useState < any > (null);
   const [selectedReport, setSelectedReport] = useState < any > (null);
   const [showEditReportModal, setShowEditReportModal] = useState(false);
+  const [editedReportHeader, setEditedReportHeader] = useState('');
   const [editedReportContent, setEditedReportContent] = useState('');
+  const [editedReportFooter, setEditedReportFooter] = useState('');
   const [isSavingReport, setIsSavingReport] = useState(false);
 
   const filters = [
@@ -391,7 +393,9 @@ export default function MissionsScreen() {
   // Fonction pour modifier le rapport
   const handleModifyReport = () => {
     if (selectedReport) {
+      setEditedReportHeader(selectedReport.header || '');
       setEditedReportContent(selectedReport.content || '');
+      setEditedReportFooter(selectedReport.footer || '');
       setShowEditReportModal(true);
     }
   };
@@ -403,18 +407,65 @@ export default function MissionsScreen() {
     try {
       setIsSavingReport(true);
       await reportService.updateReport(selectedReport.id, {
+        header: editedReportHeader,
         content: editedReportContent,
-        header: selectedReport.header,
-        footer: selectedReport.footer,
+        footer: editedReportFooter,
       });
 
       if (selectedVisit) {
         try {
-          const currentNotes = selectedVisit.notes || '';
-          const modificationNote = `\n\n[Modification du ${new Date().toLocaleString('fr-FR')}]\n${editedReportContent}`;
-          await visitService.updateVisit(selectedVisit.id, {
-            notes: currentNotes + modificationNote,
-          });
+          const visitResponse = await visitService.getVisit(selectedVisit.id);
+          if (visitResponse.data && visitResponse.data.photos) {
+            const updatedPhotos = visitResponse.data.photos.map((photo: any, index: number) => {
+              const photoSectionRegex = new RegExp(
+                `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
+                'i'
+              );
+              const photoSection = editedReportContent.match(photoSectionRegex)?.[0] || '';
+
+              if (photoSection) {
+                const observationsMatch = photoSection.match(/Observations?:([\\s\\S]*?)(?=Recommandations?:|💬|$)/i);
+                const recommendationsMatch = photoSection.match(/Recommandations?:([\\s\\S]*?)(?=💬|$)/i);
+                const commentsMatch = photoSection.match(/💬\\s*Commentaires?.*?:([\\s\\S]*?)(?=Photo \\d+|$)/i);
+
+                const observations = observationsMatch?.[1]
+                  ?.split('•')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0)
+                  .join(', ') || photo.analysis?.observation || '';
+
+                const recommendations = recommendationsMatch?.[1]
+                  ?.split('•')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0)
+                  .join(', ') || photo.analysis?.recommendation || '';
+
+                const comments = commentsMatch?.[1]?.trim() || photo.comment || '';
+
+                return {
+                  ...photo,
+                  analysis: {
+                    ...photo.analysis,
+                    observation: observations,
+                    recommendation: recommendations,
+                  },
+                  comment: comments,
+                };
+              }
+
+              return photo;
+            });
+
+            const visitNotes = updatedPhotos
+              .map((p: any) => p.comment)
+              .filter((c: string) => c)
+              .join('\n\n');
+
+            await visitService.updateVisit(selectedVisit.id, {
+              photos: updatedPhotos,
+              notes: visitNotes,
+            });
+          }
         } catch (visitError) {
           console.log('Note: Could not update related visit:', visitError);
         }
@@ -2006,15 +2057,37 @@ export default function MissionsScreen() {
               </View>
             </LinearGradient>
 
-            <View style={styles.editReportContent}>
-              <Text style={styles.editReportLabel}>Contenu du rapport</Text>
+            <ScrollView style={styles.editReportContent}>
+              <Text style={styles.editReportLabel}>En-tête du rapport</Text>
+              <TextInput
+                style={styles.editReportTextInput}
+                value={editedReportHeader}
+                onChangeText={setEditedReportHeader}
+                multiline
+                numberOfLines={5}
+                placeholder="Saisissez l'en-tête du rapport..."
+                placeholderTextColor="#64748B"
+              />
+
+              <Text style={styles.editReportLabel}>Observations (Contenu principal)</Text>
               <TextInput
                 style={styles.editReportTextInput}
                 value={editedReportContent}
                 onChangeText={setEditedReportContent}
                 multiline
                 numberOfLines={10}
-                placeholder="Saisissez le contenu du rapport..."
+                placeholder="Saisissez les observations du rapport..."
+                placeholderTextColor="#64748B"
+              />
+
+              <Text style={styles.editReportLabel}>Conclusion</Text>
+              <TextInput
+                style={styles.editReportTextInput}
+                value={editedReportFooter}
+                onChangeText={setEditedReportFooter}
+                multiline
+                numberOfLines={5}
+                placeholder="Saisissez la conclusion du rapport..."
                 placeholderTextColor="#64748B"
               />
 
@@ -2037,7 +2110,7 @@ export default function MissionsScreen() {
                   )}
                 </LinearGradient>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -2971,6 +3044,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Bold',
     color: '#94A3B8',
+    marginTop: 16,
     marginBottom: 12,
     letterSpacing: 1,
   },
