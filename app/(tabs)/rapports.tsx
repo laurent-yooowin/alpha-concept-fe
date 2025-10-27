@@ -14,7 +14,7 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
-import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X, Edit, Mail } from 'lucide-react-native';
+import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X, Edit, Mail, FileCheck } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { reportService, ReportStatus } from '@/services/reportService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,12 +22,14 @@ import { getReportStatusInfo } from '@/utils/missionHelpers';
 import * as Linking from 'expo-linking';
 import { pdfService } from '@/services/pdfService';
 import { visitService } from '@/services/visitService';
+import { useAuth } from '@/contexts/AuthContext';
 
 import * as MailComposer from 'expo-mail-composer';
 
 const { width } = Dimensions.get('window');
 
 export default function RapportsScreen() {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('tous');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -45,6 +47,8 @@ export default function RapportsScreen() {
   const [editedContent, setEditedContent] = useState('');
   const [editedFooter, setEditedFooter] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [showPdfLoadingModal, setShowPdfLoadingModal] = useState(false);
+  const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
 
   useEffect(() => {
     loadReports();
@@ -249,7 +253,8 @@ export default function RapportsScreen() {
     const subject = `Rapport SPS: ${selectedReport.title}`;
 
     try {
-      Alert.alert('Génération du PDF', 'Veuillez patienter...');
+      setShowPdfLoadingModal(true);
+      setPdfLoadingProgress('Préparation du document...');
 
       let photos: any[] = [];
       // console.log('selectedReport >>> : ', selectedReport);
@@ -293,6 +298,8 @@ export default function RapportsScreen() {
         }
       }
 
+      setPdfLoadingProgress('Chargement des photos...');
+
       const pdfData = {
         title: selectedReport.title,
         mission: selectedReport.mission,
@@ -305,13 +312,16 @@ export default function RapportsScreen() {
         photos: photos,
       };
 
+      setPdfLoadingProgress('Génération du PDF...');
+
       await reportService.updateReport(selectedReport.id, {
         status: 'envoye' as ReportStatus,
         recipientEmail: adminEmail,
       });
 
-      // console.log('pdfData >>> : ', photos);
       const pdfPath = await pdfService.generateReportPDF(pdfData);
+
+      setPdfLoadingProgress('Finalisation...');
 
       const body = `Bonjour,
 
@@ -360,10 +370,12 @@ Cordialement`;
 
       console.log('📤 Email prêt à être envoyé !');
 
+      setShowPdfLoadingModal(false);
       loadReports();
       setShowReportModal(false);
     } catch (error) {
       console.error('Error sending report:', error);
+      setShowPdfLoadingModal(false);
       Alert.alert('Erreur', "Impossible d'ouvrir l'application mail.");
     }
   };
@@ -803,15 +815,29 @@ Cordialement`;
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={styles.actionButton}
+                      style={[
+                        styles.actionButton,
+                        (selectedReport.originalStatus === 'valide' || user?.role !== 'admin') && styles.actionButtonDisabled
+                      ]}
                       onPress={handleValidateReport}
+                      disabled={selectedReport.originalStatus === 'valide' || user?.role !== 'admin'}
                     >
                       <LinearGradient
-                        colors={['#10B981', '#059669']}
+                        colors={
+                          selectedReport.originalStatus === 'valide' || user?.role !== 'admin'
+                            ? ['#94A3B8', '#64748B']
+                            : ['#10B981', '#059669']
+                        }
                         style={styles.actionButtonGradient}
                       >
-                        <CheckCircle size={20} color="#FFFFFF" />
-                        <Text style={styles.actionButtonText}>Valider</Text>
+                        {selectedReport.originalStatus === 'valide' ? (
+                          <FileCheck size={20} color="#FFFFFF" />
+                        ) : (
+                          <CheckCircle size={20} color="#FFFFFF" />
+                        )}
+                        <Text style={styles.actionButtonText}>
+                          {selectedReport.originalStatus === 'valide' ? 'Validé' : 'Valider'}
+                        </Text>
                       </LinearGradient>
                     </TouchableOpacity>
 
@@ -914,6 +940,23 @@ Cordialement`;
                 </LinearGradient>
               </TouchableOpacity>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* PDF Loading Modal */}
+      <Modal visible={showPdfLoadingModal} animationType="fade" transparent>
+        <View style={styles.pdfLoadingOverlay}>
+          <View style={styles.pdfLoadingModal}>
+            <LinearGradient
+              colors={['#3B82F6', '#2563EB']}
+              style={styles.pdfLoadingGradient}
+            >
+              <FileText size={48} color="#FFFFFF" />
+              <Text style={styles.pdfLoadingTitle}>Génération du PDF</Text>
+              <Text style={styles.pdfLoadingText}>{pdfLoadingProgress}</Text>
+              <ActivityIndicator size="large" color="#FFFFFF" style={styles.pdfLoadingSpinner} />
+            </LinearGradient>
           </View>
         </View>
       </Modal>
@@ -1495,6 +1538,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
   },
+  actionButtonDisabled: {
+    opacity: 0.6,
+  },
   actionButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1507,6 +1553,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
+  },
+  pdfLoadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pdfLoadingModal: {
+    width: width * 0.85,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  pdfLoadingGradient: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  pdfLoadingTitle: {
+    fontSize: 24,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  pdfLoadingText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: '#E0E7FF',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  pdfLoadingSpinner: {
+    marginTop: 10,
   },
   editModalContent: {
     flex: 1,

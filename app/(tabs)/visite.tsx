@@ -89,6 +89,8 @@ export default function VisiteScreen() {
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [savingVisit, setSavingVisit] = useState(false);
   const [uploadedPhotoUrls, setUploadedPhotoUrls] = useState < string[] > ([]);
+  const [showPdfLoadingModal, setShowPdfLoadingModal] = useState(false);
+  const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
 
   // États pour visite existante
   const [hasExistingVisit, setHasExistingVisit] = useState(false);
@@ -821,8 +823,12 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         photos: photos,
       };
 
-      Alert.alert('Génération du PDF', 'Veuillez patienter...');
+      setShowPdfLoadingModal(true);
+      setPdfLoadingProgress('Conversion des photos...');
+
       const pdfPath = await pdfService.generateReportPDF(pdfData);
+
+      setPdfLoadingProgress('Finalisation...');
 
       const adminEmail = mission?.contactEmail || 'admin@csps.fr';
       const subject = `Rapport de visite - ${mission?.title}`;
@@ -871,26 +877,15 @@ Cordialement`;
 
       console.log('📤 Email prêt à être envoyé !');
 
+      setShowPdfLoadingModal(false);
+      setShowReportModal(false);
+
     } catch (error) {
       console.error('Erreur sauvegarde rapport:', error);
+      setShowPdfLoadingModal(false);
       Alert.alert('Erreur', 'Erreur lors de la sauvegarde du rapport');
       return;
     }
-
-    Alert.alert(
-      'Rapport envoyé',
-      `Le rapport de visite pour "${mission?.title}" a été envoyé avec succès.`,
-      [
-        {
-          text: 'Retour aux missions',
-          onPress: () => router.push('/missions')
-        },
-        {
-          text: 'Voir mes rapports',
-          onPress: () => router.push('/rapports')
-        }
-      ]
-    );
   };
 
   const getRiskColor = (riskLevel: string) => {
@@ -1659,6 +1654,23 @@ Cordialement`;
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* PDF Loading Modal */}
+      <Modal visible={showPdfLoadingModal} animationType="fade" transparent>
+        <View style={styles.pdfLoadingOverlay}>
+          <View style={styles.pdfLoadingModal}>
+            <LinearGradient
+              colors={['#3B82F6', '#2563EB']}
+              style={styles.pdfLoadingGradient}
+            >
+              <FileText size={48} color="#FFFFFF" />
+              <Text style={styles.pdfLoadingTitle}>Génération du PDF</Text>
+              <Text style={styles.pdfLoadingText}>{pdfLoadingProgress}</Text>
+              <ActivityIndicator size="large" color="#FFFFFF" style={styles.pdfLoadingSpinner} />
             </LinearGradient>
           </View>
         </View>
@@ -2591,5 +2603,37 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     color: '#94A3B8',
     textAlign: 'right',
+  },
+  pdfLoadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pdfLoadingModal: {
+    width: width * 0.85,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  pdfLoadingGradient: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  pdfLoadingTitle: {
+    fontSize: 24,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  pdfLoadingText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: '#E0E7FF',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  pdfLoadingSpinner: {
+    marginTop: 10,
   },
 });
