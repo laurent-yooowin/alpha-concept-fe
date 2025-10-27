@@ -12,6 +12,7 @@ import {
   Modal,
   ImageBackground,
   Alert,
+  Image,
   ActivityIndicator
 } from 'react-native';
 import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X, Edit, Mail, FileCheck } from 'lucide-react-native';
@@ -42,6 +43,7 @@ export default function RapportsScreen() {
   });
   const [selectedReport, setSelectedReport] = useState < any | null > (null);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [selectedReportPhotos, setSelectedReportPhotos] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editedHeader, setEditedHeader] = useState('');
   const [editedContent, setEditedContent] = useState('');
@@ -210,7 +212,7 @@ export default function RapportsScreen() {
               .filter((c: string) => c)
               .join('\n\n');
 
-            
+
             await visitService.updateVisit(selectedReport.visitId, {
               photos: updatedPhotos,
               notes: visitNotes,
@@ -437,6 +439,52 @@ Cordialement`;
     setShowFilterMenu(false);
   };
 
+  const openReportDetail = async (report: any) => {
+    let photos: any[] = [];
+    if (report?.visitId) {
+      try {
+        const visitResponse = await visitService.getVisit(report.visitId);
+        // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
+        if (visitResponse.data && visitResponse.data.photos) {
+          photos = visitResponse.data.photos
+            .map((photo: any) => {
+              const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+                'faible': 'low',
+                'moyen': 'medium',
+                'eleve': 'high',
+                'low': 'low',
+                'medium': 'medium',
+                'high': 'high'
+              };
+
+              const observationText = photo.analysis?.observation || '';
+              const recommendationText = photo.analysis?.recommendation || '';
+
+              return {
+                id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+                uri: photo.uri || photo.s3Url,
+                s3Url: photo.s3Url,
+                timestamp: new Date(photo.createdAt || Date.now()),
+                aiAnalysis: photo.analysis ? {
+                  observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
+                  recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+                  riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                  confidence: Math.round((photo.analysis.confidence || 0) * 100)
+                } : undefined,
+                comment: photo.comment || '',
+                validated: photo.validated || true
+              };
+            });
+        }
+      } catch (error) {
+        console.log('Could not load visit photos:', error);
+      }
+    }
+    setSelectedReportPhotos(photos);
+    setSelectedReport(report);
+    setShowReportModal(true);
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
@@ -515,8 +563,7 @@ Cordialement`;
                 key={rapport.id}
                 style={styles.rapportCard}
                 onPress={() => {
-                  setSelectedReport(rapport);
-                  setShowReportModal(true);
+                  openReportDetail(rapport);
                 }}
               >
                 <LinearGradient
@@ -774,12 +821,43 @@ Cordialement`;
                       </View>
                     )}
 
-                    <View style={styles.reportDetailContentBox}>
-                      <Text style={styles.reportDetailSubtitle}>OBSERVATIONS</Text>
-                      <Text style={styles.reportDetailContentText}>
-                        {selectedReport.reportContent || 'Aucun contenu disponible pour ce rapport.'}
-                      </Text>
-                    </View>
+                    {(selectedReportPhotos?.length > 0) &&
+                      <View style={styles.reportDetailContentBox}>
+                        {selectedReportPhotos.map((photo, index) => (
+                          <View key={photo.id} style={styles.reportPhotoSection}>
+                            <Image
+                              source={{ uri: photo.s3Url }}
+                              style={styles.reportPhotoImage}
+                              resizeMode="cover"
+                            />
+                            <View style={styles.reportPhotoDetails}>
+                              <Text style={styles.reportPhotoTitle}>
+                                Photo {index + 1} - Niveau de risque: {photo.aiAnalysis?.riskLevel?.toUpperCase() || 'N/A'}
+                              </Text>
+                              {photo.aiAnalysis && (
+                                <>
+                                  <Text style={styles.reportSectionTitle}>Observations:</Text>
+                                  {photo.aiAnalysis.observations.map((obs, i) => (
+                                    <Text key={i} style={styles.reportListItem}>• {obs}</Text>
+                                  ))}
+                                  <Text style={styles.reportSectionTitle}>Recommandations:</Text>
+                                  {photo.aiAnalysis.recommendations.map((rec, i) => (
+                                    <Text key={i} style={styles.reportListItem}>• {rec}</Text>
+                                  ))}
+                                </>
+                              )}
+                              {photo.userComments && (
+                                <>
+                                  <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
+                                  <Text style={styles.reportCommentText}>{photo.userComments}</Text>
+                                </>
+                              )}
+                            </View>
+                            <View style={styles.reportPhotoSeparator} />
+                          </View>
+                        ))}
+                      </View>
+                    }
 
                     {selectedReport.reportFooter && (
                       <View style={styles.reportDetailContentBox}>
