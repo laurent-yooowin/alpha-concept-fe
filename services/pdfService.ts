@@ -492,16 +492,16 @@ export const pdfService = {
 
         ${reportData.footer ? `
           <div class="section-header">✅ Conclusion</div>
-          <div class="content-section">${reportData.footer}</div>
+          <div class="content-section">${reportData.footer?.replaceAll('CONCLUSION:\n', '')}</div>
         ` : ''}
 
         <div class="footer">
           <p class="footer-text">Rapport généré le ${new Date().toLocaleDateString('fr-FR', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          })} à ${new Date().toLocaleTimeString('fr-FR')}</p>
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })} à ${new Date().toLocaleTimeString('fr-FR')}</p>
           <p class="footer-confidential">Document confidentiel - Tous droits réservés</p>
         </div>
       </body>
