@@ -767,7 +767,7 @@ Cordialement`;
 
                     {selectedReport.reportHeader && (
                       <View style={styles.reportDetailContentBox}>
-                        <Text style={styles.reportDetailSubtitle}>EN-TÊTE</Text>
+                        {/* <Text style={styles.reportDetailSubtitle}>EN-TÊTE</Text> */}
                         <Text style={styles.reportDetailContentText}>
                           {selectedReport.reportHeader}
                         </Text>

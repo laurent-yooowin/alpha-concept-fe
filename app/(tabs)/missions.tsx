@@ -1992,8 +1992,11 @@ export default function MissionsScreen() {
                               ))}
                             </>
                           )}
-                          {photo.comment && (
-                            <Text style={styles.photoComment}>{photo.comment}</Text>
+                          {photo.userComments && (
+                            <>
+                              <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
+                              <Text style={styles.reportCommentText}>{photo.userComments}</Text>
+                            </>
                           )}
                         </View>
                       ))}
@@ -2980,6 +2983,13 @@ const styles = StyleSheet.create({
     color: '#F59E0B',
     marginTop: 12,
     marginBottom: 6,
+  },
+  reportCommentText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#A5B4FC',
+    lineHeight: 18,
+    fontStyle: 'italic',
   },
   reportListItem: {
     fontSize: 12,
