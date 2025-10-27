@@ -821,12 +821,21 @@ Cordialement`;
                       </View>
                     )}
 
+                    {(!selectedReportPhotos || selectedReportPhotos?.length == 0) &&
+                      <View style={styles.reportDetailContentBox}>
+                        <Text style={styles.reportDetailSubtitle}>OBSERVATIONS</Text>
+                        <Text style={styles.reportDetailContentText}>
+                          {selectedReport.reportContent || 'Aucun contenu disponible pour ce rapport.'}
+                        </Text>
+                      </View>
+                    }
+
                     {(selectedReportPhotos?.length > 0) &&
                       <View style={styles.reportDetailContentBox}>
                         {selectedReportPhotos.map((photo, index) => (
                           <View key={photo.id} style={styles.reportPhotoSection}>
                             <Image
-                              source={{ uri: photo.s3Url }}
+                              source={{ uri: photo.s3Url || photo.uri }}
                               style={styles.reportPhotoImage}
                               resizeMode="cover"
                             />
