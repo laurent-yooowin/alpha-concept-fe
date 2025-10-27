@@ -628,30 +628,71 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         validated: p.validated,
       }));
 
-      const visitResponse = await visitService.createVisit({
-        missionId: mission?.id?.toString() || '',
-        visitDate: new Date().toISOString(),
-        photos: visitPhotos,
-        notes: `Visite effectuée pour ${mission?.title}`,
-      });
+      let visitResponse;
+      let visitId = existingVisitId;
 
-      if (visitResponse.error) {
-        console.error('Error creating visit:', visitResponse.error);
+      // Check if visit already exists for this mission
+      if (existingVisitId) {
+        // Update existing visit
+        visitResponse = await visitService.updateVisit(existingVisitId, {
+          visitDate: new Date().toISOString(),
+          photos: visitPhotos,
+          notes: reportContent,
+        });
+        console.log('Updated existing visit:', existingVisitId);
+      } else {
+        // Create new visit
+        visitResponse = await visitService.createVisit({
+          missionId: mission?.id?.toString() || '',
+          visitDate: new Date().toISOString(),
+          photos: visitPhotos,
+          notes: reportContent,
+        });
+        visitId = visitResponse.data?.id;
+        setExistingVisitId(visitId);
+        console.log('Created new visit:', visitId);
       }
 
-      // 2. Create report in backend
-      const reportResponse = await reportService.createReport({
-        missionId: mission?.id?.toString() || '',
-        visitId: visitResponse.data?.id,
-        title: `RAPPORT VISITE - ${mission?.title}`,
-        content: reportContent,
-        status: 'envoye',
-        conformityPercentage: conformity,
-        recipientEmail: mission?.contactEmail || undefined,
-      });
+      if (visitResponse.error) {
+        console.error('Error saving visit:', visitResponse.error);
+      }
 
-      if (reportResponse.error) {
-        console.error('Error creating report:', reportResponse.error);
+      // 2. Create or update report in backend
+      let reportResponse;
+
+      if (existingReportId && reportStatus !== 'valide') {
+        // Update existing report if not validated
+        reportResponse = await reportService.updateReport(existingReportId, {
+          title: `RAPPORT VISITE - ${mission?.title}`,
+          content: reportContent,
+          status: 'envoye',
+          conformityPercentage: conformity,
+        });
+        console.log('Updated existing report:', existingReportId);
+        setHasChanges(false);
+      } else if (!existingReportId) {
+        // Create new report only if none exists
+        reportResponse = await reportService.createReport({
+          missionId: mission?.id?.toString() || '',
+          visitId: visitId,
+          title: `RAPPORT VISITE - ${mission?.title}`,
+          content: reportContent,
+          status: 'envoye',
+          conformityPercentage: conformity,
+          recipientEmail: mission?.contactEmail || undefined,
+        });
+        setExistingReportId(reportResponse.data?.id);
+        setReportStatus('envoye');
+        setHasChanges(false);
+        console.log('Created new report:', reportResponse.data?.id);
+      } else if (reportStatus === 'valide') {
+        // Report is validated, cannot update
+        Alert.alert('Rapport validé', 'Ce rapport a été validé et ne peut plus être modifié.');
+        return;
+      }
+
+      if (reportResponse?.error) {
+        console.error('Error saving report:', reportResponse.error);
         Alert.alert('Erreur', 'Impossible de sauvegarder le rapport sur le serveur');
         return;
       }
