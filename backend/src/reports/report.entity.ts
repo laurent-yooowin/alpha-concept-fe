@@ -43,10 +43,10 @@ export class Report {
   @Column({ type: 'text' })
   content: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   header: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', nullable: true })
   footer: string;
 
   @Column({

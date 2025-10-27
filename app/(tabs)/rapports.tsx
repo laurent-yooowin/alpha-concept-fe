@@ -86,6 +86,8 @@ export default function RapportsScreen() {
             gradient: statusInfo.gradient,
             backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
             reportContent: report.content,
+            reportHeader: report.header,
+            reportFooter: report.footer,
           };
         });
 
@@ -210,7 +212,9 @@ export default function RapportsScreen() {
         client: selectedReport.client,
         date: selectedReport.date,
         conformity: selectedReport.conformity,
+        header: selectedReport.reportHeader || '',
         content: selectedReport.reportContent || 'Contenu non disponible',
+        footer: selectedReport.reportFooter || '',
         photos: photos,
       };
 
@@ -664,11 +668,31 @@ Cordialement`;
 
                   <View style={styles.reportDetailSection}>
                     <Text style={styles.reportDetailSectionTitle}>CONTENU DU RAPPORT</Text>
+
+                    {selectedReport.reportHeader && (
+                      <View style={styles.reportDetailContentBox}>
+                        <Text style={styles.reportDetailSubtitle}>EN-TÊTE</Text>
+                        <Text style={styles.reportDetailContentText}>
+                          {selectedReport.reportHeader}
+                        </Text>
+                      </View>
+                    )}
+
                     <View style={styles.reportDetailContentBox}>
+                      <Text style={styles.reportDetailSubtitle}>OBSERVATIONS</Text>
                       <Text style={styles.reportDetailContentText}>
                         {selectedReport.reportContent || 'Aucun contenu disponible pour ce rapport.'}
                       </Text>
                     </View>
+
+                    {selectedReport.reportFooter && (
+                      <View style={styles.reportDetailContentBox}>
+                        <Text style={styles.reportDetailSubtitle}>CONCLUSION</Text>
+                        <Text style={styles.reportDetailContentText}>
+                          {selectedReport.reportFooter}
+                        </Text>
+                      </View>
+                    )}
                   </View>
 
                   {selectedReport.aiGenerated && (
@@ -1330,6 +1354,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#E2E8F0',
     lineHeight: 22,
+  },
+  reportDetailSubtitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-Bold',
+    color: '#F59E0B',
+    marginBottom: 8,
+    letterSpacing: 0.5,
   },
   reportDetailAiBadge: {
     flexDirection: 'row',

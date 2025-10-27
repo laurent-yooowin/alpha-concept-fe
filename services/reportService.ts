@@ -9,6 +9,8 @@ export interface Report {
   userId: string;
   title: string;
   content: string;
+  header?: string;
+  footer?: string;
   status: ReportStatus;
   conformityPercentage: number;
   sentAt?: string;
@@ -24,8 +26,8 @@ export interface CreateReportData {
   visitId?: string;
   title: string;
   content: string;
-  header: string;
-  footer: string;
+  header?: string;
+  footer?: string;
   status?: ReportStatus;
   conformityPercentage?: number;
   recipientEmail?: string;
@@ -34,8 +36,8 @@ export interface CreateReportData {
 export interface UpdateReportData {
   title?: string;
   content?: string;
-  header: string;
-  footer: string;
+  header?: string;
+  footer?: string;
   status?: ReportStatus;
   conformityPercentage?: number;
   recipientEmail?: string;
