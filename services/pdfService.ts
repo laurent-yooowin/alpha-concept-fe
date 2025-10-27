@@ -11,6 +11,8 @@ export interface ReportData {
   date: string;
   conformity: number;
   content: string;
+  heaer: string;
+  footer: string;
   photos?: { uri: string; s3Url: string; comment?: string }[];
 }
 

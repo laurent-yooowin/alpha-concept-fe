@@ -66,6 +66,7 @@ export default function MissionsScreen() {
   // État pour le modal de détails de visite
   const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState < any > (null);
+  const [photos, setPhotos] = useState < any > (null);
   const [selectedReport, setSelectedReport] = useState < any > (null);
   const [showEditReportModal, setShowEditReportModal] = useState(false);
   const [editedReportContent, setEditedReportContent] = useState('');
@@ -339,6 +340,37 @@ export default function MissionsScreen() {
 
       const visitResponse = await visitService.getVisit(mission.visitId);
       if (visitResponse.data) {
+        const loadedPhotos: Photo[] = visitResponse.data?.photos.map((photo: any) => {
+          const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+            'faible': 'low',
+            'moyen': 'medium',
+            'eleve': 'high',
+            'low': 'low',
+            'medium': 'medium',
+            'high': 'high'
+          };
+
+          const observationText = photo.analysis?.observation || '';
+          const recommendationText = photo.analysis?.recommendation || '';
+
+          return {
+            id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+            uri: photo.uri || photo.s3Url,
+            s3Url: photo.s3Url,
+            timestamp: new Date(photo.createdAt || Date.now()),
+            aiAnalysis: photo.analysis ? {
+              observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
+              recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+              riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+              confidence: Math.round((photo.analysis.confidence || 0) * 100)
+            } : undefined,
+            userComments: photo.comment || '',
+            validated: photo.validated || true,
+          };
+        });
+
+        setPhotos(loadedPhotos);
+
         setSelectedVisit(visitResponse.data);
 
         if (mission.reportId) {
@@ -372,6 +404,8 @@ export default function MissionsScreen() {
       setIsSavingReport(true);
       await reportService.updateReport(selectedReport.id, {
         content: editedReportContent,
+        header: selectedReport.header,
+        footer: selectedReport.footer,
       });
 
       if (selectedVisit) {
@@ -1859,6 +1893,7 @@ export default function MissionsScreen() {
                       onPress={() => {
                         setShowVisitDetailModal(false);
                         setSelectedVisit(null);
+                        setPhotos(null);
                         setSelectedReport(null);
                       }}
                     >
@@ -1872,17 +1907,15 @@ export default function MissionsScreen() {
                     <Text style={styles.visitDetailSectionTitle}>CONTENU DU RAPPORT</Text>
                     <View style={styles.visitDetailContentBox}>
                       <Text style={styles.visitDetailContentText}>
-                        {selectedReport.content || 'Aucun contenu disponible'}
+                        {selectedReport.header || 'Aucun contenu disponible'}
                       </Text>
                     </View>
                   </View>
 
-                  {selectedVisit.photos && selectedVisit.photos.length > 0 && (
+                  {photos && photos.length > 0 && (
                     <View style={styles.visitDetailSection}>
-                      <Text style={styles.visitDetailSectionTitle}>
-                        PHOTOS ({selectedVisit.photos.length})
-                      </Text>
-                      {selectedVisit.photos.map((photo: any, index: number) => (
+                      <View style={styles.reportPhotoSeparator} />
+                      {photos.map((photo: any, index: number) => (
                         <View key={index} style={styles.photoItem}>
                           <View style={styles.photoPlaceholder}>
                             <Image
@@ -1892,6 +1925,18 @@ export default function MissionsScreen() {
                             />
                             <Text style={styles.photoIndexText}>Photo {index + 1}</Text>
                           </View>
+                          {photo.aiAnalysis && (
+                            <>
+                              <Text style={styles.reportSectionTitle}>Observations:</Text>
+                              {photo.aiAnalysis.observations.map((obs, i) => (
+                                <Text key={i} style={styles.reportListItem}>• {obs}</Text>
+                              ))}
+                              <Text style={styles.reportSectionTitle}>Recommandations:</Text>
+                              {photo.aiAnalysis.recommendations.map((rec, i) => (
+                                <Text key={i} style={styles.reportListItem}>• {rec}</Text>
+                              ))}
+                            </>
+                          )}
                           {photo.comment && (
                             <Text style={styles.photoComment}>{photo.comment}</Text>
                           )}
@@ -2810,6 +2855,12 @@ const styles = StyleSheet.create({
   visitDetailSection: {
     padding: 20,
   },
+  reportPhotoSeparator: {
+    height: 2,
+    backgroundColor: '#475569',
+    marginTop: 16,
+    borderRadius: 1,
+  },
   visitDetailSectionTitle: {
     fontSize: 14,
     fontFamily: 'Inter-Bold',
@@ -2828,6 +2879,37 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#E2E8F0',
     lineHeight: 22,
+  },
+  reportPhotoImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  reportPhotoDetails: {
+    backgroundColor: '#374151',
+    borderRadius: 12,
+    padding: 16,
+  },
+  reportPhotoTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  reportSectionTitle: {
+    fontSize: 13,
+    fontFamily: 'Inter-SemiBold',
+    color: '#F59E0B',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  reportListItem: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#E5E7EB',
+    lineHeight: 18,
+    marginBottom: 4,
   },
   photoItem: {
     backgroundColor: '#0F172A',

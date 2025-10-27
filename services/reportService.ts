@@ -24,6 +24,8 @@ export interface CreateReportData {
   visitId?: string;
   title: string;
   content: string;
+  header: string;
+  footer: string;
   status?: ReportStatus;
   conformityPercentage?: number;
   recipientEmail?: string;
@@ -32,6 +34,8 @@ export interface CreateReportData {
 export interface UpdateReportData {
   title?: string;
   content?: string;
+  header: string;
+  footer: string;
   status?: ReportStatus;
   conformityPercentage?: number;
   recipientEmail?: string;

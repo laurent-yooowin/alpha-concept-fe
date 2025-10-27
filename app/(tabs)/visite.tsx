@@ -76,6 +76,9 @@ export default function VisiteScreen() {
   // États pour le rapport
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportContent, setReportContent] = useState('');
+  const [visitNotes, setVisitNotes] = useState('');
+  const [reportHeader, setReportHeader] = useState('');
+  const [reportFooter, setReportFooter] = useState('');
   const [editingReport, setEditingReport] = useState(false);
   const [reportValidated, setReportValidated] = useState(false);
 
@@ -88,10 +91,10 @@ export default function VisiteScreen() {
 
   // États pour visite existante
   const [hasExistingVisit, setHasExistingVisit] = useState(false);
-  const [existingVisitId, setExistingVisitId] = useState<string | null>(null);
-  const [existingReportId, setExistingReportId] = useState<string | null>(null);
+  const [existingVisitId, setExistingVisitId] = useState < string | null > (null);
+  const [existingReportId, setExistingReportId] = useState < string | null > (null);
   const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
-  const [reportStatus, setReportStatus] = useState<string | null>(null);
+  const [reportStatus, setReportStatus] = useState < string | null > (null);
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
@@ -199,6 +202,7 @@ export default function VisiteScreen() {
     if (!mission || mission.id !== selectedMission.id) {
       setPhotos([]);
       setReportContent('');
+      setVisitNotes('');
       setReportValidated(false);
 
       console.log('selectedMission >>> ', selectedMission)
@@ -268,7 +272,7 @@ export default function VisiteScreen() {
         }
 
         if (visit.notes) {
-          setReportContent(visit.notes);
+          setVisitNotes(visit.notes);
         }
 
         if (visit.reportGenerated) {
@@ -499,10 +503,25 @@ export default function VisiteScreen() {
     setSavingVisit(true);
 
     try {
+      const visitPhotos = photos.map(p => ({
+        id: p.id,
+        uri: p.uri,
+        s3Url: p.s3Url,
+        analysis: {
+          observation: p.aiAnalysis?.observations.join(', ') || '',
+          recommendation: p.aiAnalysis?.recommendations.join(', ') || '',
+          riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
+            p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
+              'faible' as const,
+          confidence: p.aiAnalysis?.confidence || 0,
+        },
+        comment: p.userComments,
+        validated: p.validated,
+      }));
       const visitData = {
         missionId: mission.id.toString(),
         visitDate: new Date().toISOString(),
-        photos: { urls: uploadedPhotoUrls },
+        photos: visitPhotos,
         photoCount: uploadedPhotoUrls.length,
         notes: photos.map(p => p.userComments).filter(c => c).join('\n\n'),
       };
@@ -544,8 +563,7 @@ export default function VisiteScreen() {
     const validatedPhotos = photos.filter(p => p.validated);
     const totalRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length;
     const mediumRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'medium').length;
-
-    const report = `RAPPORT DE VISITE SPS
+    const header = `RAPPORT DE VISITE SPS
 ${mission?.title || 'Mission'}
 
 CLIENT: ${mission?.client || 'N/A'}
@@ -557,8 +575,9 @@ RÉSUMÉ DE LA VISITE:
 ${photos.length} photos prises et analysées
 ${validatedPhotos.length} analyses validées
 ${totalRisks} risques élevés identifiés
-${mediumRisks} risques moyens identifiés
+${mediumRisks} risques moyens identifiés`;
 
+    const report = `
 OBSERVATIONS PRINCIPALES:
 ${photos.map((photo, index) => {
       if (!photo.aiAnalysis) return '';
@@ -576,7 +595,9 @@ ${photo.aiAnalysis.recommendations.map(rec => `• ${rec}`).join('\n')}
 ${photo.userComments ? `💬 Commentaires du coordonnateur: ${photo.userComments}` : ''}
 `}).join('\n')}
 
-CONCLUSION:
+`;
+
+    const footer = `CONCLUSION:
 ${totalRisks > 0
         ? 'Des actions correctives immédiates sont nécessaires pour les risques élevés identifiés.'
         : mediumRisks > 0
@@ -589,6 +610,8 @@ Coordonnateur: Pierre Dupont
 Date: ${new Date().toLocaleString('fr-FR')}`;
 
     setReportContent(report);
+    setReportHeader(header);
+    setReportFooter(footer);
     setGeneratingReport(false);
     setEditingReport(false);
     setShowReportModal(true);
@@ -637,7 +660,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         visitResponse = await visitService.updateVisit(existingVisitId, {
           visitDate: new Date().toISOString(),
           photos: visitPhotos,
-          notes: reportContent,
+          notes: visitNotes,
         });
         console.log('Updated existing visit:', existingVisitId);
       } else {
@@ -646,7 +669,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           missionId: mission?.id?.toString() || '',
           visitDate: new Date().toISOString(),
           photos: visitPhotos,
-          notes: reportContent,
+          notes: visitNotes,
         });
         visitId = visitResponse.data?.id;
         setExistingVisitId(visitId);
@@ -665,6 +688,8 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         reportResponse = await reportService.updateReport(existingReportId, {
           title: `RAPPORT VISITE - ${mission?.title}`,
           content: reportContent,
+          header: reportHeader,
+          footer: reportFooter,
           status: 'envoye',
           conformityPercentage: conformity,
         });
@@ -677,6 +702,8 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           visitId: visitId,
           title: `RAPPORT VISITE - ${mission?.title}`,
           content: reportContent,
+          header: reportHeader,
+          footer: reportFooter,
           status: 'envoye',
           conformityPercentage: conformity,
           recipientEmail: mission?.contactEmail || undefined,
@@ -706,14 +733,16 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         date: new Date().toISOString().split('T')[0],
         status: 'envoyes',
         type: mission?.type || 'Visite de contrôle',
-        pages: Math.ceil(reportContent.length / 500),
+        pages: Math.ceil((reportHeader + reportContent + reportFooter).length / 500),
         photos: photos.length,
         anomalies: photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length,
         conformity,
         aiGenerated: true,
         gradient: ['#10B981', '#059669'],
         backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
+        reportHeader: reportHeader,
         reportContent: reportContent,
+        reportFooter: reportFooter,
         visitPhotos: photos
       };
 
@@ -733,7 +762,9 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         client: mission?.client || 'Client inconnu',
         date: new Date().toLocaleDateString('fr-FR'),
         conformity,
+        header: reportHeader,
         content: reportContent,
+        footer: reportFooter,
         photos: pdfPhotos,
       };
 
@@ -1004,7 +1035,7 @@ Cordialement`;
                   >
                     <Eye size={16} color="#FFFFFF" />
                     <Text style={styles.generateReportText}>
-                      Détails \nrapport
+                      Détails rapport
                     </Text>
                   </LinearGradient>
                 </TouchableOpacity>
@@ -1397,6 +1428,8 @@ Cordialement`;
                   />
                 ) : (
                   <View>
+                    <Text style={styles.reportText}>{reportHeader}</Text>
+                    <View style={styles.reportPhotoSeparator} />
                     {photos.map((photo, index) => (
                       <View key={photo.id} style={styles.reportPhotoSection}>
                         <Image
@@ -1430,7 +1463,7 @@ Cordialement`;
                         <View style={styles.reportPhotoSeparator} />
                       </View>
                     ))}
-                    <Text style={styles.reportText}>{reportContent}</Text>
+                    <Text style={styles.reportText}>{reportFooter}</Text>
                   </View>
                 )}
               </ScrollView>

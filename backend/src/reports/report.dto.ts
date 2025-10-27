@@ -13,7 +13,13 @@ export class CreateReportDto {
   title: string;
 
   @IsString()
+  header: string;
+
+  @IsString()
   content: string;
+
+  @IsString()
+  footer: string;
 
   @IsOptional()
   @IsEnum(ReportStatus)
@@ -35,7 +41,15 @@ export class UpdateReportDto {
 
   @IsOptional()
   @IsString()
-  content?: string;
+  header: string;
+
+  @IsOptional()
+  @IsString()
+  content: string;
+
+  @IsOptional()
+  @IsString()
+  footer: string;
 
   @IsOptional()
   @IsEnum(ReportStatus)
