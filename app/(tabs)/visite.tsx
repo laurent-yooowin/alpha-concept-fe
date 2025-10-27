@@ -14,7 +14,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
-import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight } from 'lucide-react-native';
+import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight, RefreshCw, Save } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
@@ -1052,7 +1052,7 @@ Cordialement`;
           style={styles.changeMissionButton}
           onPress={() => setShowMissionSelector(true)}
         >
-          <Clipboard size={20} color="#FFFFFF" />
+          <RefreshCw size={20} color="#FFFFFF" />
         </TouchableOpacity>
         {uploadedPhotoUrls.length > 0 && (
           <TouchableOpacity
@@ -1067,7 +1067,7 @@ Cordialement`;
               {savingVisit ? (
                 <ActivityIndicator size={16} color="#FFFFFF" />
               ) : (
-                <Check size={16} color="#FFFFFF" />
+                <Save size={16} color="#FFFFFF" />
               )}
             </LinearGradient>
           </TouchableOpacity>
