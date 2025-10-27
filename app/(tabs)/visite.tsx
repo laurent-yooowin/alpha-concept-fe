@@ -26,6 +26,7 @@ import { aiService } from '@/services/aiService';
 import { getMissionStatusInfo } from '@/utils/missionHelpers';
 import { pdfService } from '@/services/pdfService';
 import * as Linking from 'expo-linking';
+import * as MailComposer from 'expo-mail-composer';
 
 const { width, height } = Dimensions.get('window');
 
@@ -839,14 +840,36 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement`;
 
-      const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
-        adminEmail,
-        subject,
-        body,
-        pdfPath || undefined
-      );
+      // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
+      //   adminEmail,
+      //   subject,
+      //   body,
+      //   pdfPath || undefined
+      // );
 
-      await Linking.openURL(mailtoUrl);
+      // await Linking.openURL(mailtoUrl);
+
+      const isAvailable = await MailComposer.isAvailableAsync();
+      if (!isAvailable) {
+        console.warn('📧 MailComposer non disponible sur cet appareil.');
+        // return pdfPath;
+      }
+
+      // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
+      const mailOptions = {
+        recipients: [adminEmail],
+        subject: subject,
+        body: body,
+      };
+
+      if (pdfPath) {
+        mailOptions.attachments = [pdfPath] // pièce jointe
+      }
+
+      // 6️⃣ Ouvrir le mail ready-to-send
+      await MailComposer.composeAsync(mailOptions);
+
+      console.log('📤 Email prêt à être envoyé !');
 
     } catch (error) {
       console.error('Erreur sauvegarde rapport:', error);
