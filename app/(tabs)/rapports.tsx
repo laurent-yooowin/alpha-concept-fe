@@ -41,7 +41,9 @@ export default function RapportsScreen() {
   const [selectedReport, setSelectedReport] = useState < any | null > (null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [editedHeader, setEditedHeader] = useState('');
   const [editedContent, setEditedContent] = useState('');
+  const [editedFooter, setEditedFooter] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -127,7 +129,9 @@ export default function RapportsScreen() {
 
   const handleModifyReport = () => {
     if (selectedReport) {
+      setEditedHeader(selectedReport.reportHeader || '');
       setEditedContent(selectedReport.reportContent || '');
+      setEditedFooter(selectedReport.reportFooter || '');
       setShowEditModal(true);
     }
   };
@@ -138,17 +142,63 @@ export default function RapportsScreen() {
     try {
       setIsSaving(true);
       await reportService.updateReport(selectedReport.id, {
+        header: editedHeader,
         content: editedContent,
+        footer: editedFooter,
       });
 
       if (selectedReport.visitId) {
         try {
           const visitResponse = await visitService.getVisit(selectedReport.visitId);
-          if (visitResponse.data) {
-            const currentNotes = visitResponse.data.notes || '';
-            const modificationNote = `\n\n[Modification du ${new Date().toLocaleString('fr-FR')}]\n${editedContent}`;
+          if (visitResponse.data && visitResponse.data.photos) {
+            const updatedPhotos = visitResponse.data.photos.map((photo: any, index: number) => {
+              const photoSectionRegex = new RegExp(
+                `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
+                'i'
+              );
+              const photoSection = editedContent.match(photoSectionRegex)?.[0] || '';
+
+              if (photoSection) {
+                const observationsMatch = photoSection.match(/Observations?:([\\s\\S]*?)(?=Recommandations?:|💬|$)/i);
+                const recommendationsMatch = photoSection.match(/Recommandations?:([\\s\\S]*?)(?=💬|$)/i);
+                const commentsMatch = photoSection.match(/💬\\s*Commentaires?.*?:([\\s\\S]*?)(?=Photo \\d+|$)/i);
+
+                const observations = observationsMatch?.[1]
+                  ?.split('•')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0)
+                  .join(', ') || photo.analysis?.observation || '';
+
+                const recommendations = recommendationsMatch?.[1]
+                  ?.split('•')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0)
+                  .join(', ') || photo.analysis?.recommendation || '';
+
+                const comments = commentsMatch?.[1]?.trim() || photo.comment || '';
+
+                return {
+                  ...photo,
+                  analysis: {
+                    ...photo.analysis,
+                    observation: observations,
+                    recommendation: recommendations,
+                  },
+                  comment: comments,
+                };
+              }
+
+              return photo;
+            });
+
+            const visitNotes = updatedPhotos
+              .map((p: any) => p.comment)
+              .filter((c: string) => c)
+              .join('\n\n');
+
             await visitService.updateVisit(selectedReport.visitId, {
-              notes: currentNotes + modificationNote,
+              photos: updatedPhotos,
+              notes: visitNotes,
             });
           }
         } catch (visitError) {
@@ -776,15 +826,37 @@ Cordialement`;
               </View>
             </LinearGradient>
 
-            <View style={styles.editModalContent}>
-              <Text style={styles.editModalLabel}>Contenu du rapport</Text>
+            <ScrollView style={styles.editModalContent}>
+              <Text style={styles.editModalLabel}>En-tête du rapport</Text>
+              <TextInput
+                style={styles.editModalTextInput}
+                value={editedHeader}
+                onChangeText={setEditedHeader}
+                multiline
+                numberOfLines={5}
+                placeholder="Saisissez l'en-tête du rapport..."
+                placeholderTextColor="#64748B"
+              />
+
+              <Text style={styles.editModalLabel}>Observations (Contenu principal)</Text>
               <TextInput
                 style={styles.editModalTextInput}
                 value={editedContent}
                 onChangeText={setEditedContent}
                 multiline
                 numberOfLines={10}
-                placeholder="Saisissez le contenu du rapport..."
+                placeholder="Saisissez les observations du rapport..."
+                placeholderTextColor="#64748B"
+              />
+
+              <Text style={styles.editModalLabel}>Conclusion</Text>
+              <TextInput
+                style={styles.editModalTextInput}
+                value={editedFooter}
+                onChangeText={setEditedFooter}
+                multiline
+                numberOfLines={5}
+                placeholder="Saisissez la conclusion du rapport..."
                 placeholderTextColor="#64748B"
               />
 
@@ -807,7 +879,7 @@ Cordialement`;
                   )}
                 </LinearGradient>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1410,6 +1482,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Bold',
     color: '#94A3B8',
+    marginTop: 16,
     marginBottom: 12,
     letterSpacing: 1,
   },
