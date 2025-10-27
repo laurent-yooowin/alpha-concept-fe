@@ -10,6 +10,7 @@ import {
   TextInput,
   Dimensions,
   Modal,
+  Image,
   Alert,
   Platform,
   ActivityIndicator
@@ -64,8 +65,8 @@ export default function MissionsScreen() {
 
   // État pour le modal de détails de visite
   const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
-  const [selectedVisit, setSelectedVisit] = useState<any>(null);
-  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [selectedVisit, setSelectedVisit] = useState < any > (null);
+  const [selectedReport, setSelectedReport] = useState < any > (null);
   const [showEditReportModal, setShowEditReportModal] = useState(false);
   const [editedReportContent, setEditedReportContent] = useState('');
   const [isSavingReport, setIsSavingReport] = useState(false);
@@ -86,208 +87,7 @@ export default function MissionsScreen() {
     'Audit conformité',
     'Inspection préalable'
   ];
-
-  // NOTE: baseMissions array removed - now using database via API
-  // To seed the database with sample missions, run: npm run seed:missions in backend
-  /* const baseMissions = [
-    // MISSIONS D'AUJOURD'HUI
-    {
-      id: 1,
-      title: 'RÉSIDENCE LES JARDINS',
-      client: 'Bouygues Construction',
-      status: 'aujourdhui',
-      nextVisit: '2025-01-15T14:00:00',
-      location: 'Lyon 69003',
-      description: 'Contrôle mensuel sécurité - Phase gros œuvre',
-      alerts: 1,
-      completion: 75,
-      gradient: ['#10B981', '#059669'],
-      type: 'Visite mensuelle',
-      contact: {
-        firstName: 'Jean',
-        lastName: 'Martin',
-        email: 'jean.martin@bouygues.fr',
-        phone: '06 12 34 56 78'
-      }
-    },
-    {
-      id: 2,
-      title: 'BUREAUX PART-DIEU',
-      client: 'Eiffage Construction',
-      status: 'aujourdhui',
-      nextVisit: '2025-01-15T16:30:00',
-      location: 'Lyon 69003',
-      description: 'Finalisation rapport conformité',
-      alerts: 0,
-      completion: 95,
-      gradient: ['#3B82F6', '#1D4ED8'],
-      type: 'Contrôle final',
-      contact: {
-        firstName: 'Marie',
-        lastName: 'Dubois',
-        email: 'marie.dubois@eiffage.fr',
-        phone: '06 98 76 54 32'
-      }
-    },
-    {
-      id: 3,
-      title: 'CENTRE COMMERCIAL',
-      client: 'Vinci Construction',
-      status: 'aujourdhui',
-      nextVisit: '2025-01-15T09:30:00',
-      location: 'Villeurbanne 69100',
-      description: 'Inspection sécurité - Extension galerie',
-      alerts: 0,
-      completion: 60,
-      gradient: ['#8B5CF6', '#A855F7'],
-      type: 'Inspection sécurité',
-      contact: {
-        firstName: 'Pierre',
-        lastName: 'Leroy',
-        email: 'pierre.leroy@vinci.fr',
-        phone: '06 45 67 89 12'
-      }
-    },
-
-    // MISSIONS EN RETARD
-    {
-      id: 4,
-      title: 'USINE PHARMACEUTIQUE',
-      client: 'Eiffage Construction',
-      status: 'en_retard',
-      nextVisit: '2025-01-12T09:00:00',
-      location: 'Lyon 69008',
-      description: 'Visite de conformité - Salle blanche',
-      alerts: 3,
-      completion: 40,
-      gradient: ['#EF4444', '#DC2626'],
-      type: 'Visite de contrôle',
-      contact: {
-        firstName: 'Sophie',
-        lastName: 'Bernard',
-        email: 'sophie.bernard@eiffage.fr',
-        phone: '06 23 45 67 89'
-      }
-    },
-    {
-      id: 5,
-      title: 'COMPLEXE SPORTIF',
-      client: 'GTM Bâtiment',
-      status: 'en_retard',
-      nextVisit: '2025-01-13T14:30:00',
-      location: 'Villeurbanne 69100',
-      description: 'Contrôle sécurité - Piscine et gymnases',
-      alerts: 2,
-      completion: 65,
-      gradient: ['#F59E0B', '#D97706'],
-      type: 'Contrôle périodique',
-      contact: {
-        firstName: 'Thomas',
-        lastName: 'Moreau',
-        email: 'thomas.moreau@gtm.fr',
-        phone: '06 34 56 78 90'
-      }
-    },
-
-    // MISSIONS PLANIFIÉES
-    {
-      id: 6,
-      title: 'LYCÉE ÉCOLOGIQUE',
-      client: 'GTM Bâtiment',
-      status: 'planifiees',
-      nextVisit: '2025-01-18T08:00:00',
-      location: 'Villeurbanne 69100',
-      description: 'Suivi hebdomadaire - Bâtiment HQE',
-      alerts: 0,
-      completion: 30,
-      gradient: ['#10B981', '#059669'],
-      type: 'Audit conformité',
-      contact: {
-        firstName: 'Claire',
-        lastName: 'Petit',
-        email: 'claire.petit@gtm.fr',
-        phone: '06 56 78 90 12'
-      }
-    },
-    {
-      id: 7,
-      title: 'ÉCOLE PRIMAIRE',
-      client: 'Vinci Construction',
-      status: 'planifiees',
-      nextVisit: '2025-01-20T11:00:00',
-      location: 'Lyon 69004',
-      description: 'Inspection sécurité - Rénovation énergétique',
-      alerts: 0,
-      completion: 15,
-      gradient: ['#3B82F6', '#1D4ED8'],
-      type: 'Inspection préalable',
-      contact: {
-        firstName: 'Antoine',
-        lastName: 'Roux',
-        email: 'antoine.roux@vinci.fr',
-        phone: '06 67 89 01 23'
-      }
-    },
-    {
-      id: 8,
-      title: 'RÉSIDENCE ÉTUDIANTE',
-      client: 'Eiffage Construction',
-      status: 'planifiees',
-      nextVisit: '2025-01-17T13:00:00',
-      location: 'Lyon 69001',
-      description: 'Visite de conformité - 300 logements',
-      alerts: 0,
-      completion: 50,
-      gradient: ['#8B5CF6', '#A855F7'],
-      type: 'Visite de contrôle',
-      contact: {
-        firstName: 'Isabelle',
-        lastName: 'Garcia',
-        email: 'isabelle.garcia@eiffage.fr',
-        phone: '06 78 90 12 34'
-      }
-    },
-    {
-      id: 9,
-      title: 'STATION MÉTRO B',
-      client: 'SYTRAL',
-      status: 'planifiees',
-      nextVisit: '2025-01-19T07:00:00',
-      location: 'Lyon 69005',
-      description: 'Contrôle sécurité - Nouvelle station',
-      alerts: 0,
-      completion: 80,
-      gradient: ['#10B981', '#059669'],
-      type: 'Contrôle périodique',
-      contact: {
-        firstName: 'François',
-        lastName: 'Simon',
-        email: 'francois.simon@sytral.fr',
-        phone: '06 89 01 23 45'
-      }
-    },
-    {
-      id: 10,
-      title: 'HÔPITAL MODERNE',
-      client: 'Bouygues Construction',
-      status: 'planifiees',
-      nextVisit: '2025-01-22T10:30:00',
-      location: 'Lyon 69007',
-      description: 'Contrôle installations médicales',
-      alerts: 0,
-      completion: 25,
-      gradient: ['#F59E0B', '#D97706'],
-      type: 'Inspection sécurité',
-      contact: {
-        firstName: 'Nathalie',
-        lastName: 'Laurent',
-        email: 'nathalie.laurent@bouygues.fr',
-        phone: '06 90 12 34 56'
-      }
-    },
-  ]; */
-
-  const [missions, setMissions] = useState<any[]>([]);
+  const [missions, setMissions] = useState < any[] > ([]);
 
   // Initialize date and time for new mission
   useEffect(() => {
@@ -2085,7 +1885,11 @@ export default function MissionsScreen() {
                       {selectedVisit.photos.map((photo: any, index: number) => (
                         <View key={index} style={styles.photoItem}>
                           <View style={styles.photoPlaceholder}>
-                            <ImageIcon size={32} color="#64748B" />
+                            <Image
+                              source={{ uri: photo.s3Url }}
+                              style={styles.detailPhotoImage}
+                              resizeMode="cover"
+                            />
                             <Text style={styles.photoIndexText}>Photo {index + 1}</Text>
                           </View>
                           {photo.comment && (
@@ -3037,6 +2841,12 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: '#1E293B',
     borderRadius: 8,
+  },
+  detailPhotoImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 20,
   },
   photoIndexText: {
     fontSize: 12,
