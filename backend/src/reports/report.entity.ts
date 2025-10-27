@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToOne } from 'typeorm';
 import { User } from '../user/user.entity';
 import { Mission } from '../missions/mission.entity';
 import { Visit } from '../visits/visit.entity';
@@ -19,14 +19,14 @@ export class Report {
   @Column('uuid')
   missionId: string;
 
-  @ManyToOne(() => Mission)
+  @OneToOne(() => Mission)
   @JoinColumn({ name: 'missionId' })
   mission: Mission;
 
   @Column('uuid', { nullable: true })
   visitId: string;
 
-  @ManyToOne(() => Visit, { nullable: true })
+  @OneToOne(() => Visit, { nullable: true })
   @JoinColumn({ name: 'visitId' })
   visit: Visit;
 

@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, OneToOne } from 'typeorm';
 import { User } from '../user/user.entity';
 import { Mission } from '../missions/mission.entity';
 
@@ -10,7 +10,7 @@ export class Visit {
   @Column('uuid')
   missionId: string;
 
-  @ManyToOne(() => Mission)
+  @OneToOne(() => Mission)
   @JoinColumn({ name: 'missionId' })
   mission: Mission;
 
