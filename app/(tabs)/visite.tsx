@@ -617,11 +617,59 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     setShowReportModal(true);
   };
 
+  // Update photo data from edited report content
+  const updatePhotosFromEditedContent = () => {
+    const updatedPhotos = photos.map((photo, index) => {
+      const photoSectionRegex = new RegExp(
+        `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
+        'i'
+      );
+      const photoSection = reportContent.match(photoSectionRegex)?.[0] || '';
+
+      if (photoSection && editingReport) {
+        const observationsMatch = photoSection.match(/Observations?:([\\s\\S]*?)(?=Recommandations?:|💬|$)/i);
+        const recommendationsMatch = photoSection.match(/Recommandations?:([\\s\\S]*?)(?=💬|$)/i);
+        const commentsMatch = photoSection.match(/💬\\s*Commentaires?.*?:([\\s\\S]*?)(?=Photo \\d+|$)/i);
+
+        const observations = observationsMatch?.[1]
+          ?.split('•')
+          .map(s => s.trim())
+          .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
+
+        const recommendations = recommendationsMatch?.[1]
+          ?.split('•')
+          .map(s => s.trim())
+          .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
+
+        const comments = commentsMatch?.[1]?.trim() || photo.userComments || '';
+
+        return {
+          ...photo,
+          aiAnalysis: photo.aiAnalysis ? {
+            ...photo.aiAnalysis,
+            observations,
+            recommendations,
+          } : undefined,
+          userComments: comments,
+        };
+      }
+
+      return photo;
+    });
+
+    setPhotos(updatedPhotos);
+  };
+
   // Envoyer le rapport
   const sendReport = async () => {
     if (!reportValidated) {
       Alert.alert('Validation requise', 'Vous devez valider le rapport avant de l\'envoyer.');
       return;
+    }
+
+    // If report was edited, update photos from the edited content
+    if (editingReport) {
+      updatePhotosFromEditedContent();
     }
 
     try {
@@ -1419,13 +1467,41 @@ Cordialement`;
 
               <ScrollView style={styles.reportContent} showsVerticalScrollIndicator={false}>
                 {editingReport ? (
-                  <TextInput
-                    style={styles.reportTextInput}
-                    value={reportContent}
-                    onChangeText={setReportContent}
-                    multiline
-                    textAlignVertical="top"
-                  />
+                  <View>
+                    <Text style={styles.editSectionLabel}>EN-TÊTE</Text>
+                    <TextInput
+                      style={styles.reportTextInput}
+                      value={reportHeader}
+                      onChangeText={setReportHeader}
+                      multiline
+                      numberOfLines={5}
+                      textAlignVertical="top"
+                      placeholder="En-tête du rapport..."
+                      placeholderTextColor="#64748B"
+                    />
+                    <Text style={styles.editSectionLabel}>OBSERVATIONS</Text>
+                    <TextInput
+                      style={styles.reportTextInput}
+                      value={reportContent}
+                      onChangeText={setReportContent}
+                      multiline
+                      numberOfLines={10}
+                      textAlignVertical="top"
+                      placeholder="Observations principales..."
+                      placeholderTextColor="#64748B"
+                    />
+                    <Text style={styles.editSectionLabel}>CONCLUSION</Text>
+                    <TextInput
+                      style={styles.reportTextInput}
+                      value={reportFooter}
+                      onChangeText={setReportFooter}
+                      multiline
+                      numberOfLines={5}
+                      textAlignVertical="top"
+                      placeholder="Conclusion et recommandations..."
+                      placeholderTextColor="#64748B"
+                    />
+                  </View>
                 ) : (
                   <View>
                     <Text style={styles.reportText}>{reportHeader}</Text>
@@ -2326,6 +2402,14 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderRadius: 1,
   },
+  editSectionLabel: {
+    fontSize: 12,
+    fontFamily: 'Inter-Bold',
+    color: '#94A3B8',
+    marginTop: 16,
+    marginBottom: 8,
+    letterSpacing: 1,
+  },
   reportTextInput: {
     fontSize: 13,
     fontFamily: 'Inter-Regular',
@@ -2334,7 +2418,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#374151',
     borderRadius: 12,
     padding: 16,
-    minHeight: 400,
+    minHeight: 120,
+    marginBottom: 12,
     textAlignVertical: 'top',
   },
   reportModalFooter: {
