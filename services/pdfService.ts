@@ -13,7 +13,7 @@ export interface ReportData {
   content: string;
   heaer: string;
   footer: string;
-  photos?: { uri: string; s3Url: string; comment?: string }[];
+  photos?: any[];
 }
 
 export const pdfService = {
@@ -66,10 +66,11 @@ export const pdfService = {
 
   async generateHTMLContent(reportData: ReportData): string {
     // 1️⃣ Convertir chaque image en base64
-    let reportContent = reportData.content;
-    if (reportData.photos && reportData.photos.length > 0){
+    let reportContent = '';
+    const divs = [];
+    if (reportData.photos && reportData.photos.length > 0) {
       await Promise.all(
-        (reportData.photos || []).map(async (photo) => {
+        (reportData.photos || []).map(async (photo, index) => {
           let base64Img = '';
           try {
             const fileUri = FileSystem.cacheDirectory + `temp_${Math.random()}.jpg`;
@@ -77,18 +78,34 @@ export const pdfService = {
             const { uri } = await FileSystem.downloadAsync(photo.s3Url, fileUri);
             // Lire le fichier en base64
             base64Img = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-            const divContent = `<span>${photo.s3Url}</span>
+            const divContent = `<span>Photo ${index + 1} - Niveau de risque: ${photo.aiAnalysis.riskLevel.toUpperCase()}</span><br/>
+            <span> 📸 Photo: ${photo.s3Url}</span><br/>
             <div style="margin: 20px 0; page-break-inside: avoid;">
               <img src="data:image/jpeg;base64,${base64Img}" style="max-width: 100%; height: auto; border-radius: 8px;" />
-              ${photo.comment ? `<p style="margin-top: 8px; font-size: 12px; color: #666;"><strong>Commentaire:</strong> ${photo.comment}</p>` : ''}
-            </div>`;
-            reportContent = reportContent.replace(photo.s3Url, divContent);
+              <b> Observations: </b>
+              <span>${photo.aiAnalysis?.observations.map(obs => `• ${obs}`).join('\n')}</span><br/>
+              <b>Recommandations :</b>
+              <span> ${photo.aiAnalysis?.recommendations.map(rec => `• ${rec}`).join('\n')} </span><br/>
+              ${photo.comment ? `<p style="margin-top: 8px; font-size: 12px; color: #666;"><strong>💬 Commentaires du coordonnateur :</strong> ${photo.comment}</p>` : ''}
+              <br/>
+              </div>`;
+            divs.push({
+              index: index,
+              divContent: divContent,
+            });
           } catch (err) {
             console.warn('Erreur conversion image en base64:', err);
           }
           // return reportContent;
         })
-      );
+      ).then(() => {
+        // Trier les divs par index pour garantir l'ordre correct
+        divs.sort((a, b) => a.index - b.index);
+        // Concaténer les contenus des divs dans l'ordre
+        divs.forEach(div => {
+          reportContent += div.divContent;
+        });
+      });
     }
 
     return `
@@ -194,6 +211,10 @@ export const pdfService = {
           <h2>Contenu du Rapport</h2>
           <div class="content-section">
             <div style="white-space: pre-wrap;">${reportContent}</div>
+          </div>
+         
+          <div class="content-section">
+            <div style="white-space: pre-wrap;">${reportData.footer}</div>
           </div>
           <div class="footer">
             <p>Rapport généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}</p>

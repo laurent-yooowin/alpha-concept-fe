@@ -424,9 +424,13 @@ export default function MissionsScreen() {
               const photoSection = editedReportContent.match(photoSectionRegex)?.[0] || '';
 
               if (photoSection) {
-                const observationsMatch = photoSection.match(/Observations?:([\\s\\S]*?)(?=Recommandations?:|💬|$)/i);
-                const recommendationsMatch = photoSection.match(/Recommandations?:([\\s\\S]*?)(?=💬|$)/i);
-                const commentsMatch = photoSection.match(/💬\\s*Commentaires?.*?:([\\s\\S]*?)(?=Photo \\d+|$)/i);
+                const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
+                const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
+                const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
+
+                const observationsMatch = photoSection.match(obsRegex);
+                const recommendationsMatch = photoSection.match(recRegex);
+                const commentsMatch = photoSection.match(comRegex);
 
                 const observations = observationsMatch?.[1]
                   ?.split('•')
@@ -440,7 +444,7 @@ export default function MissionsScreen() {
                   .filter(s => s.length > 0)
                   .join(', ') || photo.analysis?.recommendation || '';
 
-                const comments = commentsMatch?.[1]?.trim() || photo.comment || '';
+                const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
                 return {
                   ...photo,

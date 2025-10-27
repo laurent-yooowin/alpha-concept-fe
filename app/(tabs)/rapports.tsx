@@ -158,10 +158,16 @@ export default function RapportsScreen() {
               );
               const photoSection = editedContent.match(photoSectionRegex)?.[0] || '';
 
+              // console.log('photoSection >>> :', photoSection);
+
               if (photoSection) {
-                const observationsMatch = photoSection.match(/Observations?:([\\s\\S]*?)(?=Recommandations?:|💬|$)/i);
-                const recommendationsMatch = photoSection.match(/Recommandations?:([\\s\\S]*?)(?=💬|$)/i);
-                const commentsMatch = photoSection.match(/💬\\s*Commentaires?.*?:([\\s\\S]*?)(?=Photo \\d+|$)/i);
+                const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
+                const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
+                const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
+
+                const observationsMatch = photoSection.match(obsRegex);
+                const recommendationsMatch = photoSection.match(recRegex);
+                const commentsMatch = photoSection.match(comRegex);
 
                 const observations = observationsMatch?.[1]
                   ?.split('•')
@@ -175,7 +181,11 @@ export default function RapportsScreen() {
                   .filter(s => s.length > 0)
                   .join(', ') || photo.analysis?.recommendation || '';
 
-                const comments = commentsMatch?.[1]?.trim() || photo.comment || '';
+                const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
+
+                // console.log('observationsMatch >>> :', observations);
+                // console.log('recommendationsMatch >>> :', recommendations);
+                // console.log('commentsMatch >>> :', comments);
 
                 return {
                   ...photo,
@@ -196,6 +206,7 @@ export default function RapportsScreen() {
               .filter((c: string) => c)
               .join('\n\n');
 
+            
             await visitService.updateVisit(selectedReport.visitId, {
               photos: updatedPhotos,
               notes: visitNotes,
@@ -241,15 +252,41 @@ export default function RapportsScreen() {
       Alert.alert('Génération du PDF', 'Veuillez patienter...');
 
       let photos: any[] = [];
+      // console.log('selectedReport >>> : ', selectedReport);
       if (selectedReport.visitId) {
         try {
           const visitResponse = await visitService.getVisit(selectedReport.visitId);
+          // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
           if (visitResponse.data && visitResponse.data.photos) {
-            photos = visitResponse.data.photos.map((photo: any) => ({
-              uri: photo.uri,
-              s3Url: photo.s3Url,
-              comment: photo.comment,
-            }));
+            photos = visitResponse.data.photos
+              .map((photo: any) => {
+                const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+                  'faible': 'low',
+                  'moyen': 'medium',
+                  'eleve': 'high',
+                  'low': 'low',
+                  'medium': 'medium',
+                  'high': 'high'
+                };
+
+                const observationText = photo.analysis?.observation || '';
+                const recommendationText = photo.analysis?.recommendation || '';
+
+                return {
+                  id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+                  uri: photo.uri || photo.s3Url,
+                  s3Url: photo.s3Url,
+                  timestamp: new Date(photo.createdAt || Date.now()),
+                  aiAnalysis: photo.analysis ? {
+                    observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
+                    recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+                    riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                    confidence: Math.round((photo.analysis.confidence || 0) * 100)
+                  } : undefined,
+                  comment: photo.comment || '',
+                  validated: photo.validated || true
+                };
+              });
           }
         } catch (error) {
           console.log('Could not load visit photos:', error);
@@ -268,16 +305,13 @@ export default function RapportsScreen() {
         photos: photos,
       };
 
-
-
       await reportService.updateReport(selectedReport.id, {
         status: 'envoye' as ReportStatus,
         recipientEmail: adminEmail,
       });
 
-      // console.log('pdfData >>> : ', pdfData);
+      // console.log('pdfData >>> : ', photos);
       const pdfPath = await pdfService.generateReportPDF(pdfData);
-      console.log('pdfData >>> : ', pdfData);
 
       const body = `Bonjour,
 
