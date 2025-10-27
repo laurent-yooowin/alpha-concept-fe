@@ -831,40 +831,76 @@ Cordialement`;
                     }
 
                     {(selectedReportPhotos?.length > 0) &&
-                      <View style={styles.reportDetailContentBox}>
-                        {selectedReportPhotos.map((photo, index) => (
-                          <View key={photo.id} style={styles.reportPhotoSection}>
-                            <Image
-                              source={{ uri: photo.s3Url || photo.uri }}
-                              style={styles.reportPhotoImage}
-                              resizeMode="cover"
-                            />
-                            <View style={styles.reportPhotoDetails}>
-                              <Text style={styles.reportPhotoTitle}>
-                                Photo {index + 1} - Niveau de risque: {photo.aiAnalysis?.riskLevel?.toUpperCase() || 'N/A'}
-                              </Text>
+                      <View style={styles.reportPhotoContainer}>
+                        {selectedReportPhotos.map((photo, index) => {
+                          const getRiskColor = (risk: string) => {
+                            const level = risk?.toLowerCase();
+                            if (level === 'high' || level === 'eleve') return '#EF4444';
+                            if (level === 'medium' || level === 'moyen') return '#F59E0B';
+                            if (level === 'low' || level === 'faible') return '#10B981';
+                            return '#64748B';
+                          };
+
+                          const getRiskLabel = (risk: string) => {
+                            const level = risk?.toLowerCase();
+                            if (level === 'high' || level === 'eleve') return 'ÉLEVÉ';
+                            if (level === 'medium' || level === 'moyen') return 'MOYEN';
+                            if (level === 'low' || level === 'faible') return 'FAIBLE';
+                            return 'N/A';
+                          };
+
+                          const riskLevel = photo.aiAnalysis?.riskLevel || 'moyen';
+                          const riskColor = getRiskColor(riskLevel);
+                          const riskLabel = getRiskLabel(riskLevel);
+
+                          return (
+                            <View key={photo.id} style={styles.reportPhotoCard}>
+                              <View style={styles.reportPhotoHeader}>
+                                <Text style={styles.reportPhotoNumber}>📸 Photo {index + 1}</Text>
+                                <View style={[styles.reportRiskBadge, { backgroundColor: riskColor }]}>
+                                  <Text style={styles.reportRiskBadgeText}>{riskLabel}</Text>
+                                </View>
+                              </View>
+
+                              <View style={styles.reportPhotoImageContainer}>
+                                <Image
+                                  source={{ uri: photo.s3Url || photo.uri }}
+                                  style={styles.reportPhotoImage}
+                                  resizeMode="cover"
+                                />
+                              </View>
+
                               {photo.aiAnalysis && (
-                                <>
-                                  <Text style={styles.reportSectionTitle}>Observations:</Text>
-                                  {photo.aiAnalysis.observations.map((obs, i) => (
-                                    <Text key={i} style={styles.reportListItem}>• {obs}</Text>
-                                  ))}
-                                  <Text style={styles.reportSectionTitle}>Recommandations:</Text>
-                                  {photo.aiAnalysis.recommendations.map((rec, i) => (
-                                    <Text key={i} style={styles.reportListItem}>• {rec}</Text>
-                                  ))}
-                                </>
+                                <View style={styles.reportAnalysisSection}>
+                                  <View style={styles.reportAnalysisBlock}>
+                                    <Text style={styles.reportAnalysisTitle}>🔍 Observations</Text>
+                                    <View style={styles.reportAnalysisList}>
+                                      {photo.aiAnalysis.observations.map((obs, i) => (
+                                        <Text key={i} style={styles.reportAnalysisItem}>• {obs}</Text>
+                                      ))}
+                                    </View>
+                                  </View>
+
+                                  <View style={styles.reportAnalysisBlock}>
+                                    <Text style={styles.reportAnalysisTitle}>⚠️ Recommandations</Text>
+                                    <View style={styles.reportAnalysisList}>
+                                      {photo.aiAnalysis.recommendations.map((rec, i) => (
+                                        <Text key={i} style={styles.reportAnalysisItem}>• {rec}</Text>
+                                      ))}
+                                    </View>
+                                  </View>
+                                </View>
                               )}
+
                               {photo.userComments && (
-                                <>
-                                  <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
+                                <View style={styles.reportCommentSection}>
+                                  <Text style={styles.reportCommentTitle}>💬 Commentaires du coordonnateur</Text>
                                   <Text style={styles.reportCommentText}>{photo.userComments}</Text>
-                                </>
+                                </View>
                               )}
                             </View>
-                            <View style={styles.reportPhotoSeparator} />
-                          </View>
-                        ))}
+                          );
+                        })}
                       </View>
                     }
 
@@ -902,33 +938,6 @@ Cordialement`;
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={[
-                        styles.actionButton,
-                        (selectedReport.originalStatus === 'valide' || user?.role !== 'admin') && styles.actionButtonDisabled
-                      ]}
-                      onPress={handleValidateReport}
-                      disabled={selectedReport.originalStatus === 'valide' || user?.role !== 'admin'}
-                    >
-                      <LinearGradient
-                        colors={
-                          selectedReport.originalStatus === 'valide' || user?.role !== 'admin'
-                            ? ['#94A3B8', '#64748B']
-                            : ['#10B981', '#059669']
-                        }
-                        style={styles.actionButtonGradient}
-                      >
-                        {selectedReport.originalStatus === 'valide' ? (
-                          <FileCheck size={20} color="#FFFFFF" />
-                        ) : (
-                          <CheckCircle size={20} color="#FFFFFF" />
-                        )}
-                        <Text style={styles.actionButtonText}>
-                          {selectedReport.originalStatus === 'valide' ? 'Validé' : 'Valider'}
-                        </Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
                       style={styles.actionButton}
                       onPress={handleSendReport}
                     >
@@ -936,7 +945,7 @@ Cordialement`;
                         colors={['#3B82F6', '#1D4ED8']}
                         style={styles.actionButtonGradient}
                       >
-                        <Mail size={20} color="#FFFFFF" />
+                        <Send size={20} color="#FFFFFF" />
                         <Text style={styles.actionButtonText}>Envoyer</Text>
                       </LinearGradient>
                     </TouchableOpacity>
@@ -1584,6 +1593,97 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     minHeight: 200,
+  },
+  reportPhotoContainer: {
+    gap: 16,
+  },
+  reportPhotoCard: {
+    backgroundColor: '#1E293B',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  reportPhotoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+  },
+  reportPhotoNumber: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#F8FAFC',
+  },
+  reportRiskBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  reportRiskBadgeText: {
+    fontSize: 11,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  reportPhotoImageContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  reportPhotoImage: {
+    width: '100%',
+    height: 240,
+    backgroundColor: '#0F172A',
+  },
+  reportAnalysisSection: {
+    gap: 12,
+    marginBottom: 12,
+  },
+  reportAnalysisBlock: {
+    backgroundColor: '#0F172A',
+    padding: 12,
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#3B82F6',
+  },
+  reportAnalysisTitle: {
+    fontSize: 13,
+    fontFamily: 'Inter-Bold',
+    color: '#CBD5E1',
+    marginBottom: 8,
+  },
+  reportAnalysisList: {
+    gap: 6,
+  },
+  reportAnalysisItem: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    lineHeight: 20,
+  },
+  reportCommentSection: {
+    backgroundColor: '#422006',
+    padding: 12,
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#F59E0B',
+  },
+  reportCommentTitle: {
+    fontSize: 13,
+    fontFamily: 'Inter-Bold',
+    color: '#FEF3C7',
+    marginBottom: 6,
+  },
+  reportCommentText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#FDE68A',
+    lineHeight: 20,
   },
   reportDetailContentText: {
     fontSize: 14,
