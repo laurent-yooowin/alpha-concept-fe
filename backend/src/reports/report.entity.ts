@@ -43,6 +43,12 @@ export class Report {
   @Column({ type: 'text' })
   content: string;
 
+  @Column({ type: 'text' })
+  header: string;
+
+  @Column({ type: 'text' })
+  footer: string;
+
   @Column({
     type: 'enum',
     enum: ReportStatus,
