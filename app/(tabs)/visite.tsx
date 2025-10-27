@@ -627,9 +627,13 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
       const photoSection = reportContent.match(photoSectionRegex)?.[0] || '';
 
       if (photoSection && editingReport) {
-        const observationsMatch = photoSection.match(/Observations?:([\\s\\S]*?)(?=Recommandations?:|💬|$)/i);
-        const recommendationsMatch = photoSection.match(/Recommandations?:([\\s\\S]*?)(?=💬|$)/i);
-        const commentsMatch = photoSection.match(/💬\\s*Commentaires?.*?:([\\s\\S]*?)(?=Photo \\d+|$)/i);
+        const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
+        const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
+        const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
+
+        const observationsMatch = photoSection.match(obsRegex);
+        const recommendationsMatch = photoSection.match(recRegex);
+        const commentsMatch = photoSection.match(comRegex);
 
         const observations = observationsMatch?.[1]
           ?.split('•')
@@ -641,7 +645,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           .map(s => s.trim())
           .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
 
-        const comments = commentsMatch?.[1]?.trim() || photo.userComments || '';
+        const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
         return {
           ...photo,
@@ -813,7 +817,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         header: reportHeader,
         content: reportContent,
         footer: reportFooter,
-        photos: pdfPhotos,
+        photos: photos,
       };
 
       Alert.alert('Génération du PDF', 'Veuillez patienter...');
