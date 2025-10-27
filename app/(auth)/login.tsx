@@ -61,8 +61,8 @@ export default function LoginScreen() {
         return;
       }
 
-      if (response.data) {
-        login();
+      if (response.data && response.data.user) {
+        await login(response.data.user);
       }
     } catch (error) {
       Alert.alert('Erreur', 'Une erreur est survenue lors de la connexion');
