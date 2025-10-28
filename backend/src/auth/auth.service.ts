@@ -15,6 +15,7 @@ export interface RegisterDto {
   lastName: string;
   phone?: string;
   company?: string;
+  experience?: number;
 }
 
 export interface ForgotPasswordDto {

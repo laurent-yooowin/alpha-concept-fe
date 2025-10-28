@@ -13,7 +13,7 @@ import {
   Modal,
   ScrollView
 } from 'react-native';
-import { Shield, User, Lock, Eye, EyeOff, ArrowRight, X, Phone, Building } from 'lucide-react-native';
+import { Shield, User, Lock, Eye, EyeOff, ArrowRight, X, Phone, Building, Award } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { authService } from '@/services/authService';
 import { useAuth } from '@/contexts/AuthContext';
@@ -41,6 +41,7 @@ export default function LoginScreen() {
     lastName: '',
     phone: '',
     company: '',
+    experience: 0,
   });
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
 
@@ -176,6 +177,7 @@ export default function LoginScreen() {
                   lastName: '',
                   phone: '',
                   company: '',
+                  experience: 0,
                 });
               },
             },
@@ -425,6 +427,23 @@ export default function LoginScreen() {
                       placeholderTextColor="#64748B"
                       value={registerData.company}
                       onChangeText={(text) => setRegisterData({...registerData, company: text})}
+                    />
+                  </LinearGradient>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <LinearGradient colors={['#1E293B', '#374151']} style={styles.inputGradient}>
+                    <Award size={20} color="#94A3B8" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Années d'expérience"
+                      placeholderTextColor="#64748B"
+                      value={registerData.experience > 0 ? registerData.experience.toString() : ''}
+                      onChangeText={(text) => {
+                        const num = parseInt(text) || 0;
+                        setRegisterData({...registerData, experience: num});
+                      }}
+                      keyboardType="numeric"
                     />
                   </LinearGradient>
                 </View>
