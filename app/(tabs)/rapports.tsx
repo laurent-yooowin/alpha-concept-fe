@@ -147,6 +147,7 @@ export default function RapportsScreen() {
         header: editedHeader,
         content: editedContent,
         footer: editedFooter,
+        status: 'brouillon',
       });
 
       if (selectedReport.visitId) {
@@ -870,7 +871,7 @@ Cordialement`;
 
                               <View style={styles.reportPhotoImageContainer}>
                                 <Image
-                                  source={{ uri: photo.s3Url || photo.uri }}
+                                  source={{ uri: photo.s3Url }}
                                   style={styles.reportPhotoImage}
                                   resizeMode="cover"
                                 />
