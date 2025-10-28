@@ -5,6 +5,10 @@ export interface UploadResult {
   url?: string;
   key?: string;
 }
+export interface DeleteResponse {
+  fileName?: string;
+  message?: string;
+}
 
 export interface UploadResponse {
   success: boolean;
@@ -13,6 +17,20 @@ export interface UploadResponse {
 }
 
 export const uploadService = {
+
+  async deletePhotoByUrl(url: string): Promise<DeleteResponse> {
+    if (!url || url.trim() === '' || !url.includes('https://')) {
+      throw new Error('Aucune url fourni');
+    }
+
+    const response = await api.post<DeleteResponse>('/upload/delete', { url });
+
+    if (!response || !response.data) {
+      throw new Error('Réponse vide du serveur.');
+    }
+
+    return response.data;
+  },
 
   async uploadSingleFile(file: Blob | string, fileName: string): Promise<UploadResult> {
     const formData = new FormData();

@@ -53,6 +53,7 @@ interface Mission {
   description: string;
   nextVisit: string;
   type: string;
+  contactEmail: string;
 }
 
 export default function VisiteScreen() {
@@ -442,8 +443,21 @@ export default function VisiteScreen() {
     }
   };
 
+  const deletePhotoFromServer = async (photo?: Photo) => {
+    if (!photo?.s3Url) return;
+    try {
+      await uploadService.deletePhotoByUrl(photo?.s3Url);
+      setPhotos(prev => prev.filter(p => p.id !== photo.id));
+      setHasChanges(true);
+      Alert.alert('Succès', 'Photo suppriméee du serveur');
+    } catch (error) {
+      console.error('Erreur suppression photo S3:', error);
+      Alert.alert('Erreur', 'Impossible de supprimer la photo du serveur');
+    }
+  };
+
   // Supprimer une photo
-  const deletePhoto = (photoId: string) => {
+  const deletePhoto = (photo: Photo) => {
     Alert.alert(
       'Supprimer la photo',
       'Êtes-vous sûr de vouloir supprimer cette photo et son analyse ?',
@@ -453,9 +467,8 @@ export default function VisiteScreen() {
           text: 'Supprimer',
           style: 'destructive',
           onPress: () => {
-            setPhotos(prev => prev.filter(p => p.id !== photoId));
-            setHasChanges(true);
-            if (selectedPhoto?.id === photoId) {
+            deletePhotoFromServer(photo);
+            if (selectedPhoto?.id === photo.id) {
               setShowPhotoDetail(false);
               setSelectedPhoto(null);
             }
@@ -531,7 +544,47 @@ export default function VisiteScreen() {
         notes: photos.map(p => p.userComments).filter(c => c).join('\n\n'),
       };
 
-      await visitService.createVisit(visitData);
+      // await visitService.createVisit(visitData);
+      let visitResponse;
+      let visitId = existingVisitId;
+      // Check if visit already exists for this mission
+      if (existingVisitId) {
+        // Update existing visit
+        visitResponse = await visitService.updateVisit(existingVisitId, {
+          visitDate: new Date().toISOString(),
+          photos: visitPhotos,
+          notes: visitNotes,
+        });
+        console.log('Updated existing visit:', existingVisitId);
+      } else {
+        // Create new visit
+        visitResponse = await visitService.createVisit({
+          missionId: mission?.id?.toString() || '',
+          visitDate: new Date().toISOString(),
+          photos: visitPhotos,
+          notes: visitNotes,
+        });
+        visitId = visitResponse.data?.id;
+        setExistingVisitId(visitId);
+        console.log('Created new visit:', visitId);
+      }
+
+      if (visitResponse.error) {
+        console.error('Error saving visit:', visitResponse.error);
+        Alert.alert(
+          'Erreur',
+          "La visite n'a pas pu être enregistrée, veuillez réessayer ou contacter l'administrateur.",
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // setPhotos([]);
+                // setUploadedPhotoUrls([]);
+              }
+            }
+          ]
+        );
+      }
 
       Alert.alert(
         'Succès',
@@ -572,67 +625,68 @@ export default function VisiteScreen() {
     setIsSavingReport(true);
 
     try {
-      // 1. Save visit first
-      const visitPhotos = photos.map(p => ({
-        id: p.id,
-        uri: p.uri,
-        s3Url: p.s3Url,
-        analysis: {
-          observation: p.aiAnalysis?.observations.join(', ') || '',
-          recommendation: p.aiAnalysis?.recommendations.join(', ') || '',
-          riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
-            p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
-              'faible' as const,
-          confidence: p.aiAnalysis?.confidence || 0,
-        },
-        comment: p.userComments,
-        validated: p.validated,
-      }));
+      // // 1. Save visit first
+      // const visitPhotos = photos.map(p => ({
+      //   id: p.id,
+      //   uri: p.uri,
+      //   s3Url: p.s3Url,
+      //   analysis: {
+      //     observation: p.aiAnalysis?.observations.join(', ') || '',
+      //     recommendation: p.aiAnalysis?.recommendations.join(', ') || '',
+      //     riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
+      //       p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
+      //         'faible' as const,
+      //     confidence: p.aiAnalysis?.confidence || 0,
+      //   },
+      //   comment: p.userComments,
+      //   validated: p.validated,
+      // }));
 
-      const visitData = {
-        missionId: mission.id.toString(),
-        visitDate: new Date().toISOString(),
-        photos: visitPhotos,
-        photoCount: photos.length,
-        notes: photos.map(p => p.userComments).filter(c => c).join('\n\n'),
-      };
+      // const visitData = {
+      //   missionId: mission.id.toString(),
+      //   visitDate: new Date().toISOString(),
+      //   photos: visitPhotos,
+      //   photoCount: photos.length,
+      //   notes: photos.map(p => p.userComments).filter(c => c).join('\n\n'),
+      // };
 
-      const visitResponse = await visitService.createVisit(visitData);
-      const savedVisitId = visitResponse.data?.id || existingVisitId;
+      // const visitResponse = await visitService.createVisit(visitData);
+      // const savedVisitId = visitResponse.data?.id || existingVisitId;
 
-      if (!savedVisitId) {
-        throw new Error('Impossible de créer la visite');
-      }
+      // if (!savedVisitId) {
+      //   throw new Error('Impossible de créer la visite');
+      // }
 
-      // 2. Calculate conformity
-      const conformity = Math.round(
-        photos.reduce((acc, p) => {
-          if (p.aiAnalysis?.riskLevel === 'low') return acc + 95;
-          if (p.aiAnalysis?.riskLevel === 'medium') return acc + 75;
-          if (p.aiAnalysis?.riskLevel === 'high') return acc + 60;
-          return acc + 85;
-        }, 0) / photos.length
-      );
+      // // 2. Calculate conformity
+      // const conformity = Math.round(
+      //   photos.reduce((acc, p) => {
+      //     if (p.aiAnalysis?.riskLevel === 'low') return acc + 95;
+      //     if (p.aiAnalysis?.riskLevel === 'medium') return acc + 75;
+      //     if (p.aiAnalysis?.riskLevel === 'high') return acc + 60;
+      //     return acc + 85;
+      //   }, 0) / photos.length
+      // );
 
-      // 3. Save report
-      const reportData = {
-        missionId: mission.id.toString(),
-        visitId: savedVisitId,
-        title: `Rapport de visite - ${mission.title}`,
-        content: reportContent,
-        header: reportHeader,
-        footer: reportFooter,
-        status: 'brouillon' as const,
-        conformityPercentage: conformity,
-      };
+      // // 3. Save report
+      // const reportData = {
+      //   missionId: mission.id.toString(),
+      //   visitId: savedVisitId,
+      //   title: `Rapport de visite - ${mission.title}`,
+      //   content: reportContent,
+      //   header: reportHeader,
+      //   footer: reportFooter,
+      //   status: 'brouillon' as const,
+      //   conformityPercentage: conformity,
+      // };
 
-      const reportResponse = await reportService.createReport(reportData);
+      // const reportResponse = await reportService.createReport(reportData);
+      const response = await saveSendReport(false);
 
-      if (reportResponse.data) {
+      if (response) {
         setReportSaved(true);
         setReportValidated(true);
-        setExistingVisitId(savedVisitId);
-        setExistingReportId(reportResponse.data.id);
+        // setExistingVisitId(savedVisitId);
+        // setExistingReportId(reportResponse.data.id);
         setHasExistingVisit(true);
         Alert.alert(
           'Succès',
@@ -778,11 +832,11 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
   };
 
   // Envoyer le rapport
-  const sendReport = async () => {
-    if (!reportValidated) {
-      Alert.alert('Validation requise', 'Vous devez valider le rapport avant de l\'envoyer.');
-      return;
-    }
+  const saveSendReport = async (isToSend?: boolean = true) => {
+    // if (!reportValidated) {
+    //   Alert.alert('Validation requise', 'Vous devez valider le rapport avant de l\'envoyer.');
+    //   return;
+    // }
 
     // If report was edited, update photos from the edited content
     if (editingReport) {
@@ -855,7 +909,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           content: reportContent,
           header: reportHeader,
           footer: reportFooter,
-          status: 'envoye',
+          status: isToSend ? 'envoye' : 'brouillon',
           conformityPercentage: conformity,
         });
         console.log('Updated existing report:', existingReportId);
@@ -869,11 +923,11 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           content: reportContent,
           header: reportHeader,
           footer: reportFooter,
-          status: 'envoye',
+          status: isToSend ? 'envoye' : 'brouillon',
           conformityPercentage: conformity,
           recipientEmail: mission?.contactEmail || undefined,
         });
-        setExistingReportId(reportResponse.data?.id);
+        setExistingReportId(reportResponse?.data?.id);
         setReportStatus('envoye');
         setHasChanges(false);
         console.log('Created new report:', reportResponse.data?.id);
@@ -916,33 +970,34 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
       const updatedReports = [newReport, ...parsedReports];
       await AsyncStorage.setItem('userReports', JSON.stringify(updatedReports));
 
-      const pdfPhotos = photos.map(p => ({
-        uri: p.s3Url || p.uri,
-        comment: p.userComments,
-      }));
+      if (isToSend) {
+        const pdfPhotos = photos.map(p => ({
+          uri: p.s3Url || p.uri,
+          comment: p.userComments,
+        }));
 
-      const pdfData = {
-        title: `RAPPORT VISITE - ${mission?.title}`,
-        mission: mission?.title || 'Mission inconnue',
-        client: mission?.client || 'Client inconnu',
-        date: new Date().toLocaleDateString('fr-FR'),
-        conformity,
-        header: reportHeader,
-        content: reportContent,
-        footer: reportFooter,
-        photos: photos,
-      };
+        const pdfData = {
+          title: `RAPPORT VISITE - ${mission?.title}`,
+          mission: mission?.title || 'Mission inconnue',
+          client: mission?.client || 'Client inconnu',
+          date: new Date().toLocaleDateString('fr-FR'),
+          conformity,
+          header: reportHeader,
+          content: reportContent,
+          footer: reportFooter,
+          photos: photos,
+        };
 
-      setShowPdfLoadingModal(true);
-      setPdfLoadingProgress('Conversion des photos...');
+        setShowPdfLoadingModal(true);
+        setPdfLoadingProgress('Conversion des photos...');
 
-      const pdfPath = await pdfService.generateReportPDF(pdfData);
+        const pdfPath = await pdfService.generateReportPDF(pdfData);
 
-      setPdfLoadingProgress('Finalisation...');
+        setPdfLoadingProgress('Finalisation...');
 
-      const adminEmail = mission?.contactEmail || 'admin@csps.fr';
-      const subject = `Rapport de visite - ${mission?.title}`;
-      const body = `Bonjour,
+        const adminEmail = process.env.SEND_REPORT_ADMIN_EMAIL || mission?.contactEmail;
+        const subject = `Rapport de visite - ${mission?.title}`;
+        const body = `Bonjour,
 
 Veuillez trouver ci-joint le rapport de visite suivant:
 
@@ -956,39 +1011,42 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement`;
 
-      // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
-      //   adminEmail,
-      //   subject,
-      //   body,
-      //   pdfPath || undefined
-      // );
+        // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
+        //   adminEmail,
+        //   subject,
+        //   body,
+        //   pdfPath || undefined
+        // );
 
-      // await Linking.openURL(mailtoUrl);
+        // await Linking.openURL(mailtoUrl);
 
-      const isAvailable = await MailComposer.isAvailableAsync();
-      if (!isAvailable) {
-        console.warn('📧 MailComposer non disponible sur cet appareil.');
-        // return pdfPath;
+        const isAvailable = await MailComposer.isAvailableAsync();
+        if (!isAvailable) {
+          console.warn('📧 MailComposer non disponible sur cet appareil.');
+          // return pdfPath;
+        }
+
+        // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
+        const mailOptions = {
+          recipients: [adminEmail],
+          subject: subject,
+          body: body,
+        };
+
+        if (pdfPath) {
+          mailOptions.attachments = [pdfPath] // pièce jointe
+        }
+
+        // 6️⃣ Ouvrir le mail ready-to-send
+        await MailComposer.composeAsync(mailOptions);
+
+        console.log('📤 Email prêt à être envoyé !');
+
+        setShowPdfLoadingModal(false);
+        setShowReportModal(false);
+
       }
-
-      // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
-      const mailOptions = {
-        recipients: [adminEmail],
-        subject: subject,
-        body: body,
-      };
-
-      if (pdfPath) {
-        mailOptions.attachments = [pdfPath] // pièce jointe
-      }
-
-      // 6️⃣ Ouvrir le mail ready-to-send
-      await MailComposer.composeAsync(mailOptions);
-
-      console.log('📤 Email prêt à être envoyé !');
-
-      setShowPdfLoadingModal(false);
-      setShowReportModal(false);
+      return true;
 
     } catch (error: any) {
       console.error('Erreur sauvegarde rapport:', error);
@@ -1430,7 +1488,7 @@ Cordialement`;
                       {reportStatus !== 'valide' && (!mission || (mission as any).originalStatus !== 'terminee') && (
                         <TouchableOpacity
                           style={styles.deletePhotoButton}
-                          onPress={() => deletePhoto(selectedPhoto.id)}
+                          onPress={() => deletePhoto(selectedPhoto)}
                         >
                           <Trash2 size={20} color="#EF4444" />
                         </TouchableOpacity>
@@ -1696,7 +1754,7 @@ Cordialement`;
                     reportSaved && styles.validateReportButtonActive
                   ]}
                   onPress={saveReportAndVisit}
-                  disabled={reportSaved || isSavingReport}
+                  disabled={isSavingReport}
                 >
                   <View style={styles.validateReportContent}>
                     {isSavingReport ? (
@@ -1710,7 +1768,7 @@ Cordialement`;
                       styles.validateReportText,
                       reportSaved && styles.validateReportTextActive
                     ]}>
-                      {isSavingReport ? 'ENREGISTREMENT...' : reportSaved ? 'RAPPORT ENREGISTRÉ' : 'ENREGISTRER LE RAPPORT'}
+                      {isSavingReport ? 'ENREGISTREMENT...' : 'ENREGISTRER LE RAPPORT'}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -1720,7 +1778,7 @@ Cordialement`;
                     styles.sendReportButton,
                     !reportSaved && styles.sendReportButtonDisabled
                   ]}
-                  onPress={sendReport}
+                  onPress={() => saveSendReport(true)}
                   disabled={!reportSaved}
                 >
                   <LinearGradient

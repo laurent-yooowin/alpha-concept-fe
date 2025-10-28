@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -73,6 +73,59 @@ export class UploadService {
     } catch (error) {
       console.error('Erreur lors de l\'upload S3:', error);
       throw new BadRequestException('Échec de l\'upload du fichier vers S3');
+    }
+  }
+
+  async deleteFile(url: string): Promise<{ fileName: string; message: string }> {
+    if (!url || url.trim() === '' || !url.includes(`https://${this.bucketName}.s3.${this.region}.amazonaws.com/`)) {
+      throw new BadRequestException('Aucune url fourni');
+    }
+
+    // Validate file type
+    // const allowedMimeTypes = [
+    //   'image/jpeg',
+    //   'image/png',
+    //   'image/jpg',
+    //   'image/webp',
+    //   'application/pdf',
+    //   'text/csv',
+    //   'application/vnd.ms-excel',
+    //   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    // ];
+
+    // if (!allowedMimeTypes.includes(file.mimetype)) {
+    //   throw new BadRequestException('Type de fichier non autorisé. Formats acceptés: images (JPEG, PNG, WebP), PDF, CSV, Excel');
+    // }
+
+    // Validate file size (max 10MB)
+    // const maxSize = 10 * 1024 * 1024; // 10MB
+    // if (file.size > maxSize) {
+    //   throw new BadRequestException('Fichier trop volumineux. Taille maximale: 10MB');
+    // }
+
+    // Generate unique file key
+    // const fileExtension = file.originalname.split('.').pop();
+    const fileName = url.split('.com/')[1];
+    if(!fileName){
+      throw new BadRequestException('URL invalide');
+    }
+
+    try {
+      // Upload to S3 using access point ARN
+      const command = new DeleteObjectCommand({
+        Bucket: this.bucketName,
+        Key: fileName,
+      });
+
+      await this.s3Client.send(command);      
+
+      return {
+        fileName: fileName,  
+        message: 'Fichier supprimé avec succès',
+      };
+    } catch (error) {
+      console.error('Erreur lors du delete du fichier dans S3: ', error);
+      throw new BadRequestException('Erreur lors du delete du fichier dans S3 !');
     }
   }
 

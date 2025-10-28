@@ -6,15 +6,28 @@ import {
   UploadedFiles,
   BadRequestException,
   UseGuards,
+  Body,
+  Delete,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+// import { User } from 'src/user/user.entity';
+import { DeleteFileDto } from './upload.dto';
 
 @Controller('upload')
 @UseGuards(JwtAuthGuard)
 export class UploadController {
-  constructor(private readonly uploadService: UploadService) {}
+  constructor(private readonly uploadService: UploadService) { }
+
+  @Post('delete')
+  async deleteFileByUrl(
+    @Body() deleteFileDto: DeleteFileDto,
+  ) {
+    const { url } = deleteFileDto;
+    console.log('Received URL to delete:', url);
+    return await this.uploadService.deleteFile(url);
+  }
 
   @Post('single')
   @UseInterceptors(FileInterceptor('file'))
