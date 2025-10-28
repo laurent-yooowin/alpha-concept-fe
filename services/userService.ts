@@ -8,6 +8,7 @@ export interface User {
   role: 'csps' | 'admin' | 'coordinator';
   phone?: string;
   company?: string;
+  experience?: number;
   isActive: boolean;
   createdAt: string;
 }
@@ -15,6 +16,14 @@ export interface User {
 export const userService = {
   async getProfile() {
     return api.get<User>('/users/profile');
+  },
+
+  async updateProfile(userData: Partial<User>) {
+    const profile = await this.getProfile();
+    if (profile.data?.id) {
+      return api.put<User>(`/users/${profile.data.id}`, userData);
+    }
+    return { error: 'Unable to get user ID' };
   },
 
   async getAllUsers() {

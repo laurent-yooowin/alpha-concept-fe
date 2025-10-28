@@ -35,6 +35,9 @@ export class User {
   @Column({ nullable: true })
   company: string;
 
+  @Column({ nullable: true, type: 'int' })
+  experience: number;
+
   @Column({ default: true })
   isActive: boolean;
 

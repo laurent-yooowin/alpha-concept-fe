@@ -41,6 +41,7 @@ export default function ProfilScreen() {
     location: 'Lyon, France',
     memberSince: '2022',
     company: '',
+    experience: 0,
   });
 
   React.useEffect(() => {
@@ -68,6 +69,7 @@ export default function ProfilScreen() {
         location: 'Lyon, France',
         memberSince: new Date(user.createdAt).getFullYear().toString(),
         company: user.company || '',
+        experience: user.experience || 0,
       });
     } else if (response.error) {
       Alert.alert('Erreur', 'Impossible de charger le profil');
@@ -121,13 +123,15 @@ export default function ProfilScreen() {
       setTempValue(coordinatorInfo.email);
     } else if (field === 'password') {
       setTempValue('');
+    } else if (field === 'experience') {
+      setTempValue(coordinatorInfo.experience.toString());
     } else {
-      setTempValue(coordinatorInfo[field as keyof typeof coordinatorInfo] || '');
+      setTempValue(coordinatorInfo[field as keyof typeof coordinatorInfo]?.toString() || '');
     }
     setShowEditModal(true);
   };
 
-  const handleSaveField = () => {
+  const handleSaveField = async () => {
     if (!tempValue.trim()) {
       Alert.alert('Erreur', 'Veuillez saisir une valeur');
       return;
@@ -141,6 +145,21 @@ export default function ProfilScreen() {
       }
       setCoordinatorInfo(prev => ({ ...prev, email: tempValue }));
       Alert.alert('Succès', 'Email modifié avec succès');
+    } else if (editingField === 'experience') {
+      const experienceNum = parseInt(tempValue);
+      if (isNaN(experienceNum) || experienceNum < 0 || experienceNum > 99) {
+        Alert.alert('Erreur', 'Veuillez saisir un nombre valide entre 0 et 99');
+        return;
+      }
+
+      const response = await userService.updateProfile({ experience: experienceNum });
+      if (response.data) {
+        setCoordinatorInfo(prev => ({ ...prev, experience: experienceNum }));
+        Alert.alert('Succès', 'Expérience modifiée avec succès');
+      } else {
+        Alert.alert('Erreur', 'Impossible de sauvegarder l\'expérience');
+        return;
+      }
     } else if (editingField === 'password') {
       if (tempValue.length < 6) {
         Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères');
@@ -169,6 +188,7 @@ export default function ProfilScreen() {
       case 'phone': return 'Téléphone';
       case 'email': return 'Adresse email';
       case 'location': return 'Localisation';
+      case 'experience': return 'Années d\'expérience';
       case 'password': return 'Nouveau mot de passe';
       default: return 'Information';
     }
@@ -250,7 +270,7 @@ export default function ProfilScreen() {
                 <Edit size={14} color="#64748B" />
               </TouchableOpacity>
               
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.contactItem}
                 onPress={() => handleEditField('location')}
               >
@@ -258,7 +278,18 @@ export default function ProfilScreen() {
                 <Text style={styles.contactText}>{coordinatorInfo.location}</Text>
                 <Edit size={14} color="#64748B" />
               </TouchableOpacity>
-              
+
+              <TouchableOpacity
+                style={styles.contactItem}
+                onPress={() => handleEditField('experience')}
+              >
+                <Award size={16} color="#94A3B8" />
+                <Text style={styles.contactText}>
+                  {coordinatorInfo.experience} ans d'expérience
+                </Text>
+                <Edit size={14} color="#64748B" />
+              </TouchableOpacity>
+
               <View style={styles.contactItem}>
                 <Calendar size={16} color="#94A3B8" />
                 <Text style={styles.contactText}>Coordonnateur depuis {coordinatorInfo.memberSince}</Text>
@@ -365,7 +396,7 @@ export default function ProfilScreen() {
                     value={tempValue}
                     onChangeText={setTempValue}
                     secureTextEntry={editingField === 'password'}
-                    keyboardType={editingField === 'email' ? 'email-address' : editingField === 'phone' ? 'phone-pad' : 'default'}
+                    keyboardType={editingField === 'experience' ? 'numeric' : editingField === 'email' ? 'email-address' : editingField === 'phone' ? 'phone-pad' : 'default'}
                     autoCapitalize={editingField === 'email' ? 'none' : 'words'}
                   />
                 </View>
