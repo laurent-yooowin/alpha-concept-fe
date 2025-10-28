@@ -132,7 +132,7 @@ export default function ProfilScreen() {
   };
 
   const handleSaveField = async () => {
-    if (!tempValue.trim()) {
+    if (!tempValue.trim() && editingField !== 'phone' && editingField !== 'company') {
       Alert.alert('Erreur', 'Veuillez saisir une valeur');
       return;
     }
@@ -143,8 +143,50 @@ export default function ProfilScreen() {
         Alert.alert('Erreur', 'Veuillez saisir un email valide');
         return;
       }
-      setCoordinatorInfo(prev => ({ ...prev, email: tempValue }));
-      Alert.alert('Succès', 'Email modifié avec succès');
+
+      const response = await userService.updateProfile({ email: tempValue });
+      if (response.data) {
+        setCoordinatorInfo(prev => ({ ...prev, email: tempValue }));
+        Alert.alert('Succès', 'Email modifié avec succès');
+      } else {
+        Alert.alert('Erreur', 'Impossible de sauvegarder l\'email');
+        return;
+      }
+    } else if (editingField === 'name') {
+      const names = tempValue.trim().split(' ');
+      if (names.length < 2) {
+        Alert.alert('Erreur', 'Veuillez saisir prénom et nom');
+        return;
+      }
+      const firstName = names[0];
+      const lastName = names.slice(1).join(' ');
+
+      const response = await userService.updateProfile({ firstName, lastName });
+      if (response.data) {
+        setCoordinatorInfo(prev => ({ ...prev, name: tempValue }));
+        Alert.alert('Succès', 'Nom modifié avec succès');
+      } else {
+        Alert.alert('Erreur', 'Impossible de sauvegarder le nom');
+        return;
+      }
+    } else if (editingField === 'phone') {
+      const response = await userService.updateProfile({ phone: tempValue });
+      if (response.data) {
+        setCoordinatorInfo(prev => ({ ...prev, phone: tempValue }));
+        Alert.alert('Succès', 'Téléphone modifié avec succès');
+      } else {
+        Alert.alert('Erreur', 'Impossible de sauvegarder le téléphone');
+        return;
+      }
+    } else if (editingField === 'company') {
+      const response = await userService.updateProfile({ company: tempValue });
+      if (response.data) {
+        setCoordinatorInfo(prev => ({ ...prev, company: tempValue }));
+        Alert.alert('Succès', 'Entreprise modifiée avec succès');
+      } else {
+        Alert.alert('Erreur', 'Impossible de sauvegarder l\'entreprise');
+        return;
+      }
     } else if (editingField === 'experience') {
       const experienceNum = parseInt(tempValue);
       if (isNaN(experienceNum) || experienceNum < 0 || experienceNum > 99) {
@@ -165,7 +207,14 @@ export default function ProfilScreen() {
         Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères');
         return;
       }
-      Alert.alert('Succès', 'Mot de passe modifié avec succès');
+
+      const response = await userService.updateProfile({ password: tempValue });
+      if (response.data) {
+        Alert.alert('Succès', 'Mot de passe modifié avec succès');
+      } else {
+        Alert.alert('Erreur', 'Impossible de sauvegarder le mot de passe');
+        return;
+      }
     } else if (editingField && editingField in coordinatorInfo) {
       setCoordinatorInfo(prev => ({ ...prev, [editingField]: tempValue }));
       Alert.alert('Succès', 'Information modifiée avec succès');
@@ -185,8 +234,11 @@ export default function ProfilScreen() {
   const getFieldLabel = (field: string) => {
     switch (field) {
       case 'name': return 'Nom complet';
+      case 'firstName': return 'Prénom';
+      case 'lastName': return 'Nom';
       case 'phone': return 'Téléphone';
       case 'email': return 'Adresse email';
+      case 'company': return 'Entreprise';
       case 'location': return 'Localisation';
       case 'experience': return 'Années d\'expérience';
       case 'password': return 'Nouveau mot de passe';
@@ -252,7 +304,16 @@ export default function ProfilScreen() {
               colors={['#1E293B', '#374151']}
               style={styles.contactGradient}
             >
-              <TouchableOpacity 
+              <TouchableOpacity
+                style={styles.contactItem}
+                onPress={() => handleEditField('name')}
+              >
+                <User size={16} color="#94A3B8" />
+                <Text style={styles.contactText}>{coordinatorInfo.name}</Text>
+                <Edit size={14} color="#64748B" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={styles.contactItem}
                 onPress={() => handleEditField('email')}
               >
@@ -260,16 +321,25 @@ export default function ProfilScreen() {
                 <Text style={styles.contactText}>{coordinatorInfo.email}</Text>
                 <Edit size={14} color="#64748B" />
               </TouchableOpacity>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={styles.contactItem}
                 onPress={() => handleEditField('phone')}
               >
                 <Phone size={16} color="#94A3B8" />
-                <Text style={styles.contactText}>{coordinatorInfo.phone}</Text>
+                <Text style={styles.contactText}>{coordinatorInfo.phone || 'Téléphone non renseigné'}</Text>
                 <Edit size={14} color="#64748B" />
               </TouchableOpacity>
-              
+
+              <TouchableOpacity
+                style={styles.contactItem}
+                onPress={() => handleEditField('company')}
+              >
+                <User size={16} color="#94A3B8" />
+                <Text style={styles.contactText}>{coordinatorInfo.company || 'Entreprise non renseignée'}</Text>
+                <Edit size={14} color="#64748B" />
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.contactItem}
                 onPress={() => handleEditField('location')}
@@ -367,59 +437,110 @@ export default function ProfilScreen() {
       </ScrollView>
 
       {/* Edit Modal */}
-      <Modal visible={showEditModal} animationType="slide" transparent>
+      <Modal visible={showEditModal} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.editModal}>
             <LinearGradient
-              colors={['#1E293B', '#374151']}
+              colors={['#1E293B', '#0F172A']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               style={styles.editModalGradient}
             >
               <View style={styles.editModalHeader}>
-                <Text style={styles.editModalTitle}>
-                  MODIFIER {getFieldLabel(editingField || '').toUpperCase()}
-                </Text>
+                <View style={styles.editModalHeaderContent}>
+                  <LinearGradient
+                    colors={['#3B82F6', '#1D4ED8']}
+                    style={styles.editModalIconContainer}
+                  >
+                    {editingField === 'password' ? (
+                      <Lock size={20} color="#FFFFFF" />
+                    ) : editingField === 'email' ? (
+                      <Mail size={20} color="#FFFFFF" />
+                    ) : editingField === 'phone' ? (
+                      <Phone size={20} color="#FFFFFF" />
+                    ) : editingField === 'company' ? (
+                      <User size={20} color="#FFFFFF" />
+                    ) : editingField === 'experience' ? (
+                      <Award size={20} color="#FFFFFF" />
+                    ) : editingField === 'location' ? (
+                      <MapPin size={20} color="#FFFFFF" />
+                    ) : (
+                      <Edit size={20} color="#FFFFFF" />
+                    )}
+                  </LinearGradient>
+                  <View style={styles.editModalTitleContainer}>
+                    <Text style={styles.editModalTitle}>
+                      {getFieldLabel(editingField || '')}
+                    </Text>
+                    <Text style={styles.editModalSubtitle}>
+                      Modifier votre {getFieldLabel(editingField || '').toLowerCase()}
+                    </Text>
+                  </View>
+                </View>
                 <TouchableOpacity
                   style={styles.editModalCloseButton}
                   onPress={handleCancelEdit}
                 >
-                  <X size={20} color="#FFFFFF" />
+                  <X size={22} color="#64748B" />
                 </TouchableOpacity>
               </View>
 
               <View style={styles.editModalContent}>
-                <Text style={styles.editInputLabel}>{getFieldLabel(editingField || '')}</Text>
-                <View style={styles.editInputContainer}>
-                  <TextInput
-                    style={styles.editTextInput}
-                    placeholder={`Saisir ${getFieldLabel(editingField || '').toLowerCase()}`}
-                    placeholderTextColor="#64748B"
-                    value={tempValue}
-                    onChangeText={setTempValue}
-                    secureTextEntry={editingField === 'password'}
-                    keyboardType={editingField === 'experience' ? 'numeric' : editingField === 'email' ? 'email-address' : editingField === 'phone' ? 'phone-pad' : 'default'}
-                    autoCapitalize={editingField === 'email' ? 'none' : 'words'}
-                  />
+                <View style={styles.editInputWrapper}>
+                  <Text style={styles.editInputLabel}>
+                    {getFieldLabel(editingField || '')}
+                  </Text>
+                  <View style={styles.editInputContainer}>
+                    <TextInput
+                      style={styles.editTextInput}
+                      placeholder={`Saisir ${getFieldLabel(editingField || '').toLowerCase()}`}
+                      placeholderTextColor="#475569"
+                      value={tempValue}
+                      onChangeText={setTempValue}
+                      secureTextEntry={editingField === 'password'}
+                      keyboardType={editingField === 'experience' ? 'numeric' : editingField === 'email' ? 'email-address' : editingField === 'phone' ? 'phone-pad' : 'default'}
+                      autoCapitalize={editingField === 'email' ? 'none' : 'words'}
+                      autoFocus
+                    />
+                  </View>
+                  {editingField === 'password' && (
+                    <Text style={styles.editInputHint}>
+                      Le mot de passe doit contenir au moins 6 caractères
+                    </Text>
+                  )}
+                  {editingField === 'name' && (
+                    <Text style={styles.editInputHint}>
+                      Format: Prénom Nom (ex: Pierre Dupont)
+                    </Text>
+                  )}
+                  {editingField === 'experience' && (
+                    <Text style={styles.editInputHint}>
+                      Nombre d'années entre 0 et 99
+                    </Text>
+                  )}
                 </View>
               </View>
 
               <View style={styles.editModalActions}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.editCancelButton}
                   onPress={handleCancelEdit}
                 >
-                  <Text style={styles.editCancelButtonText}>ANNULER</Text>
+                  <Text style={styles.editCancelButtonText}>Annuler</Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
+
+                <TouchableOpacity
                   style={styles.editSaveButton}
                   onPress={handleSaveField}
                 >
                   <LinearGradient
                     colors={['#10B981', '#059669']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
                     style={styles.editSaveButtonGradient}
                   >
-                    <Save size={16} color="#FFFFFF" />
-                    <Text style={styles.editSaveButtonText}>ENREGISTRER</Text>
+                    <Save size={18} color="#FFFFFF" />
+                    <Text style={styles.editSaveButtonText}>Enregistrer</Text>
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
@@ -675,49 +796,82 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
   },
   editModal: {
     width: '100%',
-    maxWidth: 400,
-    borderRadius: 20,
+    maxWidth: 440,
+    borderRadius: 24,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
   editModalGradient: {
-    padding: 24,
+    padding: 28,
   },
   editModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 28,
+  },
+  editModalHeaderContent: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    flex: 1,
+    gap: 16,
+  },
+  editModalIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editModalTitleContainer: {
+    flex: 1,
   },
   editModalTitle: {
-    fontSize: 16,
+    fontSize: 20,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
-    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  editModalSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
   },
   editModalCloseButton: {
-    padding: 4,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(100, 116, 139, 0.1)',
   },
   editModalContent: {
-    marginBottom: 24,
+    marginBottom: 28,
+  },
+  editInputWrapper: {
+    gap: 12,
   },
   editInputLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#94A3B8',
-    marginBottom: 8,
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
+    color: '#E2E8F0',
+    marginBottom: 0,
   },
   editInputContainer: {
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: 'rgba(51, 65, 85, 0.6)',
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.1)',
   },
   editTextInput: {
     fontSize: 16,
@@ -725,40 +879,51 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     minHeight: 24,
   },
+  editInputHint: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#64748B',
+    marginTop: -4,
+  },
   editModalActions: {
     flexDirection: 'row',
     gap: 12,
   },
   editCancelButton: {
     flex: 1,
-    backgroundColor: '#374151',
-    borderRadius: 12,
-    paddingVertical: 12,
+    backgroundColor: 'rgba(51, 65, 85, 0.5)',
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
   },
   editCancelButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Bold',
-    color: '#94A3B8',
-    letterSpacing: 0.5,
+    fontSize: 15,
+    fontFamily: 'Inter-SemiBold',
+    color: '#CBD5E1',
   },
   editSaveButton: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 14,
     overflow: 'hidden',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   editSaveButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
+    paddingVertical: 14,
+    gap: 10,
   },
   editSaveButtonText: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
-    letterSpacing: 0.5,
   },
 });
