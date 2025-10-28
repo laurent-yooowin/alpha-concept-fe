@@ -33,6 +33,7 @@ export default function HomeScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
+  const [missionsCount, setMissionsCount] = useState(0);
   const [newMission, setNewMission] = useState({
     title: '',
     client: '',
@@ -77,6 +78,11 @@ export default function HomeScreen() {
       const response = await userService.getProfile();
       if (response.data) {
         setUserProfile(response.data);
+      }
+
+      const missionsResponse = await missionService.getMissions();
+      if (missionsResponse.data) {
+        setMissionsCount(missionsResponse.data.length);
       }
     } catch (error) {
       console.log('Erreur lors du chargement du profil:', error);
@@ -498,11 +504,13 @@ export default function HomeScreen() {
 
                 <View style={styles.coordinatorStats}>
                   <View style={styles.coordinatorStat}>
-                    <Text style={styles.coordinatorStatValue}>5</Text>
+                    <Text style={styles.coordinatorStatValue}>
+                      {userProfile?.experience || 0}
+                    </Text>
                     <Text style={styles.coordinatorStatLabel}>ans d'expérience</Text>
                   </View>
                   <View style={styles.coordinatorStat}>
-                    <Text style={styles.coordinatorStatValue}>127</Text>
+                    <Text style={styles.coordinatorStatValue}>{missionsCount}</Text>
                     <Text style={styles.coordinatorStatLabel}>missions réalisées</Text>
                   </View>
                 </View>
@@ -518,11 +526,13 @@ export default function HomeScreen() {
 
                 <View style={styles.coordinatorStats}>
                   <View style={styles.coordinatorStat}>
-                    <Text style={styles.coordinatorStatValue}>5</Text>
+                    <Text style={styles.coordinatorStatValue}>
+                      {userProfile?.experience || 0}
+                    </Text>
                     <Text style={styles.coordinatorStatLabel}>ans d'expérience</Text>
                   </View>
                   <View style={styles.coordinatorStat}>
-                    <Text style={styles.coordinatorStatValue}>127</Text>
+                    <Text style={styles.coordinatorStatValue}>{missionsCount}</Text>
                     <Text style={styles.coordinatorStatLabel}>missions réalisées</Text>
                   </View>
                 </View>
