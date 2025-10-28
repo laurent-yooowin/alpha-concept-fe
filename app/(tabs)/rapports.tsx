@@ -79,12 +79,8 @@ export default function RapportsScreen() {
             mission: report.mission?.title || 'Mission inconnue',
             client: report.mission?.client || 'Client inconnu',
             date: new Date(report.createdAt).toISOString().split('T')[0],
-            status: report.status === 'brouillon' ? 'brouillons' :
-              report.status === 'envoye' ? 'envoyes' :
-                report.status === 'valide' ? 'valides' :
-                  report.status === 'rejete' ? 'rejetes' :
-                    'archives',
-            originalStatus: report.status,
+            status: report.status || 'brouillon',
+            originalStatus: report.status || 'brouillon',
             type: 'Rapport SPS',
             pages: Math.ceil(report.content.length / 500),
             photos: 0,
@@ -545,9 +541,9 @@ Cordialement`;
               <Text style={styles.emptyStateText}>
                 {activeFilter === 'tous'
                   ? 'Aucun rapport ne correspond à votre recherche'
-                  : `Aucun rapport ${activeFilter === 'envoyes' ? 'envoyé' :
-                    activeFilter === 'brouillons' ? 'en brouillon' :
-                      activeFilter === 'archives' ? 'archivé' : ''
+                  : `Aucun rapport ${activeFilter === 'envoye' ? 'envoyé' :
+                    activeFilter === 'brouillon' ? 'en brouillon' :
+                      activeFilter === 'archive' ? 'archivé' : ''
                   }`
                 }
               </Text>
