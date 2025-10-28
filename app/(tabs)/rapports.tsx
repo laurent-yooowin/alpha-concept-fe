@@ -382,23 +382,38 @@ Cordialement`;
     }
   };
 
+  const getFilterCounts = () => {
+    return {
+      tous: reports.length,
+      envoye: reports.filter(r => r.originalStatus === 'envoye').length,
+      brouillon: reports.filter(r => r.originalStatus === 'brouillon').length,
+      valide: reports.filter(r => r.originalStatus === 'valide').length,
+      rejete: reports.filter(r => r.originalStatus === 'rejete').length,
+    };
+  };
+
+  const filterCounts = getFilterCounts();
+
   const filters = [
-    { id: 'tous', label: 'Tous les rapports', count: 24, color: '#8B5CF6', icon: FileText },
-    { id: 'envoyes', label: 'Rapports envoyés', count: 15, color: '#10B981', icon: CheckCircle },
-    { id: 'brouillons', label: 'Brouillons', count: 6, color: '#F59E0B', icon: Clock },
-    { id: 'archives', label: 'Rapports archivés', count: 3, color: '#64748B', icon: Download },
+    { id: 'tous', label: 'Tous les rapports', count: filterCounts.tous, color: '#8B5CF6', icon: FileText, gradient: ['#8B5CF6', '#7C3AED'] },
+    { id: 'envoye', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
+    { id: 'brouillon', label: 'En cours', count: filterCounts.brouillon, color: '#F59E0B', icon: Clock, gradient: ['#F59E0B', '#D97706'] },
+    { id: 'valide', label: 'Validés', count: filterCounts.valide, color: '#3B82F6', icon: CheckCircle, gradient: ['#3B82F6', '#2563EB'] },
+    { id: 'rejete', label: 'Refusés', count: filterCounts.rejete, color: '#EF4444', icon: X, gradient: ['#EF4444', '#DC2626'] },
   ];
 
   const getStatusInfo = (status: string) => {
     switch (status) {
-      case 'envoyes':
-        return { label: 'Envoyé', color: '#10B981', icon: CheckCircle };
-      case 'brouillons':
-        return { label: 'Brouillon', color: '#F59E0B', icon: Clock };
-      case 'archives':
-        return { label: 'Archivé', color: '#64748B', icon: Download };
+      case 'envoye':
+        return { label: 'Envoyé', color: '#10B981', icon: Send };
+      case 'brouillon':
+        return { label: 'En cours', color: '#F59E0B', icon: Clock };
+      case 'valide':
+        return { label: 'Validé', color: '#3B82F6', icon: CheckCircle };
+      case 'rejete':
+        return { label: 'Refusé', color: '#EF4444', icon: X };
       default:
-        return { label: 'En cours', color: '#3B82F6', icon: Clock };
+        return { label: 'En cours', color: '#F59E0B', icon: Clock };
     }
   };
 
@@ -407,25 +422,10 @@ Cordialement`;
       rapport.mission.toLowerCase().includes(searchQuery.toLowerCase()) ||
       rapport.client.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesFilter = activeFilter === 'tous' || rapport.status === activeFilter;
+    const matchesFilter = activeFilter === 'tous' || rapport.originalStatus === activeFilter;
 
     return matchesSearch && matchesFilter;
   });
-
-  // Mettre à jour les compteurs dynamiquement
-  const getFilterCounts = () => {
-    const counts = {
-      tous: reports.length,
-      envoyes: reports.filter(r => r.status === 'envoyes').length,
-      brouillons: reports.filter(r => r.status === 'brouillons').length,
-      archives: reports.filter(r => r.status === 'archives').length,
-    };
-    return counts;
-  };
-
-  const filterCounts = getFilterCounts();
-
-  // Mettre à jour les filtres avec les compteurs corrects
   const updatedFilters = filters.map(filter => ({
     ...filter,
     count: filterCounts[filter.id as keyof typeof filterCounts] || 0
@@ -694,6 +694,12 @@ Cordialement`;
                 </TouchableOpacity>
               </View>
 
+              <View style={styles.filterMenuDescription}>
+                <Text style={styles.filterMenuDescriptionText}>
+                  Sélectionnez un statut pour filtrer vos rapports
+                </Text>
+              </View>
+
               {updatedFilters.map((filter) => {
                 const FilterIcon = filter.icon;
                 const isActive = activeFilter === filter.id;
@@ -709,17 +715,19 @@ Cordialement`;
                   >
                     {isActive ? (
                       <LinearGradient
-                        colors={[filter.color, filter.color + 'CC']}
+                        colors={filter.gradient}
                         style={styles.filterMenuItemGradient}
                       >
                         <View style={styles.filterMenuItemContent}>
                           <View style={styles.filterMenuItemLeft}>
-                            <View style={styles.filterMenuIcon}>
-                              <FilterIcon size={18} color="#FFFFFF" />
+                            <View style={styles.filterMenuIconActive}>
+                              <FilterIcon size={20} color="#FFFFFF" />
                             </View>
-                            <View>
+                            <View style={styles.filterMenuTextContainer}>
                               <Text style={styles.filterMenuItemTextActive}>{filter.label}</Text>
-                              <Text style={styles.filterMenuItemSubtextActive}>{filter.count} rapport{filter.count > 1 ? 's' : ''}</Text>
+                              <Text style={styles.filterMenuItemSubtextActive}>
+                                {filter.count} rapport{filter.count !== 1 ? 's' : ''}
+                              </Text>
                             </View>
                           </View>
                           <View style={styles.filterMenuBadgeActive}>
@@ -730,16 +738,18 @@ Cordialement`;
                     ) : (
                       <View style={styles.filterMenuItemContent}>
                         <View style={styles.filterMenuItemLeft}>
-                          <View style={[styles.filterMenuIcon, { backgroundColor: '#374151' }]}>
-                            <FilterIcon size={18} color="#94A3B8" />
+                          <View style={[styles.filterMenuIcon, { backgroundColor: filter.color + '20' }]}>
+                            <FilterIcon size={20} color={filter.color} />
                           </View>
-                          <View>
+                          <View style={styles.filterMenuTextContainer}>
                             <Text style={styles.filterMenuItemText}>{filter.label}</Text>
-                            <Text style={styles.filterMenuItemSubtext}>{filter.count} rapport{filter.count > 1 ? 's' : ''}</Text>
+                            <Text style={styles.filterMenuItemSubtext}>
+                              {filter.count} rapport{filter.count !== 1 ? 's' : ''}
+                            </Text>
                           </View>
                         </View>
-                        <View style={styles.filterMenuBadge}>
-                          <Text style={styles.filterMenuBadgeText}>{filter.count}</Text>
+                        <View style={[styles.filterMenuBadge, { backgroundColor: filter.color + '30' }]}>
+                          <Text style={[styles.filterMenuBadgeText, { color: filter.color }]}>{filter.count}</Text>
                         </View>
                       </View>
                     )}
@@ -1386,113 +1396,141 @@ const styles = StyleSheet.create({
   },
   filterMenu: {
     width: '100%',
-    maxWidth: 400,
-    borderRadius: 20,
+    maxWidth: 440,
+    borderRadius: 24,
     overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 10,
   },
   filterMenuGradient: {
-    padding: 20,
+    padding: 24,
   },
   filterMenuHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 8,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   filterMenuTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
-    letterSpacing: 1,
+    letterSpacing: 0.5,
+  },
+  filterMenuDescription: {
+    marginBottom: 20,
+  },
+  filterMenuDescriptionText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    lineHeight: 18,
   },
   closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#374151',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   filterMenuItem: {
-    backgroundColor: '#374151',
+    backgroundColor: '#0F172A',
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
   },
   filterMenuItemActive: {
     backgroundColor: 'transparent',
+    borderWidth: 0,
   },
   filterMenuItemGradient: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
   filterMenuItemContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
   filterMenuItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
+    flex: 1,
+  },
+  filterMenuTextContainer: {
     flex: 1,
   },
   filterMenuIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterMenuIconActive: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   filterMenuItemText: {
     fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
-    marginBottom: 2,
+    fontFamily: 'Inter-Bold',
+    color: '#F8FAFC',
+    marginBottom: 4,
   },
   filterMenuItemTextActive: {
     fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
+    fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   filterMenuItemSubtext: {
     fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#94A3B8',
+    fontFamily: 'Inter-Medium',
+    color: '#64748B',
   },
   filterMenuItemSubtextActive: {
     fontSize: 12,
-    fontFamily: 'Inter-Regular',
+    fontFamily: 'Inter-Medium',
     color: '#FFFFFF',
-    opacity: 0.8,
+    opacity: 0.85,
   },
   filterMenuBadge: {
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    minWidth: 32,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    minWidth: 38,
     alignItems: 'center',
   },
   filterMenuBadgeActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    minWidth: 32,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    minWidth: 38,
     alignItems: 'center',
   },
   filterMenuBadgeText: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter-Bold',
-    color: '#94A3B8',
   },
   filterMenuBadgeTextActive: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
   },
