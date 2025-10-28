@@ -82,6 +82,8 @@ export default function VisiteScreen() {
   const [reportFooter, setReportFooter] = useState('');
   const [editingReport, setEditingReport] = useState(false);
   const [reportValidated, setReportValidated] = useState(false);
+  const [reportSaved, setReportSaved] = useState(false);
+  const [isSavingReport, setIsSavingReport] = useState(false);
 
   // États de chargement
   const [analyzingPhoto, setAnalyzingPhoto] = useState(false);
@@ -551,6 +553,114 @@ export default function VisiteScreen() {
     }
   };
 
+  const saveReportAndVisit = async () => {
+    if (!mission) {
+      Alert.alert('Erreur', 'Veuillez sélectionner une mission');
+      return;
+    }
+
+    if (photos.length === 0) {
+      Alert.alert('Erreur', 'Veuillez prendre au moins une photo');
+      return;
+    }
+
+    if (!reportContent && !reportHeader && !reportFooter) {
+      Alert.alert('Erreur', 'Le rapport ne peut pas être vide');
+      return;
+    }
+
+    setIsSavingReport(true);
+
+    try {
+      // 1. Save visit first
+      const visitPhotos = photos.map(p => ({
+        id: p.id,
+        uri: p.uri,
+        s3Url: p.s3Url,
+        analysis: {
+          observation: p.aiAnalysis?.observations.join(', ') || '',
+          recommendation: p.aiAnalysis?.recommendations.join(', ') || '',
+          riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
+            p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
+              'faible' as const,
+          confidence: p.aiAnalysis?.confidence || 0,
+        },
+        comment: p.userComments,
+        validated: p.validated,
+      }));
+
+      const visitData = {
+        missionId: mission.id.toString(),
+        visitDate: new Date().toISOString(),
+        photos: visitPhotos,
+        photoCount: photos.length,
+        notes: photos.map(p => p.userComments).filter(c => c).join('\n\n'),
+      };
+
+      const visitResponse = await visitService.createVisit(visitData);
+      const savedVisitId = visitResponse.data?.id || existingVisitId;
+
+      if (!savedVisitId) {
+        throw new Error('Impossible de créer la visite');
+      }
+
+      // 2. Calculate conformity
+      const conformity = Math.round(
+        photos.reduce((acc, p) => {
+          if (p.aiAnalysis?.riskLevel === 'low') return acc + 95;
+          if (p.aiAnalysis?.riskLevel === 'medium') return acc + 75;
+          if (p.aiAnalysis?.riskLevel === 'high') return acc + 60;
+          return acc + 85;
+        }, 0) / photos.length
+      );
+
+      // 3. Save report
+      const reportData = {
+        missionId: mission.id.toString(),
+        visitId: savedVisitId,
+        title: `Rapport de visite - ${mission.title}`,
+        content: reportContent,
+        header: reportHeader,
+        footer: reportFooter,
+        status: 'brouillon' as const,
+        conformityPercentage: conformity,
+      };
+
+      const reportResponse = await reportService.createReport(reportData);
+
+      if (reportResponse.data) {
+        setReportSaved(true);
+        setReportValidated(true);
+        setExistingVisitId(savedVisitId);
+        setExistingReportId(reportResponse.data.id);
+        setHasExistingVisit(true);
+        Alert.alert(
+          'Succès',
+          'Le rapport et la visite ont été enregistrés avec succès. Vous pouvez maintenant envoyer le rapport.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error: any) {
+      console.error('Error saving report and visit:', error);
+      if (error.message?.includes('401') || error.message?.includes('token')) {
+        Alert.alert(
+          'Session expirée',
+          'Votre session a expiré. Veuillez vous reconnecter.',
+          [
+            {
+              text: 'Se reconnecter',
+              onPress: () => router.push('/login')
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Erreur', error.message || 'Impossible d\'enregistrer le rapport et la visite');
+      }
+    } finally {
+      setIsSavingReport(false);
+    }
+  };
+
   // Générer le rapport
   const generateReport = async () => {
     if (photos.length < 3) {
@@ -880,10 +990,24 @@ Cordialement`;
       setShowPdfLoadingModal(false);
       setShowReportModal(false);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur sauvegarde rapport:', error);
       setShowPdfLoadingModal(false);
-      Alert.alert('Erreur', 'Erreur lors de la sauvegarde du rapport');
+
+      if (error.message?.includes('401') || error.message?.includes('token')) {
+        Alert.alert(
+          'Session expirée',
+          'Votre session a expiré. Veuillez vous reconnecter.',
+          [
+            {
+              text: 'Se reconnecter',
+              onPress: () => router.push('/login')
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Erreur', 'Erreur lors de la sauvegarde du rapport');
+      }
       return;
     }
   };
@@ -1569,21 +1693,24 @@ Cordialement`;
                 <TouchableOpacity
                   style={[
                     styles.validateReportButton,
-                    reportValidated && styles.validateReportButtonActive
+                    reportSaved && styles.validateReportButtonActive
                   ]}
-                  onPress={() => setReportValidated(!reportValidated)}
+                  onPress={saveReportAndVisit}
+                  disabled={reportSaved || isSavingReport}
                 >
                   <View style={styles.validateReportContent}>
-                    {reportValidated ? (
+                    {isSavingReport ? (
+                      <ActivityIndicator size={20} color={reportSaved ? "#FFFFFF" : "#3B82F6"} />
+                    ) : reportSaved ? (
                       <CheckCircle size={20} color="#FFFFFF" />
                     ) : (
-                      <Clock size={20} color="#F59E0B" />
+                      <Save size={20} color="#3B82F6" />
                     )}
                     <Text style={[
                       styles.validateReportText,
-                      reportValidated && styles.validateReportTextActive
+                      reportSaved && styles.validateReportTextActive
                     ]}>
-                      {reportValidated ? 'RAPPORT VALIDÉ' : 'VALIDER LE RAPPORT'}
+                      {isSavingReport ? 'ENREGISTREMENT...' : reportSaved ? 'RAPPORT ENREGISTRÉ' : 'ENREGISTRER LE RAPPORT'}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -1591,13 +1718,13 @@ Cordialement`;
                 <TouchableOpacity
                   style={[
                     styles.sendReportButton,
-                    !reportValidated && styles.sendReportButtonDisabled
+                    !reportSaved && styles.sendReportButtonDisabled
                   ]}
                   onPress={sendReport}
-                  disabled={!reportValidated}
+                  disabled={!reportSaved}
                 >
                   <LinearGradient
-                    colors={reportValidated ? ['#3B82F6', '#1D4ED8'] : ['#64748B', '#475569']}
+                    colors={reportSaved ? ['#3B82F6', '#1D4ED8'] : ['#64748B', '#475569']}
                     style={styles.sendReportGradient}
                   >
                     <Send size={20} color="#FFFFFF" />
