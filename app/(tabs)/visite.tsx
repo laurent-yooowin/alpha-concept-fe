@@ -895,6 +895,20 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         console.log('Created new visit:', visitId);
       }
 
+      if (visitResponse.isTokenExpired) {
+        Alert.alert(
+          'Session expirée',
+          'Votre session a expiré après 24 heures. Veuillez vous reconnecter.',
+          [
+            {
+              text: 'Se reconnecter',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+        return false;
+      }
+
       if (visitResponse.error) {
         console.error('Error saving visit:', visitResponse.error);
       }
@@ -937,10 +951,24 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         return;
       }
 
+      if (reportResponse?.isTokenExpired) {
+        Alert.alert(
+          'Session expirée',
+          'Votre session a expiré après 24 heures. Veuillez vous reconnecter.',
+          [
+            {
+              text: 'Se reconnecter',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+        return false;
+      }
+
       if (reportResponse?.error) {
         console.error('Error saving report:', reportResponse.error);
         Alert.alert('Erreur', 'Impossible de sauvegarder le rapport sur le serveur');
-        return;
+        return false;
       }
 
       // 3. Also save locally as fallback

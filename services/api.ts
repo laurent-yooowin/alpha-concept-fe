@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { authService } from './authService';
 
 const API_URL = Platform.OS == 'web' ? process.env.EXPO_PUBLIC_API_URL_LOCAL : process.env.EXPO_PUBLIC_API_URL;
 const TOKEN_KEY = 'auth_token';
@@ -7,6 +8,7 @@ const TOKEN_KEY = 'auth_token';
 export interface ApiResponse<T> {
   data?: T;
   error?: string;
+  isTokenExpired?: boolean;
 }
 
 async function apiRequest<T>(
@@ -14,13 +16,20 @@ async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
   try {
+    const isTokenValid = await authService.validateToken();
+
+    if (!isTokenValid && !endpoint.includes('/auth/')) {
+      return {
+        error: 'Token expired. Please login again.',
+        isTokenExpired: true,
+      };
+    }
+
     const token = await AsyncStorage.getItem(TOKEN_KEY);
 
-    // Check if body is FormData
     const isFormData = options.body instanceof FormData;
 
     const headers: Record<string, string> = {
-      // Don't set Content-Type for FormData - browser will set it with boundary
       ...(!isFormData && { 'Content-Type': 'application/json' }),
       ...options.headers as Record<string, string>,
     };
@@ -29,7 +38,6 @@ async function apiRequest<T>(
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    // Remove Content-Type if it was explicitly set to multipart/form-data
     if (headers['Content-Type']?.includes('multipart/form-data')) {
       delete headers['Content-Type'];
     }
@@ -38,6 +46,14 @@ async function apiRequest<T>(
       ...options,
       headers,
     });
+
+    if (response.status === 401) {
+      await authService.logout();
+      return {
+        error: 'Session expired. Please login again.',
+        isTokenExpired: true,
+      };
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

@@ -27,6 +27,8 @@ export interface AuthResponse {
 }
 
 const TOKEN_KEY = 'auth_token';
+const TOKEN_TIMESTAMP_KEY = 'auth_token_timestamp';
+const TOKEN_EXPIRY_HOURS = 24;
 
 export const authService = {
   async login(credentials: LoginCredentials) {
@@ -34,6 +36,7 @@ export const authService = {
 
     if (response.data?.access_token) {
       await AsyncStorage.setItem(TOKEN_KEY, response.data.access_token);
+      await AsyncStorage.setItem(TOKEN_TIMESTAMP_KEY, Date.now().toString());
     }
 
     return response;
@@ -53,14 +56,59 @@ export const authService = {
 
   async logout() {
     await AsyncStorage.removeItem(TOKEN_KEY);
+    await AsyncStorage.removeItem(TOKEN_TIMESTAMP_KEY);
+    await AsyncStorage.removeItem('user_data');
   },
 
   async getToken() {
     return AsyncStorage.getItem(TOKEN_KEY);
   },
 
+  async isTokenExpired(): Promise<boolean> {
+    const timestampStr = await AsyncStorage.getItem(TOKEN_TIMESTAMP_KEY);
+
+    if (!timestampStr) {
+      return true;
+    }
+
+    const timestamp = parseInt(timestampStr, 10);
+    const now = Date.now();
+    const hoursPassed = (now - timestamp) / (1000 * 60 * 60);
+
+    return hoursPassed >= TOKEN_EXPIRY_HOURS;
+  },
+
   async isAuthenticated() {
     const token = await this.getToken();
-    return !!token;
+
+    if (!token) {
+      return false;
+    }
+
+    const expired = await this.isTokenExpired();
+
+    if (expired) {
+      await this.logout();
+      return false;
+    }
+
+    return true;
+  },
+
+  async validateToken(): Promise<boolean> {
+    const token = await this.getToken();
+
+    if (!token) {
+      return false;
+    }
+
+    const expired = await this.isTokenExpired();
+
+    if (expired) {
+      await this.logout();
+      return false;
+    }
+
+    return true;
   },
 };
