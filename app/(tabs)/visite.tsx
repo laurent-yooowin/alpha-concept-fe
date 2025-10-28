@@ -1804,6 +1804,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     alignItems: 'center',
     justifyContent: 'center',
+    // marginLeft: 8,
+    marginRight: 8,
   },
   headerTitle: {
     fontSize: 20,
