@@ -13,6 +13,7 @@ export interface RegisterData {
   lastName: string;
   phone?: string;
   company?: string;
+  experience?: number;
 }
 
 export interface AuthResponse {
