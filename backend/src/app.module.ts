@@ -9,6 +9,8 @@ import { VisitModule } from './visits/visit.module';
 import { ReportModule } from './reports/report.module';
 import { UploadModule } from './upload/upload.module';
 import { AiModule } from './ai/ai.module';
+import { ActivityLogModule } from './activity-logs/activity-log.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { AiModule } from './ai/ai.module';
     ReportModule,
     UploadModule,
     AiModule,
+    ActivityLogModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}
