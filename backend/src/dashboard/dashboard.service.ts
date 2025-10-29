@@ -62,7 +62,7 @@ export class DashboardService {
 
     const avgProcessingTimeResult = await this.reportRepository
       .createQueryBuilder('report')
-      .select('AVG(EXTRACT(DAY FROM (report.updatedAt - report.createdAt)))', 'avgDays')
+      .select('AVG(DATEDIFF(report.updatedAt, report.createdAt))', 'avgDays')
       .where("report.status = :validated", { validated: ReportStatus.VALIDATED })
       .getRawOne();
 
@@ -86,11 +86,12 @@ export class DashboardService {
   async getMonthlyMissions(userId?: string, userRole?: UserRole) {
     const query = this.missionRepository
       .createQueryBuilder('mission')
-      .select("TO_CHAR(mission.date, 'Mon YYYY')", 'month')
+      .select("DATE_FORMAT(mission.date, '%b %Y')", 'month')
       .addSelect('COUNT(*)', 'count')
-      .where("mission.date >= NOW() - INTERVAL '6 months'")
-      .groupBy("TO_CHAR(mission.date, 'Mon YYYY')")
-      .orderBy("MIN(mission.date)", 'ASC');
+      .where("mission.date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)")
+      .groupBy("DATE_FORMAT(mission.date, '%b %Y'), YEAR(mission.date), MONTH(mission.date)")
+      .orderBy("YEAR(mission.date)", 'ASC')
+      .addOrderBy("MONTH(mission.date)", 'ASC');
 
     if (userRole === UserRole.USER && userId) {
       query.andWhere('mission.userId = :userId', { userId });
