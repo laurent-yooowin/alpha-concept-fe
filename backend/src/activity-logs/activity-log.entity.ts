@@ -22,7 +22,7 @@ export class ActivityLog {
   @Column({ name: 'entity_id', nullable: true })
   entityId: string;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'json', nullable: true })
   details: any;
 
   @CreateDateColumn({ name: 'created_at' })
