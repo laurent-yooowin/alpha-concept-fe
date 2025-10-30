@@ -1,6 +1,6 @@
 import { IsNotEmpty, IsString, IsBoolean, IsOptional } from "class-validator";
 
-export class DeleteFileDto{
+export class DeleteFileDto {
     @IsString()
     @IsNotEmpty()
     url: string;
