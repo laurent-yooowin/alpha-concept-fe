@@ -151,4 +151,58 @@ export class UploadService {
       throw new BadRequestException('Impossible de générer l\'URL signée');
     }
   }
+
+  async downloadFile(publicUrl: string, folder: string, isBase64: boolean = false): Promise<{ data: string | Buffer; contentType: string; fileName: string }> {
+    try {
+      let key: string;
+
+      if (publicUrl.includes(`https://${this.bucketName}.s3.${this.region}.amazonaws.com/`)) {
+        key = publicUrl.split('.com/')[1];
+      } else {
+        key = `${folder}/${publicUrl}`;
+      }
+
+      if (!key) {
+        throw new BadRequestException('URL ou clé de fichier invalide');
+      }
+
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+      });
+
+      const response = await this.s3Client.send(command);
+
+      if (!response.Body) {
+        throw new BadRequestException('Fichier introuvable');
+      }
+
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of response.Body as any) {
+        chunks.push(chunk);
+      }
+
+      const buffer = Buffer.concat(chunks);
+      const contentType = response.ContentType || 'application/octet-stream';
+      const fileName = key.split('/').pop() || 'download';
+
+      if (isBase64) {
+        const base64Data = buffer.toString('base64');
+        return {
+          data: base64Data,
+          contentType,
+          fileName,
+        };
+      }
+
+      return {
+        data: buffer,
+        contentType,
+        fileName,
+      };
+    } catch (error) {
+      console.error('Erreur lors du téléchargement du fichier depuis S3:', error);
+      throw new BadRequestException('Impossible de télécharger le fichier depuis S3');
+    }
+  }
 }
