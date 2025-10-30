@@ -7,8 +7,9 @@ export enum ReportStatus {
   DRAFT = 'brouillon',
   SENT = 'envoye',
   VALIDATED = 'valide',
-  REJECTED = 'rejete',
+  REJECTED = 'refuse',
   ARCHIVED = 'archive',
+  SENT_TO_CLIENT = 'envoye_au_client',
 }
 
 @Entity('reports')
@@ -64,6 +65,21 @@ export class Report {
 
   @Column({ nullable: true })
   recipientEmail: string;
+
+  @Column({ nullable: true })
+  observations: string;
+
+  @Column({ nullable: true })
+  remarquesAdmin: string;
+
+  @Column({ nullable: true })
+  reportFileUrl: string;
+
+  @Column({ nullable: true })
+  validatedAt: Date;
+
+  @Column({ nullable: true })
+  sentToClientAt: Date;
 
   @CreateDateColumn()
   createdAt: Date;

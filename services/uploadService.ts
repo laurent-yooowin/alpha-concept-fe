@@ -2,8 +2,10 @@ import { api } from './api';
 import { Platform } from 'react-native';
 
 export interface UploadResult {
-  url?: string;
-  key?: string;
+  data: {
+    url?: string;
+    key?: string;
+  }
 }
 export interface DeleteResponse {
   fileName?: string;
@@ -48,6 +50,30 @@ export const uploadService = {
     }
 
     const response = await api.post<UploadResponse>('/upload/single', formData);
+
+    if (!response.data || response.data?.data && Array.isArray(response.data.data)) {
+      throw new Error(response.error || 'Upload failed');
+    }
+
+    return response.data;
+  },
+
+  async uploadReportsFile(file: Blob | string, fileName: string): Promise<UploadResult> {
+    const formData = new FormData();
+
+    if (typeof file === 'string' && Platform.OS !== 'web') {
+      // Mobile: file is a URI
+      formData.append('file', {
+        uri: file,
+        type: 'application/pdf',
+        name: fileName,
+      } as any);
+    } else {
+      // Web: file is a Blob
+      formData.append('file', file as Blob, fileName);
+    }
+
+    const response = await api.post<UploadResponse>('/upload/reports_file', formData);
 
     if (!response.data || response.data?.data && Array.isArray(response.data.data)) {
       throw new Error(response.error || 'Upload failed');

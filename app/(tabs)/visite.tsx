@@ -831,6 +831,31 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     setPhotos(updatedPhotos);
   };
 
+  const uploadReportFile = async (pdfPath: any, title) => {
+    try {
+      let fileToUpload: Blob | string;
+      let fileName: string = "report_" + Date.now() + ".pdf";
+
+      if (Platform.OS === 'web') {
+        // Web: Use fetch to get blob
+        const response = await fetch(pdfPath);
+        fileToUpload = await response.blob();
+      } else {
+        // Mobile: Pass URI directly, FormData will handle it
+        fileToUpload = pdfPath;
+      }
+      if (title) {
+        fileName = `report_${title}_${Date.now()}.pdf`;
+      }
+      const response = await uploadService.uploadReportsFile(pdfPath, fileName);
+      // console.log('uploadReportFile response >>> : ', response);
+      return response;
+    } catch (error) {
+      console.error('Error uploading report file:', error);
+      return null;
+    }
+  }
+
   // Envoyer le rapport
   const saveSendReport = async (isToSend?: boolean = true) => {
     // if (!reportValidated) {
@@ -1021,9 +1046,21 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
         const pdfPath = await pdfService.generateReportPDF(pdfData);
 
+        const response = await uploadReportFile(pdfPath, reportResponse?.data?.title);
+        const adminEmail = process.env.SEND_REPORT_ADMIN_EMAIL || mission?.contactEmail;
+        let reportFileUrl = '';
+        if (response) {
+          reportFileUrl = response.url || '';
+        }
+        // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
+        const resp = await reportService.updateReport(existingReportId, {
+          status: 'envoye' as ReportStatus,
+          recipientEmail: adminEmail,
+          reportFileUrl: reportFileUrl,
+        });
+
         setPdfLoadingProgress('Finalisation...');
 
-        const adminEmail = process.env.SEND_REPORT_ADMIN_EMAIL || mission?.contactEmail;
         const subject = `Rapport de visite - ${mission?.title}`;
         const body = `Bonjour,
 

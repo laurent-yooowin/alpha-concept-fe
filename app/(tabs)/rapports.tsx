@@ -13,7 +13,8 @@ import {
   ImageBackground,
   Alert,
   Image,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X, Edit, Mail, FileCheck } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -26,6 +27,7 @@ import { visitService } from '@/services/visitService';
 import { useAuth } from '@/contexts/AuthContext';
 
 import * as MailComposer from 'expo-mail-composer';
+import { uploadService } from '@/services/uploadService';
 
 const { width } = Dimensions.get('window');
 
@@ -245,6 +247,31 @@ export default function RapportsScreen() {
     }
   };
 
+  const uploadReportFile = async (pdfPath: any) => {
+    try {
+      let fileToUpload: Blob | string;
+      let fileName: string = "report_" + Date.now() + ".pdf";
+
+      if (Platform.OS === 'web') {
+        // Web: Use fetch to get blob
+        const response = await fetch(pdfPath);
+        fileToUpload = await response.blob();
+      } else {
+        // Mobile: Pass URI directly, FormData will handle it
+        fileToUpload = pdfPath;
+      }
+      if (selectedReport && selectedReport.title) {
+        fileName = `report_${selectedReport.title}_${Date.now()}.pdf`;
+      }
+      const response = await uploadService.uploadReportsFile(pdfPath, fileName);
+      // console.log('uploadReportFile response >>> : ', response);
+      return response;
+    } catch (error) { 
+      console.error('Error uploading report file:', error);
+      return null;
+    }
+  }
+
   const handleSendReport = async () => {
     if (!selectedReport) return;
 
@@ -299,7 +326,7 @@ export default function RapportsScreen() {
 
       setPdfLoadingProgress('Chargement des photos...');
 
-      const pdfData = {
+      const pdfData: any = {
         title: selectedReport.title,
         mission: selectedReport.mission,
         client: selectedReport.client,
@@ -313,12 +340,19 @@ export default function RapportsScreen() {
 
       setPdfLoadingProgress('Génération du PDF...');
 
-      await reportService.updateReport(selectedReport.id, {
+      const pdfPath = await pdfService.generateReportPDF(pdfData);
+      const response = await uploadReportFile(pdfPath);
+      let reportFileUrl = '';
+      if (response) {
+        reportFileUrl = response.url || '';
+      }
+      // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
+      const resp = await reportService.updateReport(selectedReport.id, {
         status: 'envoye' as ReportStatus,
         recipientEmail: adminEmail,
+        reportFileUrl: reportFileUrl,
       });
-
-      const pdfPath = await pdfService.generateReportPDF(pdfData);
+      // console.log('Report update response after upload:', resp);
 
       setPdfLoadingProgress('Finalisation...');
 

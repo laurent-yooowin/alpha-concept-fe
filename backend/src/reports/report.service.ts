@@ -4,13 +4,16 @@ import { Repository } from 'typeorm';
 import { Report, ReportStatus } from './report.entity';
 import { CreateReportDto, UpdateReportDto } from './report.dto';
 import { User, UserRole } from '../user/user.entity';
+import { MissionService } from '../missions/mission.service';
+import { UpdateMissionDto } from '../missions/mission.dto';
 
 @Injectable()
 export class ReportService {
   constructor(
     @InjectRepository(Report)
     private reportRepository: Repository<Report>,
-  ) {}
+    private readonly missionService: MissionService,
+  ) { }
 
   async create(userId: string, createReportDto: CreateReportDto): Promise<Report> {
     const report = this.reportRepository.create({
@@ -61,11 +64,33 @@ export class ReportService {
   async update(id: string, user: User, updateReportDto: UpdateReportDto): Promise<Report> {
     const report = await this.findOne(id, user);
 
-    if (updateReportDto.status === ReportStatus.SENT && !report.sentAt) {
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    if ((updateReportDto.status === ReportStatus.VALIDATED || updateReportDto.status === ReportStatus.SENT_TO_CLIENT) && user.role !== UserRole.ADMIN) {
+      throw new NotFoundException('Only admins can validate / send to clients the reports');
+    }
+
+    if (updateReportDto.status === ReportStatus.SENT) {
       updateReportDto['sentAt'] = new Date();
     }
 
+    if (updateReportDto.status === ReportStatus.SENT_TO_CLIENT) {
+      updateReportDto['sentToClientAt'] = new Date();
+    }
+
+    if (updateReportDto.status === ReportStatus.VALIDATED && user.role === UserRole.ADMIN) {
+      updateReportDto['validatedAt'] = new Date();
+      const mission = await this.missionService.findOne(report.missionId, user);
+      mission.status = 'terminee';
+      const missionDto = new UpdateMissionDto();
+      Object.assign(missionDto, mission);
+      await this.missionService.update(mission.id, mission.userId, missionDto);
+    }
+
     Object.assign(report, updateReportDto);
+    console.log('Updated report:', report);
     return this.reportRepository.save(report);
   }
 

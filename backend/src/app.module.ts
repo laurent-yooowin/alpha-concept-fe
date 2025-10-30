@@ -11,6 +11,8 @@ import { UploadModule } from './upload/upload.module';
 import { AiModule } from './ai/ai.module';
 import { ActivityLogModule } from './activity-logs/activity-log.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { MailModule } from './mail/mail.module';
+
 
 @Module({
   imports: [
@@ -28,6 +30,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     AiModule,
     ActivityLogModule,
     DashboardModule,
+    MailModule,
   ],
 })
 export class AppModule {}
