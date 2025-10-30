@@ -45,6 +45,26 @@ export class UploadController {
     };
   }
 
+  @Post('reports_file')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadReportsFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Aucun fichier fourni');
+    }
+
+    return await this.uploadService.uploadFile(file, 'reports_files');
+  }
+
+  @Post('client_reports_file')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadClientReportsFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Aucun fichier fourni');
+    }
+
+    return await this.uploadService.uploadFile(file, 'reports_files/client');
+  }
+
   @Post('multiple')
   @UseInterceptors(FilesInterceptor('files', 10))
   async uploadMultiple(@UploadedFiles() files: Express.Multer.File[]) {

@@ -34,6 +34,14 @@ export class CreateReportDto {
   @IsOptional()
   @IsEmail()
   recipientEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
+
+  @IsOptional()
+  @IsString()
+  remarquesAdmin?: string;
 }
 
 export class UpdateReportDto {
@@ -54,6 +62,14 @@ export class UpdateReportDto {
   footer?: string;
 
   @IsOptional()
+  @IsString()
+  observations?: string;
+
+  @IsOptional()
+  @IsString()
+  remarquesAdmin?: string;
+
+  @IsOptional()
   @IsEnum(ReportStatus)
   status?: ReportStatus;
 
@@ -64,4 +80,8 @@ export class UpdateReportDto {
   @IsOptional()
   @IsEmail()
   recipientEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  reportFileUrl?: string;
 }
