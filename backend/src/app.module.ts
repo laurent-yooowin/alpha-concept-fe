@@ -12,6 +12,7 @@ import { AiModule } from './ai/ai.module';
 import { ActivityLogModule } from './activity-logs/activity-log.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { MailModule } from './mail/mail.module';
+import { MailerModule } from '@nestjs-modules/mailer';
 
 
 @Module({
@@ -19,6 +20,25 @@ import { MailModule } from './mail/mail.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+    }),
+    MailerModule.forRoot({
+      transport: {
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,          // ❗ false pour STARTTLS
+        requireTLS: true,       // ❗ force le chiffrement TLS (comme "encryption=tls")
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+        tls: {
+          minVersion: 'TLSv1.2',  // bonne pratique
+          rejectUnauthorized: true,
+        },
+      },
+      defaults: {
+        from: '"Rapports Automatiques" <noreply@tondomaine.com>',
+      },
     }),
     TypeOrmModule.forRoot(databaseConfig()),
     AuthModule,
@@ -33,4 +53,4 @@ import { MailModule } from './mail/mail.module';
     MailModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }

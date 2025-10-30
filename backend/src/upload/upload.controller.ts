@@ -103,6 +103,17 @@ export class UploadController {
     };
   }
 
+  @Post('report-pdf')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadVReportPdf(@UploadedFile() file: Express.Multer.File) {
+
+    if (!file) {
+      throw new BadRequestException('Aucun pdf fournie');
+    }
+
+    return await this.uploadService.uploadFile(file, 'reports_files/client');
+  }
+
   @Post('download')
   async downloadFile(
     @Body() downloadFileDto: DownloadFileDto,

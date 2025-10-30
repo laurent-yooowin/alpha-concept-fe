@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
+import { Readable } from 'stream';
 
 @Injectable()
 export class UploadService {
@@ -43,7 +44,7 @@ export class UploadService {
     }
 
     // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 30 * 1024 * 1024; // 10MB
     if (file.size > maxSize) {
       throw new BadRequestException('Fichier trop volumineux. Taille maximale: 10MB');
     }
@@ -202,6 +203,38 @@ export class UploadService {
         contentType,
         fileName,
       };
+    } catch (error) {
+      console.error('Erreur lors du téléchargement du fichier depuis S3:', error);
+      throw new BadRequestException('Impossible de télécharger le fichier depuis S3');
+    }
+  }
+
+  async downloadStreamFile(publicUrl: string): Promise<Readable> {
+    try {
+      let key: string;
+
+      if (publicUrl.includes(`https://${this.bucketName}.s3.${this.region}.amazonaws.com/`)) {
+        key = publicUrl.split('.amazonaws.com/')[1];
+      } else {
+        key = `${publicUrl}`;
+      }
+      this.logger.log('Derived S3 key for download:', key);
+
+      if (!key) {
+        throw new BadRequestException('URL ou clé de fichier invalide');
+      }
+
+      const command = new GetObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+      });
+
+      const response = await this.s3Client.send(command);
+
+      if (!response.Body) {
+        throw new BadRequestException('Fichier introuvable');
+      }
+      return response.Body as Readable;
     } catch (error) {
       console.error('Erreur lors du téléchargement du fichier depuis S3:', error);
       throw new BadRequestException('Impossible de télécharger le fichier depuis S3');
