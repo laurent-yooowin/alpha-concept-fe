@@ -10,6 +10,7 @@ import {
   Delete,
   Res,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
@@ -22,6 +23,8 @@ import { DeleteFileDto, DownloadFileDto } from './upload.dto';
 @UseGuards(JwtAuthGuard)
 export class UploadController {
   constructor(private readonly uploadService: UploadService) { }
+
+  public logger = new Logger('UploadController');
 
   @Post('delete')
   async deleteFileByUrl(
@@ -106,7 +109,7 @@ export class UploadController {
     @Res() res: Response,
   ) {
     const { publicUrl, folder, isBase64 } = downloadFileDto;
-
+    this.logger.debug(downloadFileDto);
     const result = await this.uploadService.downloadFile(
       publicUrl,
       folder,

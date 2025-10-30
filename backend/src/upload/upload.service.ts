@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,6 +9,7 @@ export class UploadService {
   private bucketArn = process.env.AWS_S3_ACCESS_POINT;
   private region = process.env.AWS_REGION;
   private bucketName = process.env.AWS_S3_BUCKET;
+  public logger = new Logger('UploadService');
 
   constructor() {
     this.s3Client = new S3Client({
@@ -106,7 +107,7 @@ export class UploadService {
     // Generate unique file key
     // const fileExtension = file.originalname.split('.').pop();
     const fileName = url.split('.com/')[1];
-    if(!fileName){
+    if (!fileName) {
       throw new BadRequestException('URL invalide');
     }
 
@@ -117,10 +118,10 @@ export class UploadService {
         Key: fileName,
       });
 
-      await this.s3Client.send(command);      
+      await this.s3Client.send(command);
 
       return {
-        fileName: fileName,  
+        fileName: fileName,
         message: 'Fichier supprimé avec succès',
       };
     } catch (error) {
@@ -157,10 +158,11 @@ export class UploadService {
       let key: string;
 
       if (publicUrl.includes(`https://${this.bucketName}.s3.${this.region}.amazonaws.com/`)) {
-        key = publicUrl.split('.com/')[1];
+        key = publicUrl.split('.amazonaws.com/')[1];
       } else {
-        key = `${folder}/${publicUrl}`;
+        key = `${publicUrl}`;
       }
+      this.logger.log('Derived S3 key for download:', key);
 
       if (!key) {
         throw new BadRequestException('URL ou clé de fichier invalide');
