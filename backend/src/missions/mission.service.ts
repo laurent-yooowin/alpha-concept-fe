@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Mission } from './mission.entity';
 import { MissionAssignment } from './mission-assignment.entity';
 import { CreateMissionDto, UpdateMissionDto } from './mission.dto';
 import { User, UserRole } from '../user/user.entity';
+import { UserService } from '../user/user.service';
 
 @Injectable()
 export class MissionService {
@@ -13,9 +14,18 @@ export class MissionService {
     private missionRepository: Repository<Mission>,
     @InjectRepository(MissionAssignment)
     private assignmentRepository: Repository<MissionAssignment>,
-  ) {}
+    private userService: UserService,
+  ) { }
+  private readonly logger = new Logger(MissionService.name);
 
-  async create(userId: string, createMissionDto: CreateMissionDto): Promise<Mission> {
+  async create(user: User, createMissionDto: CreateMissionDto): Promise<Mission> {
+    let userId = user.id;
+    if (createMissionDto.userId && user.role == UserRole.ADMIN) {
+      const userDb = this.userService.findById(createMissionDto.userId);
+      if (userDb) {
+        userId = createMissionDto.userId;
+      }
+    }
     const mission = this.missionRepository.create({
       ...createMissionDto,
       status: createMissionDto.status || 'planifiee',
@@ -120,7 +130,10 @@ export class MissionService {
     await this.missionRepository.remove(mission);
   }
 
-  async assignUsers(missionId: string, userIds: string[], assignedBy: string): Promise<MissionAssignment[]> {
+  async assignUsers(missionId: string, userIds: string[], assignedBy: User): Promise<MissionAssignment[]> {
+    if (assignedBy.role !== UserRole.ADMIN) {
+      throw new NotFoundException('Only admins can assign users to missions');
+    }
     const mission = await this.missionRepository.findOne({
       where: { id: missionId },
     });
@@ -135,15 +148,21 @@ export class MissionService {
 
     const existingUserIds = existingAssignments.map(a => a.userId);
     const newUserIds = userIds.filter(id => !existingUserIds.includes(id));
+    this.logger.log(`Existing assignments for mission `, userIds);
 
     const assignments = newUserIds.map(userId =>
       this.assignmentRepository.create({
         missionId,
         userId,
-        assignedBy,
+        assignedBy: assignedBy.id,
         notified: false,
       })
     );
+
+    const updateMissionDto = new UpdateMissionDto();
+    updateMissionDto.status = 'assignee';
+    updateMissionDto.userId = userIds[0];
+    await this.update(missionId, assignedBy.id, updateMissionDto);
 
     return this.assignmentRepository.save(assignments);
   }

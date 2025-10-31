@@ -12,6 +12,9 @@ export class Mission {
   @Column()
   client: string;
 
+  @Column({ type: 'text', nullable: true })
+  refClient: string;
+
   @Column({ type: 'text' })
   address: string;
 

@@ -15,7 +15,7 @@ export class MissionController {
     @CurrentUser() user: User,
     @Body() createMissionDto: CreateMissionDto,
   ) {
-    return this.missionService.create(user.id, createMissionDto);
+    return this.missionService.create(user, createMissionDto);
   }
 
   @Get()
@@ -34,7 +34,7 @@ export class MissionController {
     @Param('id') id: string,
     @Body() body: { userIds: string[] },
   ) {
-    return this.missionService.assignUsers(id, body.userIds, user.id);
+    return this.missionService.assignUsers(id, body.userIds, user);
   }
 
   @Get(':id/assigned-users')
