@@ -1,3 +1,4 @@
+import { Optional } from '@nestjs/common';
 import { IsString, IsOptional, IsDateString, IsEmail } from 'class-validator';
 
 export class CreateMissionDto {
@@ -6,6 +7,10 @@ export class CreateMissionDto {
 
   @IsString()
   client: string;
+
+  @Optional()
+  @IsString()
+  refClient?: string;
 
   @IsString()
   address: string;
@@ -42,6 +47,10 @@ export class CreateMissionDto {
   @IsOptional()
   @IsString()
   contactPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 export class UpdateMissionDto {
@@ -52,6 +61,10 @@ export class UpdateMissionDto {
   @IsOptional()
   @IsString()
   client?: string;
+
+  @Optional()
+  @IsString()
+  refClient?: string;
 
   @IsOptional()
   @IsString()
@@ -92,4 +105,8 @@ export class UpdateMissionDto {
   @IsOptional()
   @IsString()
   contactPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }

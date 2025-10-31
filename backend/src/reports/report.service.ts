@@ -78,6 +78,11 @@ export class ReportService {
 
     if (updateReportDto.status === ReportStatus.SENT_TO_CLIENT) {
       updateReportDto['sentToClientAt'] = new Date();
+      const mission = await this.missionService.findOne(report.missionId, user);
+      mission.status = 'terminee';
+      const missionDto = new UpdateMissionDto();
+      Object.assign(missionDto, mission);
+      await this.missionService.update(mission.id, mission.userId, missionDto);
     }
 
     if (updateReportDto.status === ReportStatus.VALIDATED && user.role === UserRole.ADMIN) {

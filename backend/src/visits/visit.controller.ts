@@ -15,7 +15,7 @@ export class VisitController {
     @CurrentUser() user: User,
     @Body() createVisitDto: CreateVisitDto,
   ) {
-    return this.visitService.create(user.id, createVisitDto);
+    return this.visitService.create(user, createVisitDto);
   }
 
   @Get()
