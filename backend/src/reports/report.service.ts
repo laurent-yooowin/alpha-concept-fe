@@ -68,8 +68,8 @@ export class ReportService {
       throw new NotFoundException('Report not found');
     }
 
-    if ((updateReportDto.status === ReportStatus.VALIDATED || updateReportDto.status === ReportStatus.SENT_TO_CLIENT) && user.role !== UserRole.ADMIN) {
-      throw new NotFoundException('Only admins can validate / send to clients the reports');
+    if ((updateReportDto.status === ReportStatus.VALIDATED || updateReportDto.status === ReportStatus.SENT_TO_CLIENT) && user.role == UserRole.ADMIN) {
+      throw new NotFoundException('Only Coordonator can validate / send to clients the reports');
     }
 
     if (updateReportDto.status === ReportStatus.SENT) {
@@ -85,7 +85,7 @@ export class ReportService {
       await this.missionService.update(mission.id, mission.userId, missionDto);
     }
 
-    if (updateReportDto.status === ReportStatus.VALIDATED && user.role === UserRole.ADMIN) {
+    if (updateReportDto.status === ReportStatus.VALIDATED ) {
       updateReportDto['validatedAt'] = new Date();
       const mission = await this.missionService.findOne(report.missionId, user);
       mission.status = 'terminee';

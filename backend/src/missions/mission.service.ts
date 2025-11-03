@@ -42,26 +42,27 @@ export class MissionService {
       });
     }
 
-    const assignments = await this.assignmentRepository.find({
-      where: { userId: user.id },
-      relations: ['mission'],
-    });
-
-    const assignedMissionIds = assignments.map(a => a.missionId);
-    const userMissions = await this.missionRepository.find({
+    return await this.missionRepository.find({
       where: { userId: user.id },
       order: { createdAt: 'DESC' },
     });
 
-    if (assignedMissionIds.length > 0) {
-      const assignedMissions = await this.missionRepository.find({
-        where: { id: In(assignedMissionIds) },
-        order: { createdAt: 'DESC' },
-      });
-      return [...userMissions, ...assignedMissions];
-    }
+    // const assignments = await this.assignmentRepository.find({
+    //   where: { userId: user.id },
+    //   relations: ['mission'],
+    // });
 
-    return userMissions;
+    // const assignedMissionIds = assignments.map(a => a.missionId);
+
+    // if (assignedMissionIds.length > 0) {
+    //   const assignedMissions = await this.missionRepository.find({
+    //     where: { id: In(assignedMissionIds) },
+    //     order: { createdAt: 'DESC' },
+    //   });
+    //   return [...userMissions, ...assignedMissions];
+    // }
+
+    // return userMissions;
   }
 
   async findOne(id: string, user: User): Promise<Mission> {

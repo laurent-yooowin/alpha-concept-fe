@@ -1,6 +1,19 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../user/user.entity';
 
+export enum MissionType {
+  CSPS = "CSPS",
+  AEU = "AEU",
+  Divers = "Divers",
+}
+
+export enum MissionStatus {
+  PLANIFIED = 'planifiee',
+  IN_PROGRESS = 'en_cours',
+  TERMINATED = 'terminee',
+  VALIDATED = 'validee',
+}
+
 @Entity('missions')
 export class Mission {
   @PrimaryGeneratedColumn('uuid')
@@ -24,13 +37,21 @@ export class Mission {
   @Column({ length: 10 })
   time: string;
 
-  @Column({ length: 100 })
+  @Column({
+    type: 'enum',
+    enum: MissionType,
+    default: MissionType.CSPS
+  })
   type: string;
 
   @Column({ type: 'text', nullable: true })
   description: string;
 
-  @Column({ length: 50, default: 'planifiee' })
+  @Column({
+    type: 'enum',
+    enum: MissionStatus,
+    default: MissionStatus.PLANIFIED
+  })
   status: string;
 
   @Column({ length: 255, nullable: true })

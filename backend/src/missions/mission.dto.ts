@@ -1,6 +1,20 @@
 import { Optional } from '@nestjs/common';
 import { IsString, IsOptional, IsDateString, IsEmail } from 'class-validator';
 
+export enum MissionType {
+  CSPS = "CSPS",
+  AEU = "AEU",
+  Divers = "Divers",
+}
+
+export enum MissionStatus {
+  PLANIFIED = 'planifiee',
+  ASSIGNED = 'assignee',
+  IN_PROGRESS = 'en_cours',
+  TERMINATED = 'terminee',
+  VALIDATED = 'validee',
+}
+
 export class CreateMissionDto {
   @IsString()
   title: string;
@@ -22,7 +36,7 @@ export class CreateMissionDto {
   time: string;
 
   @IsString()
-  type: string;
+  type: MissionType;
 
   @IsOptional()
   @IsString()
@@ -30,7 +44,7 @@ export class CreateMissionDto {
 
   @IsOptional()
   @IsString()
-  status?: string;
+  status?: MissionStatus;
 
   @IsOptional()
   @IsString()
@@ -80,7 +94,7 @@ export class UpdateMissionDto {
 
   @IsOptional()
   @IsString()
-  type?: string;
+  type?: MissionType;
 
   @IsOptional()
   @IsString()
@@ -88,7 +102,7 @@ export class UpdateMissionDto {
 
   @IsOptional()
   @IsString()
-  status?: string;
+  status?: MissionStatus;
 
   @IsOptional()
   @IsString()
