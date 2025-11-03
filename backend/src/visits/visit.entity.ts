@@ -33,6 +33,9 @@ export class Visit {
       recommendation: string;
       riskLevel: 'faible' | 'moyen' | 'eleve';
       confidence: number;
+      photoConformity?: boolean;
+      photoConformityMessage?: string;
+      references?: string[];
     };
     comment?: string;
     validated: boolean;
