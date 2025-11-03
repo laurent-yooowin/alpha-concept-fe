@@ -27,6 +27,7 @@ import { getMissionStatusInfo } from '@/utils/missionHelpers';
 import { pdfService } from '@/services/pdfService';
 import * as Linking from 'expo-linking';
 import * as MailComposer from 'expo-mail-composer';
+import { useAuth } from '@/contexts/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
@@ -49,15 +50,30 @@ interface Mission {
   id: number;
   title: string;
   client: string;
+  status: string;
+  nextVisit: string;
   location: string;
   description: string;
-  nextVisit: string;
+  alerts: string;
+  completion: string;
+  gradient: string;
+  statusLabel: string;
+  originalStatus: string;
   type: string;
-  contactEmail: string;
+  date: string;
+  time: string;
+  refClient: string;
+  contact: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+  };
 }
 
 export default function VisiteScreen() {
   const params = useLocalSearchParams();
+  const user = useAuth();
   const [mission, setMission] = useState < Mission | null > (null);
   const [availableMissions, setAvailableMissions] = useState < Mission[] > ([]);
   const [showMissionSelector, setShowMissionSelector] = useState(false);
@@ -120,8 +136,6 @@ export default function VisiteScreen() {
     try {
       const { missionService } = await import('@/services/missionService');
       const response = await missionService.getMissions();
-
-
       if (response.data && Array.isArray(response.data)) {
         const backendMissions = [];
         response.data.map((mission: any) => {
@@ -148,7 +162,11 @@ export default function VisiteScreen() {
               lastName: mission.contactLastName || '',
               email: mission.contactEmail || '',
               phone: mission.contactPhone || ''
-            }
+            },
+            date: mission.date,
+            time: mission.time,
+            type: mission.type,
+            refClient: mission.refClient,
           }
           if (newMission && mission.status != 'terminee') {
             backendMissions.push(newMission);
@@ -1040,6 +1058,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           footer: reportFooter,
           photos: photos,
         };
+        // const userData = await AsyncStorage.getItem('user_data');
 
         setShowPdfLoadingModal(true);
         setPdfLoadingProgress('Conversion des photos...');
@@ -1047,37 +1066,38 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         const pdfPath = await pdfService.generateReportPDF(pdfData);
 
         const response = await uploadReportFile(pdfPath, reportResponse?.data?.title);
-        const adminEmail = process.env.SEND_REPORT_ADMIN_EMAIL || mission?.contactEmail;
+        const clientEmail = mission.contact?.email;
         let reportFileUrl = '';
         if (response) {
           reportFileUrl = response.url || '';
         }
         // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
         const resp = await reportService.updateReport(existingReportId, {
-          status: 'envoye' as ReportStatus,
-          recipientEmail: adminEmail,
+          status: 'envoye_au_client' as ReportStatus,
+          recipientEmail: clientEmail,
           reportFileUrl: reportFileUrl,
         });
 
         setPdfLoadingProgress('Finalisation...');
 
         const subject = `Rapport de visite - ${mission?.title}`;
-        const body = `Bonjour,
-
+        const body = `Bonjour ${mission?.contact.firstName},
 Veuillez trouver ci-joint le rapport de visite suivant:
 
 Mission: ${mission?.title}
-Client: ${mission?.client}
-Date: ${new Date().toLocaleDateString('fr-FR')}
+Date d'attribution: ${mission.date} à ${mission.time}
+Date de visite: ${visitResponse.data.createdAt}
+Adresse chantier: ${mission.location} 
 Conformité: ${conformity}%
-Photos: ${photos.length}
+Nombre de photos: ${photos.length}
 
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
-Cordialement`;
-
+Cordialement.
+${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
+`;
         // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
-        //   adminEmail,
+        //   clientEmail,
         //   subject,
         //   body,
         //   pdfPath || undefined
@@ -1093,7 +1113,7 @@ Cordialement`;
 
         // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
         const mailOptions = {
-          recipients: [adminEmail],
+          recipients: [clientEmail],
           subject: subject,
           body: body,
         };
@@ -1861,7 +1881,7 @@ Cordialement`;
       </Modal>
 
       {/* Mission Selector Modal */}
-      <Modal visible={showMissionSelector} animationType="slide" transparent>
+      {/* <Modal visible={showMissionSelector} animationType="slide" transparent>
         <View style={styles.missionSelectorOverlay}>
           <View style={styles.missionSelectorModal}>
             <LinearGradient
@@ -1907,7 +1927,7 @@ Cordialement`;
             </LinearGradient>
           </View>
         </View>
-      </Modal>
+      </Modal> */}
 
       {/* PDF Loading Modal */}
       <Modal visible={showPdfLoadingModal} animationType="fade" transparent>

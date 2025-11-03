@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsNumber, IsUUID, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNumber, IsUUID, IsEmail, IsDate } from 'class-validator';
 import { ReportStatus } from './report.entity';
 
 export class CreateReportDto {
@@ -42,6 +42,7 @@ export class CreateReportDto {
   @IsOptional()
   @IsString()
   remarquesAdmin?: string;
+
 }
 
 export class UpdateReportDto {
@@ -84,4 +85,8 @@ export class UpdateReportDto {
   @IsOptional()
   @IsString()
   reportFileUrl?: string;
+  
+  @IsOptional()
+  @IsDate()
+  sentToClientAt?: Date;
 }

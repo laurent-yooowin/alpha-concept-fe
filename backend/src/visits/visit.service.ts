@@ -4,24 +4,22 @@ import { Repository } from 'typeorm';
 import { Visit } from './visit.entity';
 import { CreateVisitDto, UpdateVisitDto } from './visit.dto';
 import { User, UserRole } from '../user/user.entity';
-import { Mission } from 'src/missions/mission.entity';
+import { MissionService } from '../missions/mission.service';
+import { UpdateMissionData } from '../../../services/missionService';
+import { UpdateMissionDto } from '../missions/mission.dto';
 
 @Injectable()
 export class VisitService {
   constructor(
     @InjectRepository(Visit)
     private visitRepository: Repository<Visit>,
-    @InjectRepository(Mission)
-    private missionRepository: Repository<Mission>,
-  ) {}
+    private missionService: MissionService
+  ) { }
 
   async create(user: User, createVisitDto: CreateVisitDto): Promise<Visit> {
     const userId = user.id;
-    const mission = await this.missionRepository.findOne({
-      where: { id: createVisitDto.missionId },
-    });
-
-    if(!mission){
+    const mission = await this.missionService.findOne(createVisitDto.missionId, user);
+    if (!mission) {
       throw new NotFoundException('Mission not found');
     }
 
@@ -29,7 +27,7 @@ export class VisitService {
       throw new NotFoundException('Cannot add visit to a completed mission');
     }
 
-    if(mission.userId !== userId && user.role !== UserRole.ADMIN){
+    if (mission.userId !== userId && user.role !== UserRole.ADMIN) {
       throw new NotFoundException('You are not assigned to this mission');
     }
 
@@ -41,8 +39,9 @@ export class VisitService {
     });
 
     if (mission && (mission.status === 'planifiee' || mission.status === 'assignee')) {
-      mission.status = 'en_cours';
-      await this.missionRepository.save(mission);
+      const updateMissionDto = new UpdateMissionDto();
+      updateMissionDto.status = 'en_cours';
+      await this.missionService.update(mission.id, user.id, updateMissionDto);
     }
 
     return this.visitRepository.save(visit);

@@ -4,10 +4,12 @@ import { Visit } from './visit.entity';
 import { VisitService } from './visit.service';
 import { VisitController } from './visit.controller';
 
+import { MissionModule } from '../missions/mission.module';
+
 @Module({
-  imports: [TypeOrmModule.forFeature([Visit])],
+  imports: [MissionModule, TypeOrmModule.forFeature([Visit])],
   controllers: [VisitController],
   providers: [VisitService],
   exports: [VisitService],
 })
-export class VisitModule {}
+export class VisitModule { }

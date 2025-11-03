@@ -23,6 +23,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { getMissionStatusInfo } from '@/utils/missionHelpers';
 import { visitService } from '@/services/visitService';
 import { reportService } from '@/services/reportService';
+import { missionService } from '@/services/missionService';
 
 const { width } = Dimensions.get('window');
 
@@ -176,26 +177,24 @@ export default function MissionsScreen() {
 
   const loadMissions = async () => {
     try {
-      const { missionService } = await import('@/services/missionService');
       const response = await missionService.getMissions();
+      const visitsResponse = await visitService.getVisits();
+      const reportsResponse = await reportService.getReports();
 
       if (response.data && Array.isArray(response.data)) {
-        const backendMissions = await Promise.all(response.data.map(async (mission: any) => {
+        // console.log('response.data IDs:', response.data.map(m => m.id));
+        const backendMissions = response.data.map((mission: any) => {
           const missionStatusInfo = getMissionStatusInfo(mission.status);
-
           let hasVisit = false;
           let visitId = null;
           let reportId = null;
 
           try {
-            const visitsResponse = await visitService.getVisits();
             if (visitsResponse.data) {
               const missionVisit = visitsResponse.data.find((v: any) => v.missionId === mission.id);
               if (missionVisit) {
                 hasVisit = true;
                 visitId = missionVisit.id;
-
-                const reportsResponse = await reportService.getReports();
                 if (reportsResponse.data) {
                   const visitReport = reportsResponse.data.find((r: any) => r.visitId === visitId);
                   if (visitReport) {
@@ -235,7 +234,7 @@ export default function MissionsScreen() {
             visitId,
             reportId
           };
-        }));
+        });
 
         setMissions(backendMissions);
         setUserMissions(backendMissions);

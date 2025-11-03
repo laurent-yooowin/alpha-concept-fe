@@ -28,6 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 import * as MailComposer from 'expo-mail-composer';
 import { uploadService } from '@/services/uploadService';
+import { Mission } from '../../services/missionService';
 
 const { width } = Dimensions.get('window');
 
@@ -83,9 +84,9 @@ export default function RapportsScreen() {
             date: new Date(report.createdAt).toISOString().split('T')[0],
             status: report.status || 'brouillon',
             originalStatus: report.status || 'brouillon',
-            type: 'Rapport SPS',
+            type: report.mission?.type,
             pages: Math.ceil(report.content.length / 500),
-            photos: 0,
+            photos: report.visit?.photos || 0,
             anomalies: 0,
             conformity: report.conformityPercentage,
             aiGenerated: true,
@@ -94,6 +95,19 @@ export default function RapportsScreen() {
             reportContent: report.content,
             reportHeader: report.header,
             reportFooter: report.footer,
+            observations: report.observations,
+            reportFileUrl: report.reportFileUrl,
+            validatedAt: report.validatedAt,
+            sentToClientAt: report.sentToClientAt,
+            location: report.mission.address,
+            dateMission: report.mission.date,
+            timeMission: report.mission.time,
+            contact: {
+              firstName: report.mission.contactFirstName,
+              lasstName: report.mission.contactLastName,
+              email: report.mission.contactEmail,
+              phone: report.mission.contactPhone,
+            }
           };
         });
 
@@ -266,7 +280,7 @@ export default function RapportsScreen() {
       const response = await uploadService.uploadReportsFile(pdfPath, fileName);
       // console.log('uploadReportFile response >>> : ', response);
       return response;
-    } catch (error) { 
+    } catch (error) {
       console.error('Error uploading report file:', error);
       return null;
     }
@@ -283,10 +297,11 @@ export default function RapportsScreen() {
       setPdfLoadingProgress('Préparation du document...');
 
       let photos: any[] = [];
+      let visitResponse;
       // console.log('selectedReport >>> : ', selectedReport);
       if (selectedReport.visitId) {
         try {
-          const visitResponse = await visitService.getVisit(selectedReport.visitId);
+          visitResponse = await visitService.getVisit(selectedReport.visitId);
           // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
           if (visitResponse.data && visitResponse.data.photos) {
             photos = visitResponse.data.photos
@@ -356,19 +371,21 @@ export default function RapportsScreen() {
 
       setPdfLoadingProgress('Finalisation...');
 
-      const body = `Bonjour,
-
+      const body = `Bonjour ${selectedReport?.contact.firstName},
 Veuillez trouver ci-joint le rapport de visite suivant:
 
-Titre: ${selectedReport.title}
-Mission: ${selectedReport.mission}
-Client: ${selectedReport.client}
-Date: ${selectedReport.date}
-Conformité: ${selectedReport.conformity}%
+Mission: ${selectedReport?.title}
+Date d'attribution: ${selectedReport.dateMission} à ${selectedReport.timeMission}
+Date de visite: ${new Date(visitResponse?.data?.createdAt || '').toLocaleString('fr-FR')}
+Adresse chantier: ${selectedReport.location} 
+Conformité: ${selectedReport.conformity} %
+Nombre de photos: ${visitResponse?.data?.photos?.length}
 
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
-Cordialement`;
+Cordialement.
+${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
+`;
 
       // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
       //   adminEmail,
@@ -963,7 +980,7 @@ Cordialement`;
                   )}
                 </ScrollView>
 
-                {selectedReport && selectedReport.originalStatus !== 'valide' && (
+                {selectedReport && (
                   <View style={styles.reportDetailActions}>
                     <TouchableOpacity
                       style={styles.actionButton}
