@@ -1,9 +1,11 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AiService {
   private openaiApiKey: string;
+
+  private readonly logger = new Logger(AiService.name);
 
   constructor(private configService: ConfigService) {
     this.openaiApiKey = this.configService.get<string>('OPENAI_API_KEY');
@@ -12,18 +14,21 @@ export class AiService {
     }
   }
 
-  async analyzePhoto(imageUrl: string): Promise<{
-    observations: string[];
+  async analyzePhoto(imageUrl: string, userComments?: string): Promise<{
+    nonConformities: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
     confidence: number;
+    photoConformity: boolean;
+    photoConformityMessage: string | any;
+    references: string[];
   }> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
     }
 
     try {
-      const prompt = this.buildCSPSPrompt();
+      const prompt = this.buildCSPSPrompt(userComments);
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -43,7 +48,7 @@ export class AiService {
               content: [
                 {
                   type: 'text',
-                  text: 'Analysez cette photo de chantier selon les normes CSPS. Identifiez les risques, les non-conformités et fournissez des recommandations.',
+                  text: "Analysez cette photo de chantier selon les normes CSPS. Identifiez les risques, les non-conformités et fournissez des recommandations ainsi que les références de ton analyse. Toujours fournir la réponse sous format JSON valide. Si la photo n'est pas conforme mettre le flag photoConformity à < false > ",
                 },
                 {
                   type: 'image_url',
@@ -55,7 +60,7 @@ export class AiService {
             },
           ],
           max_tokens: 1000,
-          temperature: 0.3,
+          temperature: 0.7,
         }),
       });
 
@@ -78,7 +83,7 @@ export class AiService {
     }
   }
 
-  private buildCSPSPrompt(): string {
+  private buildCSPSPrompt(userComments?: string): string {
     return `Vous êtes un Coordonnateur SPS (Sécurité et Protection de la Santé) expert.
 
 Votre rôle est d'analyser des photos de chantiers de construction et d'identifier :
@@ -150,15 +155,45 @@ Votre rôle est d'analyser des photos de chantiers de construction et d'identifi
     - Plan de prévention visible
     - Numéros d'urgence affichés
 
+11. **Références du rapport :**
+    - Vous DEVEZ inclure dans le champ "references" du JSON une liste d'articles, directives officielles, et liens utiles (URLs, emails, téléphones) liés aux observations ou recommandations formulées.
+    - Chaque référence doit être pertinente (ex. décret, directive européenne, norme AFNOR, etc.).
+
+    12. **Conformité de la photo :**
+    - Si la photo n'est pas lisible ou non conforme mêttre le flague photoConformity à true et ajouter le commentaire dans photoConformityMessage `
+      +
+      userComments && userComments != '' ?
+      `
+12. **Commentaires du coordonnateur :**
+  - Prenez également en compte les remarques suivantes pour générer un rapport plus précis et professionnel :
+${userComments}
+
+`
+      :
+
+      ``
+      +
+
+      `
 **FORMAT DE RÉPONSE :**
 Vous devez répondre UNIQUEMENT au format JSON suivant, sans texte supplémentaire :
 
 {
-  "observations": ["observation 1", "observation 2", "..."],
+  "nonConformities": ["observation 1", "observation 2", "..."],
   "recommendations": ["recommandation 1", "recommandation 2", "..."],
   "riskLevel": "faible" | "moyen" | "eleve",
-  "confidence": 0.85
+  "confidence": 0.85,
+  "photoConformity": false,
+  "photoConformityMessage": "Il semble que l'image montre un environnement de bureau plutôt qu'un chantier de construction",
+  "references": [
+    "Article R4534-1 du Code du Travail",
+    "Directive 92/57/CEE",
+    "www.travail-emploi.gouv.fr/securite-chantier"
+  ]
 }
+
+**nonConformities :**
+- Regrouper touts les risques et non conformités et autres observations identifiés durant l'analyse de la photo. 
 
 **NIVEAUX DE RISQUE :**
 - **faible** : Conformité globale, pas de risques graves identifiés
@@ -168,14 +203,23 @@ Vous devez répondre UNIQUEMENT au format JSON suivant, sans texte supplémentai
 **CONFIDENCE :**
 Un nombre entre 0 et 1 indiquant votre niveau de certitude dans l'analyse (0.7-0.85 pour une photo claire, moins si floue ou partielle).
 
+**Note :**
+- Si aucune référence n'est applicable, le champ "references" doit être une liste vide : \`"references": []\`.
+- Les champs doivent TOUS être présents.
+- Toujours la réponse doit être sous format JSON valide.
+
 Soyez précis, factuel et professionnel dans vos observations et recommandations.`;
   }
 
   private parseAIResponse(content: string): {
-    observations: string[];
+    nonConformities: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
     confidence: number;
+    photoConformity: boolean;
+    photoConformityMessage: string | any;
+    references: any;
+    content: any;
   } {
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -183,10 +227,14 @@ Soyez précis, factuel et professionnel dans vos observations et recommandations
         throw new Error('No JSON found in response');
       }
 
+      this.logger.log('parseAIResponse >>> :', content);
+
       const parsed = JSON.parse(jsonMatch[0]);
 
+      this.logger.log('parseAIResponse parsed >>> :', parsed);
+
       return {
-        observations: Array.isArray(parsed.observations) ? parsed.observations : [],
+        nonConformities: Array.isArray(parsed.nonConformities) ? parsed.nonConformities : [],
         recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
         riskLevel: ['faible', 'moyen', 'eleve'].includes(parsed.riskLevel)
           ? parsed.riskLevel
@@ -194,10 +242,15 @@ Soyez précis, factuel et professionnel dans vos observations et recommandations
         confidence: typeof parsed.confidence === 'number'
           ? Math.max(0, Math.min(1, parsed.confidence))
           : 0.75,
+        photoConformity: parsed.photoConformity || true,
+        photoConformityMessage: parsed.photoConformityMessage || "",
+        references: parsed.references || [],
+        content: content
       };
     } catch (error) {
       console.error('Error parsing AI response:', error);
-      throw new BadRequestException('Failed to parse AI response');
+      throw new BadRequestException(`Failed to parse AI response
+        ${content}`);
     }
   }
 }

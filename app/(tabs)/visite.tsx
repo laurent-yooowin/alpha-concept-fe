@@ -229,7 +229,7 @@ export default function VisiteScreen() {
       setVisitNotes('');
       setReportValidated(false);
 
-      console.log('selectedMission >>> ', selectedMission)
+      // console.log('selectedMission >>> ', selectedMission)
       await loadExistingVisitData(selectedMission.id);
     }
 
@@ -240,7 +240,7 @@ export default function VisiteScreen() {
   const loadExistingVisitData = async (missionId: number) => {
     try {
       const response = await visitService.getVisits(missionId);
-      console.log('getVisits - response.data >>> ', response.data)
+      // console.log('getVisits - response.data >>> ', response.data)
 
       if (response.data && response.data.length > 0) {
         setPhotos([]);
@@ -290,7 +290,7 @@ export default function VisiteScreen() {
             };
           });
 
-          console.log('Loaded photos with analysis:', loadedPhotos);
+          // console.log('Loaded photos with analysis:', loadedPhotos);
           setPhotos(loadedPhotos);
           setUploadedPhotoUrls(visit.photos.map((p: any) => p.s3Url || p.uri).filter(Boolean));
         }
@@ -318,12 +318,14 @@ export default function VisiteScreen() {
   // Simulation d'analyse IA pour une photo
   const analyzePhoto = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
     try {
+      console.log('tempComments >>> : ', tempComments);
       // Use backend AI analysis
-      const response = await aiService.analyzePhoto(photoUri);
+      const response = await aiService.analyzePhoto(photoUri, tempComments);
+      console.log('analisis response >>> : ', response);
 
       if (response.data) {
         return {
-          observations: response.data.observations,
+          observations: response.data.nonConformities,
           recommendations: response.data.recommendations,
           riskLevel: response.data.riskLevel === 'faible' ? 'low' : response.data.riskLevel === 'moyen' ? 'medium' : 'high',
           confidence: Math.round(response.data.confidence * 100),
@@ -421,7 +423,7 @@ export default function VisiteScreen() {
           }
 
           const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
-          console.log('uploadResults  >>>> : ', uploadResults);
+          // console.log('uploadResults  >>>> : ', uploadResults);
 
           if (uploadResults?.data && uploadResults.data?.length > 0) {
             const s3Url = uploadResults.data[0].url;
@@ -460,6 +462,25 @@ export default function VisiteScreen() {
       Alert.alert('Erreur', 'Impossible de prendre la photo');
     }
   };
+
+  const addCommentsAndAnalyseAI = async () => {
+    saveComments();
+    // Lancer l'analyse IA
+    setAnalyzingPhoto(true);
+    try {
+      const analysis = await analyzePhoto(selectedPhoto.s3Url);
+      console.log('analisis >>> : ', analysis);
+      setPhotos(prev => prev.map(p =>
+        p.id === selectedPhoto.id
+          ? { ...p, aiAnalysis: analysis }
+          : p
+      ));
+    } catch (error) {
+      console.error('Erreur analyse IA:', error);
+    } finally {
+      setAnalyzingPhoto(false);
+    }
+  }
 
   const deletePhotoFromServer = async (photo?: Photo) => {
     if (!photo?.s3Url) return;
@@ -573,7 +594,7 @@ export default function VisiteScreen() {
           photos: visitPhotos,
           notes: visitNotes,
         });
-        console.log('Updated existing visit:', existingVisitId);
+        // console.log('Updated existing visit:', existingVisitId);
       } else {
         // Create new visit
         visitResponse = await visitService.createVisit({
@@ -584,7 +605,7 @@ export default function VisiteScreen() {
         });
         visitId = visitResponse.data?.id;
         setExistingVisitId(visitId);
-        console.log('Created new visit:', visitId);
+        // console.log('Created new visit:', visitId);
       }
 
       if (visitResponse.error) {
@@ -924,7 +945,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           photos: visitPhotos,
           notes: visitNotes,
         });
-        console.log('Updated existing visit:', existingVisitId);
+        // console.log('Updated existing visit:', existingVisitId);
       } else {
         // Create new visit
         visitResponse = await visitService.createVisit({
@@ -935,7 +956,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         });
         visitId = visitResponse.data?.id;
         setExistingVisitId(visitId);
-        console.log('Created new visit:', visitId);
+        // console.log('Created new visit:', visitId);
       }
 
       if (visitResponse.isTokenExpired) {
@@ -969,7 +990,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           status: isToSend ? 'envoye' : 'brouillon',
           conformityPercentage: conformity,
         });
-        console.log('Updated existing report:', existingReportId);
+        // console.log('Updated existing report:', existingReportId);
         setHasChanges(false);
       } else if (!existingReportId) {
         // Create new report only if none exists
@@ -1676,6 +1697,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                             >
                               <Text style={styles.cancelCommentsText}>ANNULER</Text>
                             </TouchableOpacity>
+
                             <TouchableOpacity
                               style={styles.saveCommentsButton}
                               onPress={saveComments}
@@ -1686,6 +1708,19 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                               >
                                 <Check size={16} color="#FFFFFF" />
                                 <Text style={styles.saveCommentsText}>SAUVEGARDER</Text>
+                              </LinearGradient>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={styles.saveCommentsButton}
+                              onPress={() => addCommentsAndAnalyseAI()}
+                            >
+                              <LinearGradient
+                                colors={['#10B981', '#059669']}
+                                style={styles.saveCommentsGradient}
+                              >
+                                <Check size={16} color="#FFFFFF" />
+                                <Text style={styles.saveCommentsText}>Regénérer rapport</Text>
                               </LinearGradient>
                             </TouchableOpacity>
                           </View>
