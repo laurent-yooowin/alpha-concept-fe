@@ -12473,3 +12473,177 @@
 [2025-11-03 17:05:42] [INFO] MailController {/api/mail}:
 [2025-11-03 17:05:42] [INFO] Mapped {/api/mail/send-report, POST} route
 [2025-11-03 17:05:42] [INFO] Nest application successfully started
+[2025-11-03 17:14:51] [INFO] parseAIResponse >>> :
+[2025-11-03 17:14:51] [INFO] parseAIResponse parsed >>> :
+[2025-11-03 17:14:51] [INFO] POST /api/ai/analyze-photo - 6976ms
+[2025-11-03 17:15:35] [INFO] parseAIResponse >>> :
+[2025-11-03 17:15:35] [INFO] parseAIResponse parsed >>> :
+[2025-11-03 17:15:35] [INFO] POST /api/ai/analyze-photo - 5846ms
+[2025-11-03 17:17:00] [INFO] Starting Nest application...
+[2025-11-03 17:17:00] [INFO] AppModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] MailerModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] PassportModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] MulterModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] MailerCoreModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] ConfigHostModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] ConfigModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] ConfigModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] MailModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] UploadModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] JwtModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] AiModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmCoreModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] AuthModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] UserModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] ActivityLogModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] DashboardModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] MissionModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] VisitModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] ReportModule dependencies initialized
+[2025-11-03 17:17:00] [INFO] AuthController {/api/auth}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/auth/login, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/auth/register, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/auth/forgot-password, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/auth/reset-password, POST} route
+[2025-11-03 17:17:00] [INFO] UserController {/api/users}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/users/profile, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/users, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/users/:id, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/users/:id, PUT} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/users/:id, DELETE} route
+[2025-11-03 17:17:00] [INFO] MissionController {/api/missions}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions/:id, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions/:id/assign, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions/:id/assigned-users, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions/:id/assign/:userId, DELETE} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions/admin/all-users, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions/:id, PUT} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/missions/:id, DELETE} route
+[2025-11-03 17:17:00] [INFO] VisitController {/api/visits}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/visits, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/visits, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/visits/:id, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/visits/:id, PUT} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/visits/:id, DELETE} route
+[2025-11-03 17:17:00] [INFO] ReportController {/api/reports}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/reports, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/reports, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/reports/counts, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/reports/:id, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/reports/:id, PUT} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/reports/:id, DELETE} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/reports/:id/send, POST} route
+[2025-11-03 17:17:00] [INFO] UploadController {/api/upload}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/delete, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/single, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/reports_file, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/client_reports_file, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/multiple, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/visit-photos, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/report-pdf, POST} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/upload/download, POST} route
+[2025-11-03 17:17:00] [INFO] AiController {/api/ai}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/ai/analyze-photo, POST} route
+[2025-11-03 17:17:00] [INFO] ActivityLogController {/api/activity-logs}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/activity-logs, GET} route
+[2025-11-03 17:17:00] [INFO] DashboardController {/api/dashboard}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/dashboard/stats, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/dashboard/monthly-missions, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/dashboard/coordinator-stats, GET} route
+[2025-11-03 17:17:00] [INFO] Mapped {/api/dashboard/status-breakdown, GET} route
+[2025-11-03 17:17:00] [INFO] MailController {/api/mail}:
+[2025-11-03 17:17:00] [INFO] Mapped {/api/mail/send-report, POST} route
+[2025-11-03 17:17:00] [INFO] Nest application successfully started
+[2025-11-03 17:17:05] [INFO] Starting Nest application...
+[2025-11-03 17:17:05] [INFO] AppModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] MailerModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] PassportModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] MulterModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] MailerCoreModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] ConfigHostModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] ConfigModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] ConfigModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] MailModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] UploadModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] JwtModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] AiModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmCoreModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] TypeOrmModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] AuthModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] UserModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] ActivityLogModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] DashboardModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] MissionModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] VisitModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] ReportModule dependencies initialized
+[2025-11-03 17:17:05] [INFO] AuthController {/api/auth}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/auth/login, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/auth/register, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/auth/forgot-password, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/auth/reset-password, POST} route
+[2025-11-03 17:17:05] [INFO] UserController {/api/users}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/users/profile, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/users, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/users/:id, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/users/:id, PUT} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/users/:id, DELETE} route
+[2025-11-03 17:17:05] [INFO] MissionController {/api/missions}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions/:id, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions/:id/assign, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions/:id/assigned-users, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions/:id/assign/:userId, DELETE} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions/admin/all-users, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions/:id, PUT} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/missions/:id, DELETE} route
+[2025-11-03 17:17:05] [INFO] VisitController {/api/visits}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/visits, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/visits, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/visits/:id, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/visits/:id, PUT} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/visits/:id, DELETE} route
+[2025-11-03 17:17:05] [INFO] ReportController {/api/reports}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/reports, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/reports, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/reports/counts, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/reports/:id, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/reports/:id, PUT} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/reports/:id, DELETE} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/reports/:id/send, POST} route
+[2025-11-03 17:17:05] [INFO] UploadController {/api/upload}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/delete, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/single, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/reports_file, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/client_reports_file, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/multiple, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/visit-photos, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/report-pdf, POST} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/upload/download, POST} route
+[2025-11-03 17:17:05] [INFO] AiController {/api/ai}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/ai/analyze-photo, POST} route
+[2025-11-03 17:17:05] [INFO] ActivityLogController {/api/activity-logs}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/activity-logs, GET} route
+[2025-11-03 17:17:05] [INFO] DashboardController {/api/dashboard}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/dashboard/stats, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/dashboard/monthly-missions, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/dashboard/coordinator-stats, GET} route
+[2025-11-03 17:17:05] [INFO] Mapped {/api/dashboard/status-breakdown, GET} route
+[2025-11-03 17:17:05] [INFO] MailController {/api/mail}:
+[2025-11-03 17:17:05] [INFO] Mapped {/api/mail/send-report, POST} route
+[2025-11-03 17:17:05] [INFO] Nest application successfully started
