@@ -3,12 +3,15 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
+import { winstonLogger } from './config/winston-logger';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'], // Active tous les niveaux
+    logger: winstonLogger,
   });
 
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN || '*',

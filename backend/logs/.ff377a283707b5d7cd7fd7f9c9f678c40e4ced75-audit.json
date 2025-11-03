@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/usr/yooowin/alpha-concept-new/alpha-concept-fe/backend/logs/.ff377a283707b5d7cd7fd7f9c9f678c40e4ced75-audit.json",
+    "files": [
+        {
+            "date": 1762180463214,
+            "name": "/usr/yooowin/alpha-concept-new/alpha-concept-fe/backend/logs/app-2025-11-03.log",
+            "hash": "30765b542dd4b05a5cf8d7581b92a4bd971de4492d32c8ee9eec2bd371efc8ea"
+        }
+    ],
+    "hashType": "sha256"
+}
