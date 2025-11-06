@@ -1,15 +1,26 @@
 import { Controller, Post, Body, UseGuards, Optional } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiService } from './ai.service';
-import { IsString } from 'class-validator';
+import { IsNotEmpty, IsString, } from 'class-validator';
 
 class AnalyzePhotoDto {
   @IsString()
+  @IsNotEmpty()
   imageUrl: string;
+}
 
-  @Optional()
+class AnalyzePhotoDirectivesDto {
   @IsString()
-  userComments?: string;
+  @IsNotEmpty()
+  imageUrl: string;
+  
+  @IsString()
+  @IsNotEmpty()
+  userDirectives?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  previousReport?: string;
 }
 
 @Controller('ai')
@@ -19,6 +30,15 @@ export class AiController {
 
   @Post('analyze-photo')
   async analyzePhoto(@Body() analyzePhotoDto: AnalyzePhotoDto) {
-    return this.aiService.analyzePhoto(analyzePhotoDto.imageUrl, analyzePhotoDto.userComments);
+    return this.aiService.analyzePhoto(analyzePhotoDto.imageUrl);
+  }
+
+  @Post('analyze-photo-directives')
+  async analyzePhotoWithDirectives(@Body() analyzePhotoDirectivesDto: AnalyzePhotoDirectivesDto) {
+    return this.aiService.analyzePhotoWithDirectives(
+      analyzePhotoDirectivesDto.imageUrl, 
+      analyzePhotoDirectivesDto.userDirectives, 
+      analyzePhotoDirectivesDto.previousReport
+    );
   }
 }

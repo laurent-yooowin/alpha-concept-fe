@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { UploadService } from '../upload/upload.service';
 
 @Injectable()
 export class AiService {
@@ -7,14 +8,18 @@ export class AiService {
 
   private readonly logger = new Logger(AiService.name);
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly uploadService: UploadService
+  ) {
     this.openaiApiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (!this.openaiApiKey) {
       console.warn('OPENAI_API_KEY not configured. AI analysis will not be available.');
     }
+
   }
 
-  async analyzePhoto(imageUrl: string, userComments?: string): Promise<{
+  async analyzePhoto(imageUrl: string): Promise<{
     nonConformities: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
@@ -28,7 +33,8 @@ export class AiService {
     }
 
     try {
-      const prompt = this.buildCSPSPrompt(userComments);
+      const imgBase64 = await this.uploadService.downloadFile(imageUrl, '', true);
+      const prompt = this.buildCSPSPrompt();
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -53,7 +59,7 @@ export class AiService {
                 {
                   type: 'image_url',
                   image_url: {
-                    url: imageUrl,
+                    url: `data:image/jpeg;base64,${imgBase64.data}`,
                   },
                 },
               ],
@@ -83,7 +89,89 @@ export class AiService {
     }
   }
 
-  private buildCSPSPrompt(userComments?: string): string {
+  async analyzePhotoWithDirectives(imageUrl: string, userDirectives: string, previousReport): Promise<{
+    nonConformities: string[];
+    recommendations: string[];
+    riskLevel: 'faible' | 'moyen' | 'eleve';
+    confidence: number;
+    photoConformity: boolean;
+    photoConformityMessage: string | any;
+    references: string[];
+  }> {
+    if (!this.openaiApiKey) {
+      throw new BadRequestException('OpenAI API key not configured');
+    }
+
+    try {
+      const imgBase64 = await this.uploadService.downloadFile(imageUrl, '', true);
+      const prompt = this.buildCSPSPrompt();
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: prompt,
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: ` Analysez cette photo de chantier selon les normes CSPS. 
+                  Voici les informations nécessaires pour régénérer le nouveau rapport CSPS :
+
+                  ### Ancien rapport :
+                  ${previousReport}
+
+                  ### Directives du coordonnateur :
+                  ${userDirectives}
+
+                  Merci de produire le **nouveau rapport CSPS** complet au format JSON spécifié.
+                  Identifiez les risques, les non-conformités et fournissez des recommandations ainsi que les références de ton analyse. 
+                  Toujours fournir la réponse sous format JSON valide. 
+                  Si la photo n'est pas conforme mettre le flag photoConformity à < false > `,
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:image/jpeg;base64,${imgBase64.data}`,
+                  },
+                },
+              ],
+            },
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`OpenAI API error: ${JSON.stringify(error)}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+
+      return this.parseAIResponse(content);
+    } catch (error) {
+      console.error('Error analyzing photo:', error);
+      throw new BadRequestException(`Failed to analyze photo: ${error.message}`);
+    }
+  }
+
+  private buildCSPSPrompt(): string {
     return `Vous êtes un Coordonnateur SPS (Sécurité et Protection de la Santé) expert.
 
 Votre rôle est d'analyser des photos de chantiers de construction et d'identifier :
@@ -156,25 +244,12 @@ Votre rôle est d'analyser des photos de chantiers de construction et d'identifi
     - Numéros d'urgence affichés
 
 11. **Références du rapport :**
-    - Vous DEVEZ inclure dans le champ "references" du JSON une liste d'articles, directives officielles, et liens utiles (URLs, emails, téléphones) liés aux observations ou recommandations formulées.
+    - Vous DEVEZ inclure dans le champ "references" du JSON de ta réponse une liste d'articles, directives officielles, et liens utiles, références ... (URLs, emails, téléphones) liés aux observations et recommandations formulées.
     - Chaque référence doit être pertinente (ex. décret, directive européenne, norme AFNOR, etc.).
 
-    12. **Conformité de la photo :**
-    - Si la photo n'est pas lisible ou non conforme mêttre le flague photoConformity à true et ajouter le commentaire dans photoConformityMessage `
-      +
-      userComments && userComments != '' ?
-      `
-12. **Commentaires du coordonnateur :**
-  - Prenez également en compte les remarques suivantes pour générer un rapport plus précis et professionnel :
-${userComments}
-
-`
-      :
-
-      ``
-      +
-
-      `
+12. **Conformité de la photo :**
+    - Si la photo n'est pas lisible ou non conforme mêttre le flague photoConformity à true et ajouter le commentaire dans photoConformityMessage 
+    
 **FORMAT DE RÉPONSE :**
 Vous devez répondre UNIQUEMENT au format JSON suivant, sans texte supplémentaire :
 
@@ -201,14 +276,16 @@ Vous devez répondre UNIQUEMENT au format JSON suivant, sans texte supplémentai
 - **eleve** : Non-conformités graves, risques pour la sécurité des travailleurs, actions correctives immédiates requises
 
 **CONFIDENCE :**
-Un nombre entre 0 et 1 indiquant votre niveau de certitude dans l'analyse (0.7-0.85 pour une photo claire, moins si floue ou partielle).
+- Un nombre entier entre 0 et 100 indiquant votre niveau de certitude dans l'analyse (70-85 pour une photo claire, moins si floue ou partielle).
+- Le nombre Doit être un entier entre 0 et 100, exemple 65.
 
 **Note :**
+- 
 - Si aucune référence n'est applicable, le champ "references" doit être une liste vide : \`"references": []\`.
 - Les champs doivent TOUS être présents.
 - Toujours la réponse doit être sous format JSON valide.
 
-Soyez précis, factuel et professionnel dans vos observations et recommandations.`;
+Soyez précis, factuel et professionnel dans vos observations et recommandations et donner des détails pertinants.`;
   }
 
   private parseAIResponse(content: string): {
@@ -239,9 +316,10 @@ Soyez précis, factuel et professionnel dans vos observations et recommandations
         riskLevel: ['faible', 'moyen', 'eleve'].includes(parsed.riskLevel)
           ? parsed.riskLevel
           : 'moyen',
-        confidence: typeof parsed.confidence === 'number'
-          ? Math.max(0, Math.min(1, parsed.confidence))
-          : 0.75,
+        // confidence: typeof parsed.confidence === 'number'
+        //   ? Math.max(0, Math.min(1, parsed.confidence))
+        //   : 0.75,
+        confidence: parsed.confidence,
         photoConformity: parsed.photoConformity || true,
         photoConformityMessage: parsed.photoConformityMessage || "",
         references: parsed.references || [],

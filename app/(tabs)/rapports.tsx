@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X, Edit, Mail, FileCheck } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { reportService, ReportStatus } from '@/services/reportService';
@@ -29,11 +30,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import * as MailComposer from 'expo-mail-composer';
 import { uploadService } from '@/services/uploadService';
 import { Mission } from '../../services/missionService';
+import { useLocalSearchParams } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
 export default function RapportsScreen() {
   const { user } = useAuth();
+  const params = useLocalSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('tous');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -45,6 +48,7 @@ export default function RapportsScreen() {
     archive: 0,
   });
   const [selectedReport, setSelectedReport] = useState < any | null > (null);
+  const [selectedMission, setSelectedMission] = useState < any | null > (null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [selectedReportPhotos, setSelectedReportPhotos] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -55,27 +59,44 @@ export default function RapportsScreen() {
   const [showPdfLoadingModal, setShowPdfLoadingModal] = useState(false);
   const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
 
+  // useEffect(() => {
+  //   loadReports();
+  //   loadReportCounts();
+  // }, []);
+
+  // useFocusEffect(
+  //   useCallback(() => {
+  //     loadReports();
+  //     loadReportCounts();
+  //   }, [])
+  // );
+
   useEffect(() => {
-    loadReports();
+    let missionData;
+    if (params.mission) {
+      try {
+        missionData = JSON.parse(params.mission as string);
+        console.log('Params missionData >>> : ', missionData);
+        setSelectedMission(missionData);
+      } catch (error) {
+        console.error('Erreur parsing mission:', error);
+      }
+    }
+    loadReports(missionData);
     loadReportCounts();
-  }, []);
+  }, [params.mission]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadReports();
-      loadReportCounts();
-    }, [])
-  );
-
-  const loadReports = async () => {
+  const loadReports = async (missionData?: Mission | null) => {
     try {
       setLoading(true);
       const response = await reportService.getReports();
+      let missionExists = false;
+      let selectedReportMission = null;
 
       if (response.data && Array.isArray(response.data)) {
         const backendReports = response.data.map((report: any) => {
           const statusInfo = getReportStatusInfo(report.status);
-          return {
+          const reportRet = {
             id: report.id,
             visitId: report.visitId,
             title: report.title,
@@ -109,6 +130,12 @@ export default function RapportsScreen() {
               phone: report.mission.contactPhone,
             }
           };
+          if (missionData && report.mission.id == missionData.id) {
+            missionExists = true;
+            setSelectedReport(reportRet);
+            selectedReportMission = reportRet;
+          }
+          return reportRet;
         });
 
         // Load local reports as well
@@ -117,6 +144,10 @@ export default function RapportsScreen() {
 
         // setReports([...backendReports, ...parsedLocalReports]);
         setReports([...backendReports]);
+        if (missionExists && selectedReportMission) {
+          console.log('selectedReportMission >>> : ', selectedReportMission);
+          openReportDetail(selectedReportMission);
+        }
       } else {
         // Load only local reports if backend fails
         const localReports = await AsyncStorage.getItem('userReports');
@@ -288,8 +319,13 @@ export default function RapportsScreen() {
 
   const handleSendReport = async () => {
     if (!selectedReport) return;
+    if (selectedReport.status == 'valide' || selectedReport.status == 'envoye_au_client') {
+      Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
+      return;
+    }
+    
 
-    const adminEmail = 'admin@csps.fr';
+    let adminEmail = 'admin@csps.fr';
     const subject = `Rapport SPS: ${selectedReport.title}`;
 
     try {
@@ -327,7 +363,7 @@ export default function RapportsScreen() {
                     observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
                     recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
                     riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-                    confidence: Math.round((photo.analysis.confidence || 0) * 100)
+                    confidence: (photo.analysis.confidence || 0)
                   } : undefined,
                   comment: photo.comment || '',
                   validated: photo.validated || true
@@ -444,6 +480,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
   const filters = [
     { id: 'tous', label: 'Tous les rapports', count: filterCounts.tous, color: '#8B5CF6', icon: FileText, gradient: ['#8B5CF6', '#7C3AED'] },
+    { id: 'envoye_au_client', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
     { id: 'envoye', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
     { id: 'brouillon', label: 'En cours', count: filterCounts.brouillon, color: '#F59E0B', icon: Clock, gradient: ['#F59E0B', '#D97706'] },
     { id: 'valide', label: 'Validés', count: filterCounts.valide, color: '#3B82F6', icon: CheckCircle, gradient: ['#3B82F6', '#2563EB'] },
@@ -452,6 +489,8 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
   const getStatusInfo = (status: string) => {
     switch (status) {
+      case 'envoye_au_client':
+        return { label: 'Envoyé', color: '#10B981', icon: Send };
       case 'envoye':
         return { label: 'Envoyé', color: '#10B981', icon: Send };
       case 'brouillon':
@@ -488,14 +527,15 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
   };
 
   const openReportDetail = async (report: any) => {
+    console.log('report modal >>>> : ', report);
     let photos: any[] = [];
     if (report?.visitId) {
       try {
         const visitResponse = await visitService.getVisit(report.visitId);
         // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
         if (visitResponse.data && visitResponse.data.photos) {
-          photos = visitResponse.data.photos
-            .map((photo: any) => {
+          photos = await Promise.all(visitResponse.data.photos
+            .map(async (photo: any) => {
               const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
                 'faible': 'low',
                 'moyen': 'medium',
@@ -508,21 +548,44 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
               const observationText = photo.analysis?.observation || '';
               const recommendationText = photo.analysis?.recommendation || '';
 
+              // 📁 Chemin local prévu pour cette image
+              const fileName = photo.uri.split('/').pop();
+              const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+              const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
+              // console.log('photo.uri Avant >>> : ', photo.uri);
+              if (imgResp && imgResp.data && imgResp.data.data) {
+                // 💾 Sauvegarde localement
+                await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+                const info = await FileSystem.getInfoAsync(fileUri);
+                if (!info?.exists) {
+                  console.log("Photo uri dosn't exist >>> : ", fileUri);
+                } else {
+                  console.log("Photo uri exist in >>> : ", fileUri);
+                }
+                photo.uri = fileUri;
+                // console.log('photo.uri >>> : ', photo.uri);
+              } else {
+                Alert.alert("La photo n'a pas pu être telechargé");
+              }
+
               return {
                 id: photo.id || `photo-${Date.now()}-${Math.random()}`,
-                uri: photo.uri || photo.s3Url,
+                uri: fileUri || photo.s3Url,
                 s3Url: photo.s3Url,
                 timestamp: new Date(photo.createdAt || Date.now()),
                 aiAnalysis: photo.analysis ? {
                   observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
                   recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
                   riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-                  confidence: Math.round((photo.analysis.confidence || 0) * 100)
+                  confidence: (photo.analysis.confidence || 0)
                 } : undefined,
                 comment: photo.comment || '',
                 validated: photo.validated || true
               };
-            });
+            }));
         }
       } catch (error) {
         console.log('Could not load visit photos:', error);
@@ -890,7 +953,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
                     {(selectedReportPhotos?.length > 0) &&
                       <View style={styles.reportPhotoContainer}>
-                        {selectedReportPhotos.map((photo, index) => {
+                        {selectedReportPhotos.map((photo: any, index) => {
                           const getRiskColor = (risk: string) => {
                             const level = risk?.toLowerCase();
                             if (level === 'high' || level === 'eleve') return '#EF4444';
@@ -922,7 +985,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
                               <View style={styles.reportPhotoImageContainer}>
                                 <Image
-                                  source={{ uri: photo.s3Url }}
+                                  source={{ uri: photo.uri }}
                                   style={styles.reportPhotoImage}
                                   resizeMode="cover"
                                 />
@@ -980,7 +1043,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                   )}
                 </ScrollView>
 
-                {selectedReport && (
+                {selectedReport && selectedReport.status != 'valide' && selectedReport.status != 'envoye_au_client' && (
                   <View style={styles.reportDetailActions}>
                     <TouchableOpacity
                       style={styles.actionButton}

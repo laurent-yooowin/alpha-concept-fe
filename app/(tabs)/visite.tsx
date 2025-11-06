@@ -14,7 +14,8 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
-import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight, RefreshCw, Save } from 'lucide-react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight, RefreshCw, Save, NotebookPen } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
@@ -28,6 +29,8 @@ import { pdfService } from '@/services/pdfService';
 import * as Linking from 'expo-linking';
 import * as MailComposer from 'expo-mail-composer';
 import { useAuth } from '@/contexts/AuthContext';
+import { missionService } from '@/services/missionService';
+import { MissionStatus } from '@/backend/src/missions/mission.entity';
 
 const { width, height } = Dimensions.get('window');
 
@@ -43,6 +46,7 @@ interface Photo {
     confidence: number;
   };
   userComments: string;
+  userDirectives: string;
   validated: boolean;
 }
 
@@ -90,6 +94,8 @@ export default function VisiteScreen() {
   const [showPhotoDetail, setShowPhotoDetail] = useState(false);
   const [editingComments, setEditingComments] = useState(false);
   const [tempComments, setTempComments] = useState('');
+  const [editingDirectives, setEditingDirectives] = useState(false);
+  const [tempDirectives, setTempDirectives] = useState('');
 
   // États pour le rapport
   const [showReportModal, setShowReportModal] = useState(false);
@@ -120,7 +126,6 @@ export default function VisiteScreen() {
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
-    loadAvailableMissions();
 
     if (params.mission) {
       try {
@@ -130,11 +135,12 @@ export default function VisiteScreen() {
         console.error('Erreur parsing mission:', error);
       }
     }
+
+    loadAvailableMissions();
   }, [params.mission]);
 
   const loadMissions = async () => {
     try {
-      const { missionService } = await import('@/services/missionService');
       const response = await missionService.getMissions();
       if (response.data && Array.isArray(response.data)) {
         const backendMissions = [];
@@ -260,8 +266,10 @@ export default function VisiteScreen() {
 
         setHasChanges(false);
 
+
         if (visit.photos && visit.photos.length > 0) {
-          const loadedPhotos: Photo[] = visit.photos.map((photo: any) => {
+          console.log('visit >>> : ', visit);
+          const loadedPhotos: Photo[] = await Promise.all(visit.photos.map(async (photo: any) => {
             const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
               'faible': 'low',
               'moyen': 'medium',
@@ -273,22 +281,76 @@ export default function VisiteScreen() {
 
             const observationText = photo.analysis?.observation || '';
             const recommendationText = photo.analysis?.recommendation || '';
+            // 📁 Chemin local prévu pour cette image
+            const fileName = photo.uri.split('/').pop();
+            const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+            // 🔍 Vérifie si l’image est déjà stockée localement
+            // const info = await FileSystem.getInfoAsync(photo.uri);
+            // if (!info?.exists) {
+            //   console.log("Photo n'existe pas >>> : ", photo.uri);
+            //   // 🚀 Sinon, télécharge l’image via ton API /api/download
+            //   const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
+            //   // console.log('photo.uri Avant >>> : ', photo.uri);
+            //   if (imgResp && imgResp.data && imgResp.data.data) {
+            //     // 💾 Sauvegarde localement
+            //     await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
+            //       encoding: FileSystem.EncodingType.Base64,
+            //     });
+            //     const info = await FileSystem.getInfoAsync(fileUri);
+            //     if (!info?.exists) {
+            //       console.log("Photo uri dosn't exist >>> : ", fileUri);
+            //     } else {
+            //       console.log("Photo uri exist in >>> : ", fileUri);
+            //     }
+            //     photo.uri = fileUri;
+            //     console.log('photo.uri >>> : ', photo.uri);
+            //   } else {
+            //     Alert.alert("La photo n'a pas pu être telechargé");
+            //   }
+            // } else {
+            //   console.log("Photo uri exist >>> : ", photo.uri);
+            // }
+
+            console.log("Photo n'existe pas >>> : ", photo.uri);
+            // 🚀 Sinon, télécharge l’image via ton API /api/download
+            const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
+            // console.log('photo.uri Avant >>> : ', photo.uri);
+            if (imgResp && imgResp.data && imgResp.data.data) {
+              // 💾 Sauvegarde localement
+              await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              const info = await FileSystem.getInfoAsync(fileUri);
+              if (!info?.exists) {
+                console.log("Photo uri dosn't exist >>> : ", fileUri);
+              } else {
+                console.log("Photo uri exist in >>> : ", fileUri);
+              }
+              photo.uri = fileUri;
+              console.log('photo.uri >>> : ', photo.uri);
+            } else {
+              Alert.alert("La photo n'a pas pu être telechargé");
+            }
 
             return {
               id: photo.id || `photo-${Date.now()}-${Math.random()}`,
-              uri: photo.uri || photo.s3Url,
+              uri: fileUri || photo.s3Url,
               s3Url: photo.s3Url,
               timestamp: new Date(photo.createdAt || Date.now()),
               aiAnalysis: photo.analysis ? {
                 observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
                 recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
                 riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-                confidence: Math.round((photo.analysis.confidence || 0) * 100)
+                confidence: (photo.analysis.confidence || 0)
               } : undefined,
               userComments: photo.comment || '',
+              userDirectives: photo.userDirectives || '',
               validated: photo.validated || true
             };
-          });
+          }));
+
+          // console.log('loadedPhotos >>> : ', loadedPhotos);
 
           // console.log('Loaded photos with analysis:', loadedPhotos);
           setPhotos(loadedPhotos);
@@ -318,17 +380,92 @@ export default function VisiteScreen() {
   // Simulation d'analyse IA pour une photo
   const analyzePhoto = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
     try {
-      console.log('tempComments >>> : ', tempComments);
       // Use backend AI analysis
-      const response = await aiService.analyzePhoto(photoUri, tempComments);
+      const response = await aiService.analyzePhoto(photoUri);
       console.log('analisis response >>> : ', response);
+
+      if (response.data) {
+        const nonPhotoConfiormityMsgExists = response.data.nonConformities && response.data.nonConformities.length > 0;
+        return {
+          observations: nonPhotoConfiormityMsgExists ? response.data.nonConformities : [response.data.photoConformityMessage || ""],
+          recommendations: response.data.recommendations,
+          riskLevel: response.data.riskLevel === 'faible' ? 'low' : response.data.riskLevel === 'moyen' ? 'medium' : 'high',
+          confidence: parseInt(response.data.confidence || 0),
+          photoConformity: response.data.photoConformity || true,
+          photoConformityMessage: response.data.photoConformityMessage || "",
+          references: response.data.references || [],
+        };
+      }
+    } catch (error) {
+      console.error('AI analysis error:', error);
+      // Fallback to mock data if AI fails
+    }
+
+    // Fallback simulation
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const analyses = [
+      {
+        observations: [
+          "Échafaudage installé selon les normes",
+          "Garde-corps présents et conformes",
+          "Zone de travail bien délimitée"
+        ],
+        recommendations: [
+          "Vérifier la fixation des garde-corps quotidiennement",
+          "Maintenir la signalisation visible"
+        ],
+        riskLevel: 'low' as const,
+        confidence: 92
+      },
+      {
+        observations: [
+          "Absence de protection collective",
+          "Matériaux stockés de manière désordonnée",
+          "Accès non sécurisé à la zone de travail"
+        ],
+        recommendations: [
+          "Installer immédiatement des garde-corps",
+          "Organiser le stockage des matériaux",
+          "Sécuriser les accès avec barrières"
+        ],
+        riskLevel: 'high' as const,
+        confidence: 88
+      },
+      {
+        observations: [
+          "EPI portés par les ouvriers",
+          "Signalisation présente mais partiellement masquée",
+          "Outillage en bon état"
+        ],
+        recommendations: [
+          "Repositionner la signalisation",
+          "Vérifier l'état des EPI régulièrement"
+        ],
+        riskLevel: 'medium' as const,
+        confidence: 85
+      }
+    ];
+
+    return analyses[Math.floor(Math.random() * analyses.length)];
+  };
+  const analyzePhotoWithDirectives = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
+    try {
+      console.log('selectedPhoto.analysis >>> : ', selectedPhoto.aiAnalysis);
+      const previousReport = JSON.stringify(selectedPhoto.aiAnalysis);
+      // Use backend AI analysis
+      const response = await aiService.analyzePhotoWithDirectives(photoUri, tempDirectives, previousReport);
+      console.log('analyzePhotoWithDirectives response >>> : ', response);
 
       if (response.data) {
         return {
           observations: response.data.nonConformities,
           recommendations: response.data.recommendations,
           riskLevel: response.data.riskLevel === 'faible' ? 'low' : response.data.riskLevel === 'moyen' ? 'medium' : 'high',
-          confidence: Math.round(response.data.confidence * 100),
+          confidence: parseInt(response.data.confidence || 0),
+          photoConformity: response.data.photoConformity,
+          photoConformityMessage: response.data.photoConformityMessage,
+          references: response.data.references,
         };
       }
     } catch (error) {
@@ -401,6 +538,7 @@ export default function VisiteScreen() {
           uri: photo.uri,
           timestamp: new Date(),
           userComments: '',
+          userDirectives: '',
           validated: false
         };
 
@@ -410,6 +548,7 @@ export default function VisiteScreen() {
 
         // Upload photo to S3
         setUploadingPhotos(true);
+        let uploadResults = null;
         try {
           let fileToUpload: Blob | string;
 
@@ -422,7 +561,7 @@ export default function VisiteScreen() {
             fileToUpload = photo.uri;
           }
 
-          const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
+          uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
           // console.log('uploadResults  >>>> : ', uploadResults);
 
           if (uploadResults?.data && uploadResults.data?.length > 0) {
@@ -434,6 +573,8 @@ export default function VisiteScreen() {
                 : p
             ));
             setUploadedPhotoUrls(prev => [...prev, s3Url]);
+          } else {
+            Alert.alert('Avertissement', 'Photo prise mais pas sauvegardée. Vérifiez votre connexion.');
           }
         } catch (error: any) {
           console.error('Erreur upload photo:', error);
@@ -442,19 +583,21 @@ export default function VisiteScreen() {
           setUploadingPhotos(false);
         }
 
-        // Lancer l'analyse IA
-        setAnalyzingPhoto(true);
-        try {
-          const analysis = await analyzePhoto(photo.uri);
-          setPhotos(prev => prev.map(p =>
-            p.id === newPhoto.id
-              ? { ...p, aiAnalysis: analysis }
-              : p
-          ));
-        } catch (error) {
-          console.error('Erreur analyse IA:', error);
-        } finally {
-          setAnalyzingPhoto(false);
+        if (uploadResults?.data && uploadResults.data?.length > 0) {
+          // Lancer l'analyse IA
+          setAnalyzingPhoto(true);
+          try {
+            const analysis = await analyzePhoto(uploadResults.data[0].url);
+            setPhotos(prev => prev.map(p =>
+              p.id === newPhoto.id
+                ? { ...p, aiAnalysis: analysis }
+                : p
+            ));
+          } catch (error) {
+            console.error('Erreur analyse IA:', error);
+          } finally {
+            setAnalyzingPhoto(false);
+          }
         }
       }
     } catch (error) {
@@ -463,20 +606,22 @@ export default function VisiteScreen() {
     }
   };
 
-  const addCommentsAndAnalyseAI = async () => {
-    saveComments();
+  const addDirectivesAndAnalyseAI = async () => {
+    await saveDirectives();
     // Lancer l'analyse IA
     setAnalyzingPhoto(true);
     try {
-      const analysis = await analyzePhoto(selectedPhoto.s3Url);
+      const analysis = await analyzePhotoWithDirectives(selectedPhoto.s3Url);
       console.log('analisis >>> : ', analysis);
       setPhotos(prev => prev.map(p =>
         p.id === selectedPhoto.id
           ? { ...p, aiAnalysis: analysis }
           : p
       ));
+      setShowPhotoDetail(false);
     } catch (error) {
       console.error('Erreur analyse IA:', error);
+      Alert.alert('Erreur', "Le rapport CSPS pour la photo n'a pas pu être effectuée.");
     } finally {
       setAnalyzingPhoto(false);
     }
@@ -486,7 +631,9 @@ export default function VisiteScreen() {
     if (!photo?.s3Url) return;
     try {
       await uploadService.deletePhotoByUrl(photo?.s3Url);
-      setPhotos(prev => prev.filter(p => p.id !== photo.id));
+      const photosParam = photos.filter(p => p.id !== photo.id);
+      setPhotos(photosParam);
+      // await saveVisit(photosParam);
       setHasChanges(true);
       Alert.alert('Succès', 'Photo suppriméee du serveur');
     } catch (error) {
@@ -496,7 +643,7 @@ export default function VisiteScreen() {
   };
 
   // Supprimer une photo
-  const deletePhoto = (photo: Photo) => {
+  const deletePhoto = async (photo: Photo) => {
     Alert.alert(
       'Supprimer la photo',
       'Êtes-vous sûr de vouloir supprimer cette photo et son analyse ?',
@@ -505,10 +652,12 @@ export default function VisiteScreen() {
         {
           text: 'Supprimer',
           style: 'destructive',
-          onPress: () => {
-            deletePhotoFromServer(photo);
+          onPress: async () => {
+            await deletePhotoFromServer(photo);
             if (selectedPhoto?.id === photo.id) {
               setShowPhotoDetail(false);
+              setEditingComments(false);
+              setEditingDirectives(false);
               setSelectedPhoto(null);
             }
           }
@@ -531,22 +680,41 @@ export default function VisiteScreen() {
   };
 
   // Sauvegarder les commentaires
-  const saveComments = () => {
+  const saveComments = async () => {
     if (!selectedPhoto) return;
 
-    setPhotos(prev => prev.map(p =>
+    const photosData = photos.map(p =>
       p.id === selectedPhoto.id
         ? { ...p, userComments: tempComments }
         : p
-    ));
+    )
+    setPhotos(photosData);
 
     setSelectedPhoto(prev => prev ? { ...prev, userComments: tempComments } : null);
+    // await saveVisit();
     setEditingComments(false);
     setHasChanges(true);
   };
 
+  // Sauvegarder les commentaires
+  const saveDirectives = async () => {
+    if (!selectedPhoto) return;
+
+    const photosData = photos.map(p =>
+      p.id === selectedPhoto.id
+        ? { ...p, userDirectives: tempDirectives }
+        : p
+    )
+    setPhotos(photosData);
+
+    setSelectedPhoto(prev => prev ? { ...prev, userDirectives: tempDirectives } : null);
+    // await saveVisit(photosData);
+    setEditingDirectives(false);
+    setHasChanges(true);
+  };
+
   // Sauvegarder la visite
-  const saveVisit = async () => {
+  const saveVisit = async (photosParam = []) => {
     if (!mission) {
       Alert.alert('Erreur', 'Veuillez sélectionner une mission');
       return;
@@ -556,11 +724,14 @@ export default function VisiteScreen() {
       Alert.alert('Erreur', 'Veuillez prendre au moins une photo');
       return;
     }
+    const photosData = photosParam && photosParam.length > 0 ? photosParam : photos;
 
     setSavingVisit(true);
 
+    console.log('Photos savVisit >>>> : ', photosData);
+
     try {
-      const visitPhotos = photos.map(p => ({
+      const visitPhotos = photosData.map(p => ({
         id: p.id,
         uri: p.uri,
         s3Url: p.s3Url,
@@ -571,19 +742,15 @@ export default function VisiteScreen() {
             p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
               'faible' as const,
           confidence: p.aiAnalysis?.confidence || 0,
+          photoConformity: p.aiAnalysis?.photoConformity || true,
+          photoConformityMessage: p.aiAnalysis?.photoConformityMessage || "",
+          references: p.aiAnalysis?.references || [],
         },
         comment: p.userComments,
+        userDirectives: p.userDirectives,
         validated: p.validated,
       }));
-      const visitData = {
-        missionId: mission.id.toString(),
-        visitDate: new Date().toISOString(),
-        photos: visitPhotos,
-        photoCount: uploadedPhotoUrls.length,
-        notes: photos.map(p => p.userComments).filter(c => c).join('\n\n'),
-      };
 
-      // await visitService.createVisit(visitData);
       let visitResponse;
       let visitId = existingVisitId;
       // Check if visit already exists for this mission
@@ -625,6 +792,8 @@ export default function VisiteScreen() {
         );
       }
 
+      loadExistingVisitData(mission.id);
+
       Alert.alert(
         'Succès',
         'La visite a été enregistrée avec succès',
@@ -664,61 +833,6 @@ export default function VisiteScreen() {
     setIsSavingReport(true);
 
     try {
-      // // 1. Save visit first
-      // const visitPhotos = photos.map(p => ({
-      //   id: p.id,
-      //   uri: p.uri,
-      //   s3Url: p.s3Url,
-      //   analysis: {
-      //     observation: p.aiAnalysis?.observations.join(', ') || '',
-      //     recommendation: p.aiAnalysis?.recommendations.join(', ') || '',
-      //     riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
-      //       p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
-      //         'faible' as const,
-      //     confidence: p.aiAnalysis?.confidence || 0,
-      //   },
-      //   comment: p.userComments,
-      //   validated: p.validated,
-      // }));
-
-      // const visitData = {
-      //   missionId: mission.id.toString(),
-      //   visitDate: new Date().toISOString(),
-      //   photos: visitPhotos,
-      //   photoCount: photos.length,
-      //   notes: photos.map(p => p.userComments).filter(c => c).join('\n\n'),
-      // };
-
-      // const visitResponse = await visitService.createVisit(visitData);
-      // const savedVisitId = visitResponse.data?.id || existingVisitId;
-
-      // if (!savedVisitId) {
-      //   throw new Error('Impossible de créer la visite');
-      // }
-
-      // // 2. Calculate conformity
-      // const conformity = Math.round(
-      //   photos.reduce((acc, p) => {
-      //     if (p.aiAnalysis?.riskLevel === 'low') return acc + 95;
-      //     if (p.aiAnalysis?.riskLevel === 'medium') return acc + 75;
-      //     if (p.aiAnalysis?.riskLevel === 'high') return acc + 60;
-      //     return acc + 85;
-      //   }, 0) / photos.length
-      // );
-
-      // // 3. Save report
-      // const reportData = {
-      //   missionId: mission.id.toString(),
-      //   visitId: savedVisitId,
-      //   title: `Rapport de visite - ${mission.title}`,
-      //   content: reportContent,
-      //   header: reportHeader,
-      //   footer: reportFooter,
-      //   status: 'brouillon' as const,
-      //   conformityPercentage: conformity,
-      // };
-
-      // const reportResponse = await reportService.createReport(reportData);
       const response = await saveSendReport(false);
 
       if (response) {
@@ -798,8 +912,13 @@ ${photo.aiAnalysis.observations.map(obs => `• ${obs}`).join('\n')}
 Recommandations:
 ${photo.aiAnalysis.recommendations.map(rec => `• ${rec}`).join('\n')}
 
+${photo.aiAnalysis.references ? `🏛️ Références : ${photo.aiAnalysis.references}` : ''}
+
 ${photo.userComments ? `💬 Commentaires du coordonnateur: ${photo.userComments}` : ''}
+
 `}).join('\n')}
+
+
 
 `;
 
@@ -836,10 +955,12 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
         const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
         const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
+        const refsRegex = /🏛️\s*Références :\s*([\s\S]*)/i;
 
         const observationsMatch = photoSection.match(obsRegex);
         const recommendationsMatch = photoSection.match(recRegex);
         const commentsMatch = photoSection.match(comRegex);
+        const refsMatch = photoSection.match(refsRegex);
 
         const observations = observationsMatch?.[1]
           ?.split('•')
@@ -853,20 +974,21 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
         const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
+        const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
+
         return {
           ...photo,
           aiAnalysis: photo.aiAnalysis ? {
             ...photo.aiAnalysis,
             observations,
             recommendations,
+            references,
           } : undefined,
           userComments: comments,
         };
       }
-
       return photo;
     });
-
     setPhotos(updatedPhotos);
   };
 
@@ -897,10 +1019,11 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
   // Envoyer le rapport
   const saveSendReport = async (isToSend?: boolean = true) => {
-    // if (!reportValidated) {
-    //   Alert.alert('Validation requise', 'Vous devez valider le rapport avant de l\'envoyer.');
-    //   return;
-    // }
+
+    if (reportStatus == 'valide' || reportStatus == 'envoye_au_client') {
+      Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
+      return;
+    }
 
     // If report was edited, update photos from the edited content
     if (editingReport) {
@@ -931,6 +1054,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           confidence: p.aiAnalysis?.confidence || 0,
         },
         comment: p.userComments,
+        userDirectives: p.userDirectives,
         validated: p.validated,
       }));
 
@@ -980,17 +1104,18 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
       // 2. Create or update report in backend
       let reportResponse;
 
-      if (existingReportId && reportStatus !== 'valide') {
+      if (existingReportId && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client')) {
         // Update existing report if not validated
         reportResponse = await reportService.updateReport(existingReportId, {
           title: `RAPPORT VISITE - ${mission?.title}`,
           content: reportContent,
           header: reportHeader,
           footer: reportFooter,
-          status: isToSend ? 'envoye' : 'brouillon',
+          status: 'brouillon',
           conformityPercentage: conformity,
         });
         // console.log('Updated existing report:', existingReportId);
+        setReportStatus('brouillon');
         setHasChanges(false);
       } else if (!existingReportId) {
         // Create new report only if none exists
@@ -1001,17 +1126,17 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           content: reportContent,
           header: reportHeader,
           footer: reportFooter,
-          status: isToSend ? 'envoye' : 'brouillon',
+          status: 'brouillon',
           conformityPercentage: conformity,
           recipientEmail: mission?.contactEmail || undefined,
         });
         setExistingReportId(reportResponse?.data?.id);
-        setReportStatus('envoye');
+        setReportStatus('brouillon');
         setHasChanges(false);
         console.log('Created new report:', reportResponse.data?.id);
-      } else if (reportStatus === 'valide') {
+      } else if (reportStatus === 'valide' || reportStatus !== 'envoye_au_client') {
         // Report is validated, cannot update
-        Alert.alert('Rapport validé', 'Ce rapport a été validé et ne peut plus être modifié.');
+        Alert.alert('Rapport envoyé au client', 'Ce rapport a été envoyé au client.');
         return;
       }
 
@@ -1092,15 +1217,8 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         if (response) {
           reportFileUrl = response.url || '';
         }
-        // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
-        const resp = await reportService.updateReport(existingReportId, {
-          status: 'envoye_au_client' as ReportStatus,
-          recipientEmail: clientEmail,
-          reportFileUrl: reportFileUrl,
-        });
 
         setPdfLoadingProgress('Finalisation...');
-
         const subject = `Rapport de visite - ${mission?.title}`;
         const body = `Bonjour ${mission?.contact.firstName},
 Veuillez trouver ci-joint le rapport de visite suivant:
@@ -1123,7 +1241,6 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
         //   body,
         //   pdfPath || undefined
         // );
-
         // await Linking.openURL(mailtoUrl);
 
         const isAvailable = await MailComposer.isAvailableAsync();
@@ -1144,16 +1261,31 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
         }
 
         // 6️⃣ Ouvrir le mail ready-to-send
-        await MailComposer.composeAsync(mailOptions);
+        try {
+          await MailComposer.composeAsync(mailOptions);
+          console.log('📤 Email prêt à être envoyé !');
+          // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
+          await reportService.updateReport(existingReportId, {
+            status: 'envoye_au_client' as ReportStatus,
+            recipientEmail: clientEmail,
+            reportFileUrl: reportFileUrl,
+          });
 
-        console.log('📤 Email prêt à être envoyé !');
-
-        setShowPdfLoadingModal(false);
-        setShowReportModal(false);
-
+          await missionService.updateMission(mission.id, {
+            status: 'terminee' as MissionStatus
+          });
+          mission.status = 'terminee';
+          setReportStatus('envoye_au_client');
+          Alert.alert('Rapport envoyé au client', "Le rapport a été envoyé au client et mis à jours dans le serveur avec succès.");
+          // return true;
+          setShowPdfLoadingModal(false);
+          setShowReportModal(false);
+        } catch (error) {
+          Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
+          setShowReportModal(false);
+          // return false;
+        }
       }
-      return true;
-
     } catch (error: any) {
       console.error('Erreur sauvegarde rapport:', error);
       setShowPdfLoadingModal(false);
@@ -1170,7 +1302,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
           ]
         );
       } else {
-        Alert.alert('Erreur', 'Erreur lors de la sauvegarde du rapport');
+        Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
       }
       return;
     }
@@ -1422,7 +1554,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
           </View>
 
           {/* Add Photo Button */}
-          {photos.length < 10 && reportStatus !== 'valide' && (
+          {photos.length < 10 && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (
             <TouchableOpacity
               style={styles.addPhotoButton}
               onPress={() => setShowCamera(true)}
@@ -1448,7 +1580,10 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                   onPress={() => {
                     setSelectedPhoto(photo);
                     setTempComments(photo.userComments);
+                    setTempDirectives(photo.userDirectives);
                     setShowPhotoDetail(true);
+                    setEditingComments(false);
+                    setEditingDirectives(true);
                   }}
                 >
                   <Image source={{ uri: photo.uri }} style={styles.photoImage} />
@@ -1591,7 +1726,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                       PHOTO #{photos.findIndex(p => p.id === selectedPhoto.id) + 1}
                     </Text>
                     <View style={styles.photoDetailActions}>
-                      {reportStatus !== 'valide' && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                      {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
                         <TouchableOpacity
                           style={styles.deletePhotoButton}
                           onPress={() => deletePhoto(selectedPhoto)}
@@ -1661,11 +1796,92 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                       </View>
                     )}
 
+                    {/* User DIRECTIVES */}
+                    <View style={styles.commentsSection}>
+                      <View style={styles.commentsSectionHeader}>
+                        <Text style={styles.commentsSectionTitle}>DIRECTIVES</Text>
+                        {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                          <TouchableOpacity
+                            style={styles.editCommentsButton}
+                            onPress={() => setEditingDirectives(true)}
+                          >
+                            <NotebookPen size={16} color="#3B82F6" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      {editingDirectives && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
+                        <View style={styles.commentsEditContainer}>
+                          <TextInput
+                            style={styles.commentsInput}
+                            placeholder="Ajoutez vos directives ..."
+                            placeholderTextColor="#64748B"
+                            value={tempDirectives}
+                            onChangeText={setTempDirectives}
+                            multiline
+                            numberOfLines={4}
+                            textAlignVertical="top"
+                          />
+                          <View style={styles.commentsActions}>
+                            <TouchableOpacity
+                              style={styles.cancelCommentsButton}
+                              onPress={() => {
+                                setEditingDirectives(false);
+                                setTempDirectives(selectedPhoto.userDirectives);
+                              }}
+                            >
+                              <LinearGradient
+                                colors={['#1e293be2', '#1E293B']}
+                                style={styles.saveCommentsGradient}
+                              >
+                                {/* <Check size={16} color="#FFFFFF" /> */}
+                                <Text style={styles.cancelCommentsText}>Annuler</Text>
+                              </LinearGradient>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={styles.saveCommentsButton}
+                              onPress={saveDirectives}
+                            >
+                              <LinearGradient
+                                colors={['#10B981', '#059669']}
+                                style={styles.saveCommentsGradient}
+                              >
+                                {/* <Check size={16} color="#FFFFFF" /> */}
+                                <Text style={styles.saveCommentsText}>{`Sauvegarder \ndirectives`}</Text>
+                              </LinearGradient>
+                            </TouchableOpacity>
+
+                            {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && <TouchableOpacity
+                              style={styles.saveCommentsButton}
+                              onPress={() => addDirectivesAndAnalyseAI()}
+                            >
+                              <LinearGradient
+                                colors={['#10B981', '#059669']}
+                                style={styles.saveCommentsGradient}
+                              >
+                                {/* <Check size={16} color="#FFFFFF" /> */}
+                                <Text style={styles.saveCommentsText}>{`Regénérer \n rapport`}</Text>
+                              </LinearGradient>
+                            </TouchableOpacity>}
+                          </View>
+                        </View>
+                      ) : (
+                        <View style={styles.commentsDisplay}>
+                          {selectedPhoto.userDirectives ? (
+                            <Text style={styles.commentsText}>{selectedPhoto.userDirectives}</Text>
+                          ) : (
+                            <Text style={styles.noCommentsText}>Aucun commentaire ajouté</Text>
+                          )}
+                        </View>
+                      )}
+                    </View>
+
                     {/* User Comments */}
                     <View style={styles.commentsSection}>
                       <View style={styles.commentsSectionHeader}>
                         <Text style={styles.commentsSectionTitle}>COMMENTAIRES</Text>
-                        {reportStatus !== 'valide' && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                        {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
                           <TouchableOpacity
                             style={styles.editCommentsButton}
                             onPress={() => setEditingComments(true)}
@@ -1675,7 +1891,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                         )}
                       </View>
 
-                      {editingComments ? (
+                      {editingComments && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
                         <View style={styles.commentsEditContainer}>
                           <TextInput
                             style={styles.commentsInput}
@@ -1693,9 +1909,16 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                               onPress={() => {
                                 setEditingComments(false);
                                 setTempComments(selectedPhoto.userComments);
+                                setTempDirectives(selectedPhoto.userDirectives);
                               }}
                             >
-                              <Text style={styles.cancelCommentsText}>ANNULER</Text>
+                              <LinearGradient
+                                colors={['#1e293be2', '#1E293B']}
+                                style={styles.saveCommentsGradient}
+                              >
+                                {/* <Check size={16} color="#FFFFFF" /> */}
+                                <Text style={styles.cancelCommentsText}>Annuler</Text>
+                              </LinearGradient>
                             </TouchableOpacity>
 
                             <TouchableOpacity
@@ -1706,23 +1929,23 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                                 colors={['#10B981', '#059669']}
                                 style={styles.saveCommentsGradient}
                               >
-                                <Check size={16} color="#FFFFFF" />
-                                <Text style={styles.saveCommentsText}>SAUVEGARDER</Text>
+                                {/* <Check size={16} color="#FFFFFF" /> */}
+                                <Text style={styles.saveCommentsText}>{`Sauvegarder \ncommentaires`}</Text>
                               </LinearGradient>
                             </TouchableOpacity>
 
-                            <TouchableOpacity
+                            {/* <TouchableOpacity
                               style={styles.saveCommentsButton}
-                              onPress={() => addCommentsAndAnalyseAI()}
+                              onPress={() => addDirectivesAndAnalyseAI()}
                             >
                               <LinearGradient
                                 colors={['#10B981', '#059669']}
                                 style={styles.saveCommentsGradient}
                               >
-                                <Check size={16} color="#FFFFFF" />
-                                <Text style={styles.saveCommentsText}>Regénérer rapport</Text>
+                                
+                                <Text style={styles.saveCommentsText}>{`Regénérer \n rapport`}</Text>
                               </LinearGradient>
-                            </TouchableOpacity>
+                            </TouchableOpacity> */}
                           </View>
                         </View>
                       ) : (
@@ -1730,7 +1953,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                           {selectedPhoto.userComments ? (
                             <Text style={styles.commentsText}>{selectedPhoto.userComments}</Text>
                           ) : (
-                            <Text style={styles.noCommentsText}>Aucun commentaire ajouté</Text>
+                            <Text style={styles.noCommentsText}>Aucune directives ajouté</Text>
                           )}
                         </View>
                       )}
@@ -1738,7 +1961,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                   </ScrollView>
 
                   {/* Validation Button */}
-                  {selectedPhoto.aiAnalysis && !selectedPhoto.validated && (
+                  {selectedPhoto.aiAnalysis && !selectedPhoto.validated && false && (
                     <View style={styles.photoDetailFooter}>
                       <TouchableOpacity
                         style={styles.validatePhotoButton}
@@ -1790,7 +2013,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
               </View>
 
               <ScrollView style={styles.reportContent} showsVerticalScrollIndicator={false}>
-                {editingReport ? (
+                {editingReport && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
                   <View>
                     <Text style={styles.editSectionLabel}>EN-TÊTE</Text>
                     <TextInput
@@ -1867,49 +2090,52 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                   </View>
                 )}
               </ScrollView>
-              <View style={styles.reportModalFooter}>
-                <TouchableOpacity
-                  style={[
-                    styles.validateReportButton,
-                    reportSaved && styles.validateReportButtonActive
-                  ]}
-                  onPress={saveReportAndVisit}
-                  disabled={isSavingReport}
-                >
-                  <View style={styles.validateReportContent}>
-                    {isSavingReport ? (
-                      <ActivityIndicator size={20} color={reportSaved ? "#FFFFFF" : "#3B82F6"} />
-                    ) : reportSaved ? (
-                      <CheckCircle size={20} color="#FFFFFF" />
-                    ) : (
-                      <Save size={20} color="#3B82F6" />
-                    )}
-                    <Text style={[
-                      styles.validateReportText,
-                      reportSaved && styles.validateReportTextActive
-                    ]}>
-                      {isSavingReport ? 'ENREGISTREMENT...' : 'ENREGISTRER LE RAPPORT'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.sendReportButton,
-                    !reportSaved && styles.sendReportButtonDisabled
-                  ]}
-                  onPress={() => saveSendReport(true)}
-                  disabled={!reportSaved}
-                >
-                  <LinearGradient
-                    colors={reportSaved ? ['#3B82F6', '#1D4ED8'] : ['#64748B', '#475569']}
-                    style={styles.sendReportGradient}
+              {
+                (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') &&
+                <View style={styles.reportModalFooter}>
+                  <TouchableOpacity
+                    style={[
+                      styles.validateReportButton,
+                      reportSaved && styles.validateReportButtonActive
+                    ]}
+                    onPress={saveReportAndVisit}
+                    disabled={isSavingReport}
                   >
-                    <Send size={20} color="#FFFFFF" />
-                    <Text style={styles.sendReportText}>Envoyer</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
+                    <View style={styles.validateReportContent}>
+                      {isSavingReport ? (
+                        <ActivityIndicator size={20} color={reportSaved ? "#FFFFFF" : "#3B82F6"} />
+                      ) : reportSaved ? (
+                        <CheckCircle size={20} color="#FFFFFF" />
+                      ) : (
+                        <Save size={20} color="#3B82F6" />
+                      )}
+                      <Text style={[
+                        styles.validateReportText,
+                        reportSaved && styles.validateReportTextActive
+                      ]}>
+                        {isSavingReport ? 'ENREGISTREMENT...' : 'ENREGISTRER LE RAPPORT'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.sendReportButton,
+                      !reportSaved && styles.sendReportButtonDisabled
+                    ]}
+                    onPress={() => saveSendReport(true)}
+                    disabled={!reportSaved}
+                  >
+                    <LinearGradient
+                      colors={reportSaved ? ['#10b981ec', '#10B981'] : ['#64748B', '#475569']}
+                      style={styles.sendReportGradient}
+                    >
+                      <Send size={20} color="#FFFFFF" />
+                      <Text style={styles.sendReportText}>Envoyer</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              }
             </LinearGradient>
           </View>
         </View>
@@ -2571,37 +2797,49 @@ const styles = StyleSheet.create({
   commentsActions: {
     flexDirection: 'row',
     gap: 8,
+    width: '100%',
+    // alignItems: 'center',
+    // justifyContent: 'center',
   },
   cancelCommentsButton: {
-    flex: 1,
-    backgroundColor: '#1E293B',
+    flex: 0.8,
+    // backgroundColor: '#1E293B',
+    backgroundRepeat: 'no-repeat',
     borderRadius: 12,
-    paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   cancelCommentsText: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
     color: '#94A3B8',
     letterSpacing: 0.5,
+    paddingBottom: 21,
+    paddingTop: 21,
+    paddingLeft: 6,
+    paddingRight: 6,
   },
   saveCommentsButton: {
-    flex: 1,
+    flex: 1.1,
     borderRadius: 12,
     overflow: 'hidden',
+
   },
   saveCommentsGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    borderRadius: 12,
     gap: 6,
+
   },
   saveCommentsText: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
     letterSpacing: 0.5,
+    paddingVertical: 12,
   },
   commentsDisplay: {
     minHeight: 40,
@@ -2828,16 +3066,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'center',
     paddingHorizontal: 20,
+    overflowY: 'auto',
   },
   missionSelectorModal: {
     height: '85%',
     borderRadius: 24,
-    overflow: 'hidden',
+    // overflow: 'hidden',
   },
   missionSelectorGradient: {
     flex: 1,
     // paddingTop: 24,
     alignItems: 'center',
+    borderRadius: 24,
+    maxHeight: '100%',
+    overflowY: 'auto',
   },
   missionSelectorHeader: {
     flexDirection: 'row',
@@ -2864,20 +3106,24 @@ const styles = StyleSheet.create({
   },
   missionSelectorContent: {
     flex: 1,
-    flexDirection: 'row',
+    width: '90%',
+    // flexDirection: 'row',
     gap: 8,
-    // paddingHorizontal: 24,
   },
   missionSelectorItem: {
+    height: 120,
+    width: '100%',
     borderRadius: 16,
     overflow: 'hidden',
     marginBottom: 12,
   },
   missionSelectorItemGradient: {
+    flex: 1,
     padding: 16,
   },
   missionSelectorItemContent: {
-    flexDirection: 'row',
+    flex: 1,
+    // flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
@@ -2902,6 +3148,7 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   missionSelectorItemRight: {
+    flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 4,
   },

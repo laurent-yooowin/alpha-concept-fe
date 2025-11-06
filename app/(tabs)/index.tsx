@@ -185,13 +185,9 @@ export default function HomeScreen() {
   ];
 
   const missionTypes = [
-    'Visite de contrôle',
-    'Inspection sécurité',
-    'Contrôle périodique',
-    'Visite mensuelle',
-    'Contrôle final',
-    'Audit conformité',
-    'Inspection préalable'
+    'CSPS',
+    'AEU',
+    'Divers'
   ];
 
   const resetForm = () => {

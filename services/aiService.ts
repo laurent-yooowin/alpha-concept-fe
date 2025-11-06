@@ -11,12 +11,20 @@ export interface AIAnalysis {
 }
 
 export const aiService = {
-  async analyzePhoto(imageUrl: string, userComments: string) {
+  async analyzePhoto(imageUrl: string) {
     const data = {
-      imageUrl,
-      userComments
+      imageUrl
     }
     return apiRequest('/ai/analyze-photo', { method: "POST", body: JSON.stringify(data) });
+  },
+
+  async analyzePhotoWithDirectives(imageUrl: string, userDirectives: string, previousReport: string) {
+    const data = {
+      imageUrl,
+      userDirectives,
+      previousReport,
+    }
+    return apiRequest('/ai/analyze-photo-directives', { method: "POST", body: JSON.stringify(data) });
   },
 };
 
