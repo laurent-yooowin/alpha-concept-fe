@@ -211,7 +211,7 @@ export default function LoginScreen() {
                   <Shield size={32} color="#FFFFFF" strokeWidth={2} />
                 </LinearGradient>
               </View>
-              <Text style={styles.title}>CSPS COORDINATEUR</Text>
+              <Text style={styles.title}>Report BTP COORDINATEUR</Text>
               <Text style={styles.subtitle}>Application mobile pour coordonnateurs SPS</Text>
             </View>
 

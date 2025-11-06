@@ -13,7 +13,7 @@ export interface ReportData {
   date: string;
   conformity: number;
   content: string;
-  heaer: string;
+  header: string;
   footer: string;
   photos?: any[];
 }
@@ -155,12 +155,13 @@ export const pdfService = {
                   </div>
                 ` : ''}
 
-                ${photo.comment ? `
+                ${photo.aiAnalysis.references ? `
                   <div class="comment-section">
                     <h4 class="comment-heading">🏛️ Références</h4>
                     <p class="comment-text">${photo.aiAnalysis.references}</p>
                   </div>
                 ` : ''}
+                
                 ${photo.comment ? `
                   <div class="comment-section">
                     <h4 class="comment-heading">💬 Commentaires du coordonnateur</h4>
@@ -499,9 +500,9 @@ export const pdfService = {
           </div>
         </div>
 
-        ${reportData.heaer ? `
+        ${reportData.header ? `
           <div class="section-header">📋 En-tête</div>
-          <div class="content-section">${reportData.heaer}</div>
+          <div class="content-section">${reportData.header}</div>
         ` : ''}
 
         <div class="section-header">📸 Observations Principales</div>

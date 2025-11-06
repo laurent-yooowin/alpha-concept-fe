@@ -323,7 +323,7 @@ export default function RapportsScreen() {
       Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
       return;
     }
-    
+
     let adminEmail = selectedReport.contact.email;
     const subject = `Rapport SPS: ${selectedReport.title}`;
 
@@ -398,7 +398,7 @@ export default function RapportsScreen() {
       }
       // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
       const resp = await reportService.updateReport(selectedReport.id, {
-        status: 'envoye' as ReportStatus,
+        status: 'envoye_au_client' as ReportStatus,
         recipientEmail: adminEmail,
         reportFileUrl: reportFileUrl,
       });
@@ -1947,8 +1947,10 @@ const styles = StyleSheet.create({
   saveButton: {
     borderRadius: 12,
     overflow: 'hidden',
+    marginBottom: 35,
   },
   saveButtonGradient: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
