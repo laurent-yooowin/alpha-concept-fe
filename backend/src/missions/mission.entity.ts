@@ -73,6 +73,9 @@ export class Mission {
   @JoinColumn({ name: 'userId' })
   user: User;
 
+  @Column({ default: false })
+  imported: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 
