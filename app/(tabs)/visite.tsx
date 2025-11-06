@@ -106,6 +106,7 @@ export default function VisiteScreen() {
   const [editingReport, setEditingReport] = useState(false);
   const [reportValidated, setReportValidated] = useState(false);
   const [reportSaved, setReportSaved] = useState(false);
+  const [reportSended, setReportSended] = useState(false);
   const [isSavingReport, setIsSavingReport] = useState(false);
 
   // États de chargement
@@ -1019,7 +1020,6 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
   // Envoyer le rapport
   const saveSendReport = async (isToSend?: boolean = true) => {
-
     if (reportStatus == 'valide' || reportStatus == 'envoye_au_client') {
       Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
       return;
@@ -1029,7 +1029,9 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     if (editingReport) {
       updatePhotosFromEditedContent();
     }
-
+    setIsSavingReport(true);
+    setReportSaved(false);
+    
     try {
       const conformity = Math.round(
         photos.reduce((acc, p) => {
@@ -1052,6 +1054,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
             p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
               'faible' as const,
           confidence: p.aiAnalysis?.confidence || 0,
+          references: p.aiAnalysis?.references.join(', ') || ''
         },
         comment: p.userComments,
         userDirectives: p.userDirectives,
@@ -1136,7 +1139,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         console.log('Created new report:', reportResponse.data?.id);
       } else if (reportStatus === 'valide' || reportStatus !== 'envoye_au_client') {
         // Report is validated, cannot update
-        Alert.alert('Rapport envoyé au client', 'Ce rapport a été envoyé au client.');
+        Alert.alert('Rapport envoyé au client', "Ce rapport a été envoyé au client, il n'est plus possible de le modifier ou l'envoyer");
         return;
       }
 
@@ -1159,6 +1162,8 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         Alert.alert('Erreur', 'Impossible de sauvegarder le rapport sur le serveur');
         return false;
       }
+
+      setReportSaved(true);
 
       // 3. Also save locally as fallback
       const newReport = {
@@ -1188,10 +1193,11 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
       await AsyncStorage.setItem('userReports', JSON.stringify(updatedReports));
 
       if (isToSend) {
-        const pdfPhotos = photos.map(p => ({
-          uri: p.s3Url || p.uri,
-          comment: p.userComments,
-        }));
+        setReportSended(false);
+        // const pdfPhotos = photos.map(p => ({
+        //   uri: p.s3Url || p.uri,
+        //   comment: p.userComments,
+        // }));
 
         const pdfData = {
           title: `RAPPORT VISITE - ${mission?.title}`,
@@ -1280,6 +1286,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
           // return true;
           setShowPdfLoadingModal(false);
           setShowReportModal(false);
+          setReportSended(true);
         } catch (error) {
           Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
           setShowReportModal(false);
@@ -1305,6 +1312,8 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
         Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
       }
       return;
+    } finally{
+      setIsSavingReport(false);
     }
   };
 
@@ -2099,11 +2108,11 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                       reportSaved && styles.validateReportButtonActive
                     ]}
                     onPress={saveReportAndVisit}
-                    disabled={isSavingReport}
+                    disabled={isSavingReport || reportSended || reportSaved}
                   >
                     <View style={styles.validateReportContent}>
                       {isSavingReport ? (
-                        <ActivityIndicator size={20} color={reportSaved ? "#FFFFFF" : "#3B82F6"} />
+                        <ActivityIndicator size={20} color={reportSaved ? "#ffffffff" : "#3B82F6"} />
                       ) : reportSaved ? (
                         <CheckCircle size={20} color="#FFFFFF" />
                       ) : (
@@ -2113,7 +2122,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                         styles.validateReportText,
                         reportSaved && styles.validateReportTextActive
                       ]}>
-                        {isSavingReport ? 'ENREGISTREMENT...' : 'ENREGISTRER LE RAPPORT'}
+                        {isSavingReport ? 'Enregistrement...' : 'Enregister le rapport'}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -2121,13 +2130,13 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                   <TouchableOpacity
                     style={[
                       styles.sendReportButton,
-                      !reportSaved && styles.sendReportButtonDisabled
+                      !reportSended && styles.sendReportButtonDisabled
                     ]}
                     onPress={() => saveSendReport(true)}
                     disabled={!reportSaved}
                   >
                     <LinearGradient
-                      colors={reportSaved ? ['#10b981ec', '#10B981'] : ['#64748B', '#475569']}
+                      colors={reportSended ? ['#10b981ec', '#10B981'] : ['#64748B', '#475569']}
                       style={styles.sendReportGradient}
                     >
                       <Send size={20} color="#FFFFFF" />
@@ -3007,16 +3016,18 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   reportModalFooter: {
+    alignItems: 'center',
+    justifyContent: 'center',
     flexDirection: 'row',
     paddingHorizontal: 24,
     paddingVertical: 20,
     borderTopWidth: 1,
     borderTopColor: '#374151',
-    gap: 12,
+    gap: 8,
   },
   validateReportButton: {
-    flex: 1.5,
-    backgroundColor: '#374151',
+    flex: 1.8,
+    backgroundColor: '#475569',
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
@@ -3041,8 +3052,9 @@ const styles = StyleSheet.create({
   },
   sendReportButton: {
     flex: 1,
-    borderRadius: 16,
     overflow: 'hidden',
+    
+    paddingVertical: 16,
   },
   sendReportButtonDisabled: {
     opacity: 0.5,
@@ -3051,14 +3063,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
     gap: 8,
+    borderRadius: 16,
   },
   sendReportText: {
     fontSize: 12,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
     letterSpacing: 0.5,
+    paddingVertical: 16,
+
   },
   // Mission Selector Modal styles
   missionSelectorOverlay: {
