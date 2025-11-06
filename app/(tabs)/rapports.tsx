@@ -324,8 +324,7 @@ export default function RapportsScreen() {
       return;
     }
     
-
-    let adminEmail = 'admin@csps.fr';
+    let adminEmail = selectedReport.contact.email;
     const subject = `Rapport SPS: ${selectedReport.title}`;
 
     try {

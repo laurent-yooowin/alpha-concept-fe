@@ -46,19 +46,19 @@ export class CreateMissionDto {
   @IsString()
   status?: MissionStatus;
 
-  @IsOptional()
+  // @IsOptional()
   @IsString()
   contactFirstName?: string;
 
-  @IsOptional()
+  // @IsOptional()
   @IsString()
   contactLastName?: string;
 
-  @IsOptional()
+  // @IsOptional()
   @IsEmail()
   contactEmail?: string;
 
-  @IsOptional()
+  // @IsOptional()
   @IsString()
   contactPhone?: string;
 
