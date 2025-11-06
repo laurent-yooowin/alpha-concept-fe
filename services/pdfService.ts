@@ -1,8 +1,10 @@
 // import * as FileSystem from 'expo-file-system';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import * as Print from 'expo-print';
+import { AIAnalysis } from './aiService';
+import { uploadService } from './uploadService';
 
 export interface ReportData {
   title: string;
@@ -106,9 +108,18 @@ export const pdfService = {
         (reportData.photos || []).map(async (photo, index) => {
           let base64Img = '';
           try {
-            const fileUri = FileSystem.cacheDirectory + `temp_${Math.random()}.jpg`;
-            const { uri } = await FileSystem.downloadAsync(photo.s3Url, fileUri);
-            base64Img = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+            // const fileUri = FileSystem.cacheDirectory + `temp_${Math.random()}.jpg`;
+            // const { uri } = await FileSystem.downloadAsync(photo.s3Url, fileUri);
+            // base64Img = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+
+            const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
+            // console.log('photo.uri Avant >>> : ', photo.uri);
+            if (imgResp && imgResp.data && imgResp.data.data) {
+              // 💾 Sauvegarde localement
+              base64Img = imgResp.data.data.base64;
+            } else {
+              Alert.alert("La photo n'a pas pu être telechargé");
+            }
 
             const riskColor = getRiskColor(photo.aiAnalysis?.riskLevel || 'moyen');
             const riskLabel = getRiskLabel(photo.aiAnalysis?.riskLevel || 'moyen');
@@ -144,6 +155,12 @@ export const pdfService = {
                   </div>
                 ` : ''}
 
+                ${photo.comment ? `
+                  <div class="comment-section">
+                    <h4 class="comment-heading">🏛️ Références</h4>
+                    <p class="comment-text">${photo.aiAnalysis.references}</p>
+                  </div>
+                ` : ''}
                 ${photo.comment ? `
                   <div class="comment-section">
                     <h4 class="comment-heading">💬 Commentaires du coordonnateur</h4>

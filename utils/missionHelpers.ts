@@ -40,12 +40,18 @@ export const getReportStatusInfo = (status: string) => {
         label: 'Brouillon',
         color: '#64748B',
         gradient: ['#64748B', '#475569'],
-      };
+      };    
     case 'envoye':
       return {
         label: 'Envoyé',
         color: '#3B82F6',
         gradient: ['#3B82F6', '#1D4ED8'],
+      };
+    case 'envoye_au_client':
+      return {
+        label: 'Validé',
+        color: '#10B981',
+        gradient: ['#10B981', '#059669'],
       };
     case 'valide':
       return {

@@ -326,6 +326,22 @@ export default function MissionsScreen() {
     router.push(`/visite?mission=${missionData}`);
   };
 
+  const openReportDetails = (mission: any) => {
+    // Encoder les données de la mission pour les passer en paramètres
+    const missionData = encodeURIComponent(JSON.stringify({
+      id: mission.id,
+      title: mission.title,
+      client: mission.client,
+      location: mission.location,
+      description: mission.description,
+      nextVisit: mission.nextVisit,
+      type: mission.status === 'en_retard' ? 'Visite de rattrapage' :
+        mission.status === 'aujourdhui' ? 'Visite programmée' : 'Visite anticipée'
+    }));
+
+    router.push(`/rapports?mission=${missionData}`);
+  };
+
   // Toutes les missions peuvent maintenant avoir un bouton visite
   const canStartVisit = (status: string) => {
     return true; // Toutes les missions peuvent démarrer une visite
@@ -363,7 +379,7 @@ export default function MissionsScreen() {
               observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
               recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
               riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-              confidence: Math.round((photo.analysis.confidence || 0) * 100)
+              confidence: (photo.analysis.confidence || 0)
             } : undefined,
             userComments: photo.comment || '',
             validated: photo.validated || true,
@@ -1033,12 +1049,12 @@ export default function MissionsScreen() {
                             <Text style={styles.alertBadgeText}>{mission.alerts}</Text>
                           </View>
                         )}
-                        {mission.hasVisit ? (
+                        {mission.originalStatus == 'terminee' ? (
                           <TouchableOpacity
                             style={styles.visitButton}
                             onPress={(e) => {
                               e.stopPropagation();
-                              openVisitDetails(mission);
+                              openReportDetails(mission);
                             }}
                           >
                             <LinearGradient
@@ -1046,7 +1062,7 @@ export default function MissionsScreen() {
                               style={styles.visitButtonGradient}
                             >
                               <Eye size={14} color="#FFFFFF" />
-                              <Text style={[styles.visitButtonText, { color: '#FFFFFF' }]}>DÉTAILS</Text>
+                              <Text style={[styles.visitButtonText, { color: '#FFFFFF' }]}>Rapport</Text>
                             </LinearGradient>
                           </TouchableOpacity>
                         ) : showVisitButton ? (
@@ -1062,7 +1078,7 @@ export default function MissionsScreen() {
                               style={styles.visitButtonGradient}
                             >
                               <Camera size={14} color="#1E293B" />
-                              <Text style={styles.visitButtonText}>VISITE</Text>
+                              <Text style={styles.visitButtonText}>Visite</Text>
                             </LinearGradient>
                           </TouchableOpacity>
                         ) : (

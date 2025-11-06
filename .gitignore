@@ -1,5 +1,6 @@
 # dependencies
 node_modules/
+backend/logs/
 
 # expo
 .expo/
@@ -33,4 +34,3 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
-backend/logs/app-2025-11-03.log

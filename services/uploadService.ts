@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, apiRequest } from './api';
 import { Platform } from 'react-native';
 
 export interface UploadResult {
@@ -137,4 +137,16 @@ export const uploadService = {
 
     return response.data;
   },
+  async downloadFile(publicUrl: string, folder: string, isBase64: boolean) {
+    const url = '/upload/download';
+    const data = {
+      publicUrl: publicUrl,
+      folder: folder,
+      isBase64: isBase64 || false,
+    }
+    return await apiRequest(url, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
 };

@@ -9,6 +9,21 @@
             "date": 1762180463214,
             "name": "/usr/yooowin/alpha-concept-new/alpha-concept-fe/backend/logs/app-2025-11-03.log",
             "hash": "30765b542dd4b05a5cf8d7581b92a4bd971de4492d32c8ee9eec2bd371efc8ea"
+        },
+        {
+            "date": 1762248797886,
+            "name": "/usr/yooowin/alpha-concept-new/alpha-concept-fe/backend/logs/app-2025-11-04.log",
+            "hash": "7936d9e5b240e5f3e5d31cbec89d3470189376c9043e020512b8485c61eda7b8"
+        },
+        {
+            "date": 1762334191354,
+            "name": "/usr/yooowin/alpha-concept-new/alpha-concept-fe/backend/logs/app-2025-11-05.log",
+            "hash": "45353f618312523c81e354cb4888c5146dc78b7d3ed5c4808d94af45b51e4835"
+        },
+        {
+            "date": 1762420403606,
+            "name": "/usr/yooowin/alpha-concept-new/alpha-concept-fe/backend/logs/app-2025-11-06.log",
+            "hash": "6c4342948a373d1d0e0384bbe9d46625a25afbbafced3d2ac79e6f0eea927d54"
         }
     ],
     "hashType": "sha256"

@@ -35,9 +35,10 @@ export class Visit {
       confidence: number;
       photoConformity?: boolean;
       photoConformityMessage?: string;
-      references?: string[];
+      references?: string;
     };
     comment?: string;
+    userDirectives?: string;
     validated: boolean;
   }[];
 
