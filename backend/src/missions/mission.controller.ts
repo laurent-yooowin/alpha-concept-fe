@@ -1,9 +1,12 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MissionService } from './mission.service';
 import { CreateMissionDto, UpdateMissionDto } from './mission.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { User } from '../user/user.entity';
+import { User, UserRole } from '../user/user.entity';
 
 @Controller('missions')
 @UseGuards(JwtAuthGuard)
@@ -69,5 +72,36 @@ export class MissionController {
   async delete(@CurrentUser() user: User, @Param('id') id: string) {
     await this.missionService.delete(id, user.id);
     return { message: 'Mission deleted successfully' };
+  }
+
+  @Post('bulk-import')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  async bulkImport(
+    @CurrentUser() user: User,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    const result = await this.missionService.bulkImport(file, user);
+
+    return {
+      success: true,
+      message: `Import completed. ${result.imported.length} missions imported, ${result.ignored.length} ignored, ${result.errors.length} errors.`,
+      data: {
+        imported: result.imported,
+        ignoredMissions: result.ignored,
+        errors: result.errors,
+        summary: {
+          total: result.imported.length + result.ignored.length + result.errors.length,
+          imported: result.imported.length,
+          ignored: result.ignored.length,
+          failed: result.errors.length,
+        },
+      },
+    };
   }
 }

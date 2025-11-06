@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Mission } from './mission.entity';
@@ -6,6 +6,8 @@ import { MissionAssignment } from './mission-assignment.entity';
 import { CreateMissionDto, UpdateMissionDto } from './mission.dto';
 import { User, UserRole } from '../user/user.entity';
 import { UserService } from '../user/user.service';
+import { parse } from 'csv-parse/sync';
+import * as XLSX from 'xlsx';
 
 @Injectable()
 export class MissionService {
@@ -200,5 +202,214 @@ export class MissionService {
     });
 
     return Array.from(userMap.values());
+  }
+
+  async bulkImport(
+    file: Express.Multer.File,
+    user: User
+  ): Promise<{
+    imported: Mission[];
+    ignored: Array<{ row: number; reason: string; data: any }>;
+    errors: Array<{ row: number; error: string; data: any }>;
+  }> {
+    if (user.role !== UserRole.ADMIN) {
+      throw new BadRequestException('Only admins can import missions');
+    }
+
+    const requiredColumns = [
+      'title',
+      'client',
+      'address',
+      'date',
+      'time',
+      'type',
+    ];
+
+    const optionalColumns = [
+      'refClient',
+      'description',
+      'status',
+      'contactFirstName',
+      'contactLastName',
+      'contactEmail',
+      'contactPhone',
+      'userId',
+    ];
+
+    const allColumns = [...requiredColumns, ...optionalColumns];
+
+    let rows: any[] = [];
+
+    try {
+      if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+        rows = parse(file.buffer, {
+          columns: true,
+          skip_empty_lines: true,
+          trim: true,
+        });
+      } else if (
+        file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        file.mimetype === 'application/vnd.ms-excel' ||
+        file.originalname.endsWith('.xlsx') ||
+        file.originalname.endsWith('.xls')
+      ) {
+        const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        rows = XLSX.utils.sheet_to_json(sheet);
+      } else {
+        throw new BadRequestException('Unsupported file format. Please upload CSV or Excel file.');
+      }
+    } catch (error) {
+      this.logger.error('Error parsing file:', error);
+      throw new BadRequestException('Failed to parse file: ' + error.message);
+    }
+
+    if (!rows || rows.length === 0) {
+      throw new BadRequestException('File is empty or has no valid data');
+    }
+
+    const fileColumns = Object.keys(rows[0]).map(col => col.toLowerCase().trim());
+
+    const missingColumns = requiredColumns.filter(
+      col => !fileColumns.includes(col.toLowerCase())
+    );
+
+    if (missingColumns.length > 0) {
+      throw new BadRequestException(
+        `Missing required columns: ${missingColumns.join(', ')}. Required columns are: ${requiredColumns.join(', ')}`
+      );
+    }
+
+    const imported: Mission[] = [];
+    const ignored: Array<{ row: number; reason: string; data: any }> = [];
+    const errors: Array<{ row: number; error: string; data: any }> = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNumber = i + 2;
+
+      try {
+        const normalizedRow: any = {};
+        Object.keys(row).forEach(key => {
+          const normalizedKey = key.toLowerCase().trim();
+          normalizedRow[normalizedKey] = row[key];
+        });
+
+        const missionData: any = {
+          title: normalizedRow.title?.toString().trim(),
+          client: normalizedRow.client?.toString().trim(),
+          address: normalizedRow.address?.toString().trim(),
+          date: this.parseDate(normalizedRow.date),
+          time: normalizedRow.time?.toString().trim(),
+          type: normalizedRow.type?.toString().trim() || 'CSPS',
+          refClient: normalizedRow.refclient?.toString().trim() || null,
+          description: normalizedRow.description?.toString().trim() || null,
+          status: normalizedRow.status?.toString().trim() || 'planifiee',
+          contactFirstName: normalizedRow.contactfirstname?.toString().trim() || null,
+          contactLastName: normalizedRow.contactlastname?.toString().trim() || null,
+          contactEmail: normalizedRow.contactemail?.toString().trim() || null,
+          contactPhone: normalizedRow.contactphone?.toString().trim() || null,
+          userId: normalizedRow.userid?.toString().trim() || user.id,
+          imported: true,
+        };
+
+        if (!missionData.title || !missionData.client || !missionData.address || !missionData.date || !missionData.time) {
+          errors.push({
+            row: rowNumber,
+            error: 'Missing required fields',
+            data: normalizedRow,
+          });
+          continue;
+        }
+
+        if (missionData.userId !== user.id) {
+          const userExists = await this.userService.findById(missionData.userId);
+          if (!userExists) {
+            errors.push({
+              row: rowNumber,
+              error: `User with ID ${missionData.userId} not found`,
+              data: normalizedRow,
+            });
+            continue;
+          }
+        }
+
+        const existingMission = await this.missionRepository.findOne({
+          where: {
+            title: missionData.title,
+            client: missionData.client,
+            date: missionData.date,
+            address: missionData.address,
+          },
+        });
+
+        if (existingMission) {
+          ignored.push({
+            row: rowNumber,
+            reason: 'Mission already exists (same title, client, date, and address)',
+            data: normalizedRow,
+          });
+          continue;
+        }
+
+        const mission = this.missionRepository.create(missionData);
+        const savedMission = await this.missionRepository.save(mission);
+        imported.push(savedMission);
+      } catch (error) {
+        this.logger.error(`Error processing row ${rowNumber}:`, error);
+        errors.push({
+          row: rowNumber,
+          error: error.message || 'Unknown error',
+          data: row,
+        });
+      }
+    }
+
+    return {
+      imported,
+      ignored,
+      errors,
+    };
+  }
+
+  private parseDate(dateValue: any): Date {
+    if (!dateValue) {
+      throw new Error('Date is required');
+    }
+
+    if (dateValue instanceof Date) {
+      return dateValue;
+    }
+
+    if (typeof dateValue === 'number') {
+      const date = XLSX.SSF.parse_date_code(dateValue);
+      return new Date(date.y, date.m - 1, date.d);
+    }
+
+    const dateStr = dateValue.toString().trim();
+    const formats = [
+      /^(\d{4})-(\d{2})-(\d{2})$/,
+      /^(\d{2})\/(\d{2})\/(\d{4})$/,
+      /^(\d{2})-(\d{2})-(\d{4})$/,
+    ];
+
+    for (const format of formats) {
+      const match = dateStr.match(format);
+      if (match) {
+        if (format === formats[0]) {
+          return new Date(match[1], parseInt(match[2]) - 1, match[3]);
+        } else {
+          return new Date(match[3], parseInt(match[2]) - 1, match[1]);
+        }
+      }
+    }
+
+    const parsedDate = new Date(dateStr);
+    if (!isNaN(parsedDate.getTime())) {
+      return parsedDate;
+    }
+
+    throw new Error(`Invalid date format: ${dateStr}. Expected formats: YYYY-MM-DD, DD/MM/YYYY, or DD-MM-YYYY`);
   }
 }
