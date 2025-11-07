@@ -47,10 +47,11 @@ export class MissionController {
 
   @Delete(':id/assign/:userId')
   async removeAssignment(
+    @CurrentUser() user: User,
     @Param('id') id: string,
     @Param('userId') userId: string,
   ) {
-    await this.missionService.removeAssignment(id, userId);
+    await this.missionService.removeAssignment(id, userId, user);
     return { message: 'Assignment removed successfully' };
   }
 
