@@ -1,5 +1,5 @@
 import { Optional } from '@nestjs/common';
-import { IsString, IsOptional, IsDateString, IsEmail } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsEmail, IsEnum, IsBoolean } from 'class-validator';
 
 export enum MissionType {
   CSPS = "CSPS",
@@ -43,7 +43,7 @@ export class CreateMissionDto {
   description?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEnum(MissionStatus)
   status?: MissionStatus;
 
   // @IsOptional()
@@ -101,7 +101,7 @@ export class UpdateMissionDto {
   description?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEnum(MissionStatus)
   status?: MissionStatus;
 
   @IsOptional()
@@ -123,4 +123,8 @@ export class UpdateMissionDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  assigned?: boolean;
 }

@@ -8,6 +8,7 @@ import { User, UserRole } from '../user/user.entity';
 import { UserService } from '../user/user.service';
 import { parse } from 'csv-parse/sync';
 import * as XLSX from 'xlsx';
+import { Roles } from 'src/auth/decorators/roles.decorator';
 
 @Injectable()
 export class MissionService {
@@ -37,17 +38,35 @@ export class MissionService {
   }
 
   async findAll(user: User): Promise<Mission[]> {
+    let missions;
     if (user.role === UserRole.ADMIN) {
-      return this.missionRepository.find({
+      missions = await this.missionRepository.find({
         relations: ['user'],
+        order: { createdAt: 'DESC' },
+      });
+    } else {
+      missions = await this.missionRepository.find({
+        where: { userId: user.id },
         order: { createdAt: 'DESC' },
       });
     }
 
-    return await this.missionRepository.find({
-      where: { userId: user.id },
-      order: { createdAt: 'DESC' },
-    });
+
+    if (missions) {
+      await Promise.all(missions.map(async (mission) => {
+        const missionId = mission.id;
+        const userId = user.id;
+        const assignment = await this.assignmentRepository.findOne({
+          where: { missionId },
+        });
+        if (assignment) {
+          mission.assigned = true;
+        }
+        return mission;
+      }));
+    }
+
+    return missions;
 
     // const assignments = await this.assignmentRepository.find({
     //   where: { userId: user.id },
@@ -68,17 +87,20 @@ export class MissionService {
   }
 
   async findOne(id: string, user: User): Promise<Mission> {
+    let mission = new Mission();
     if (user.role === UserRole.ADMIN) {
-      const mission = await this.missionRepository.findOne({
+      mission = await this.missionRepository.findOne({
         where: { id },
         relations: ['user'],
       });
+    } else {
+      mission = await this.missionRepository.findOne({
+        where: { id, userId: user.id },
+      });
+    }
 
-      if (!mission) {
-        throw new NotFoundException('Mission not found');
-      }
-
-      return mission;
+    if (!mission) {
+      throw new NotFoundException('Mission not found');
     }
 
     const assignment = await this.assignmentRepository.findOne({
@@ -86,23 +108,7 @@ export class MissionService {
     });
 
     if (assignment) {
-      const mission = await this.missionRepository.findOne({
-        where: { id },
-      });
-
-      if (!mission) {
-        throw new NotFoundException('Mission not found');
-      }
-
-      return mission;
-    }
-
-    const mission = await this.missionRepository.findOne({
-      where: { id, userId: user.id },
-    });
-
-    if (!mission) {
-      throw new NotFoundException('Mission not found');
+      mission.assigned = true;
     }
 
     return mission;
@@ -129,8 +135,18 @@ export class MissionService {
     if (!mission) {
       throw new NotFoundException('Mission not found');
     }
+    const missionId = mission.id;
 
-    await this.missionRepository.remove(mission);
+    const assignment = await this.assignmentRepository.findOne({
+      where: { missionId, userId },
+    });
+
+    if (assignment || mission.status == MissionStatus.TERMINATED) {
+      const errorMsg = mission.status == MissionStatus.TERMINATED ? 'Mission terminée, impossible de la supprimer. ' : "La mission a été assignée impossible de la supprimer";
+      throw new Error(errorMsg);
+    } else {
+      await this.missionRepository.remove(mission);
+    }
   }
 
   async assignUsers(missionId: string, userIds: string[], assignedBy: User): Promise<MissionAssignment[]> {
@@ -151,7 +167,6 @@ export class MissionService {
 
     const existingUserIds = existingAssignments.map(a => a.userId);
     const newUserIds = userIds.filter(id => !existingUserIds.includes(id));
-    this.logger.log(`Existing assignments for mission `, userIds);
 
     const assignments = newUserIds.map(userId =>
       this.assignmentRepository.create({
@@ -164,9 +179,12 @@ export class MissionService {
 
     const updateMissionDto = new UpdateMissionDto();
     updateMissionDto.status = MissionStatus.ASSIGNED;
+    updateMissionDto.assigned = true;
     updateMissionDto.userId = userIds[0];
+    this.logger.log('🚀 updateMissionDto.status =', updateMissionDto.status);
     await this.update(missionId, assignedBy.id, updateMissionDto);
 
+    this.logger.log(`Existing assignments for mission `, userIds);
     return this.assignmentRepository.save(assignments);
   }
 
@@ -179,13 +197,28 @@ export class MissionService {
     return assignments.map(a => a.user);
   }
 
-  async removeAssignment(missionId: string, userId: string): Promise<void> {
+  async removeAssignment(missionId: string, userId: string, user: User): Promise<void> {
+    if (user.role !== UserRole.ADMIN) {
+      throw new NotFoundException('Only admins can remove assignment of the mission');
+    }
+
+    const mission = await this.findOne(missionId, user);
+
+    if (!mission) {
+      throw new NotFoundException('Mission not found');
+    }
+
     const assignment = await this.assignmentRepository.findOne({
       where: { missionId, userId },
     });
 
-    if (assignment) {
+    if (assignment && mission.status != MissionStatus.TERMINATED) {
       await this.assignmentRepository.remove(assignment);
+      mission.assigned = false;
+      mission.status = mission.status == MissionStatus.ASSIGNED ? MissionStatus.PLANIFIED : mission.status;
+    } else {
+      const errorMsg = mission.status == MissionStatus.TERMINATED ? 'Mission terminée, impossible de supprimer son assignation. ' : "La mission n'a pas été assignée impossible de supprimer son assignation";
+      throw new Error(errorMsg);
     }
   }
 
@@ -317,9 +350,9 @@ export class MissionService {
         let importUser: User = new User();
         importUser.id = null;
 
-        if (missionData.userEmail){
+        if (missionData.userEmail) {
           importUser = await this.userService.findByEmail(missionData.userEmail);
-          if(!importUser){
+          if (!importUser) {
             errors.push({
               row: rowNumber,
               error: `L'utilisateur avec email : ${missionData.userEmail} n'existe pas dans la base, merci de le créer d'abord. `,
@@ -356,8 +389,8 @@ export class MissionService {
             data: normalizedRow,
           });
           continue;
-        } else if (existingMission){
-          const updatedMission = await this.update(existingMission.id, importUser.id, missionData);          
+        } else if (existingMission) {
+          const updatedMission = await this.update(existingMission.id, importUser.id, missionData);
           imported.push(updatedMission);
           continue;
         }

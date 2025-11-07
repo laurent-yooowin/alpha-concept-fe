@@ -1,18 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../user/user.entity';
+import { MissionStatus, MissionType } from './mission.dto';
 
-export enum MissionType {
-  CSPS = "CSPS",
-  AEU = "AEU",
-  Divers = "Divers",
-}
-
-export enum MissionStatus {
-  PLANIFIED = 'planifiee',
-  IN_PROGRESS = 'en_cours',
-  TERMINATED = 'terminee',
-  VALIDATED = 'validee',
-}
 
 @Entity('missions')
 export class Mission {
@@ -54,6 +43,11 @@ export class Mission {
   })
   status: string;
 
+  // @Column({
+  //   type: 'text'
+  // })
+  // status: string;
+
   @Column({ length: 255, nullable: true })
   contactFirstName: string;
 
@@ -75,6 +69,9 @@ export class Mission {
 
   @Column({ default: false })
   imported: boolean;
+
+  @Column({ default: false })
+  assigned: boolean;
 
   @CreateDateColumn()
   createdAt: Date;
