@@ -66,7 +66,7 @@ export class Mission {
   @Column({ length: 50, nullable: true })
   contactPhone: string;
 
-  @Column('uuid')
+  @Column('uuid', { nullable: true })
   userId: string;
 
   @ManyToOne(() => User)
