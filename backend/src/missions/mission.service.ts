@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Mission } from './mission.entity';
 import { MissionAssignment } from './mission-assignment.entity';
-import { CreateMissionDto, UpdateMissionDto } from './mission.dto';
+import { CreateMissionDto, MissionStatus, UpdateMissionDto } from './mission.dto';
 import { User, UserRole } from '../user/user.entity';
 import { UserService } from '../user/user.service';
 import { parse } from 'csv-parse/sync';
@@ -163,7 +163,7 @@ export class MissionService {
     );
 
     const updateMissionDto = new UpdateMissionDto();
-    updateMissionDto.status = 'assignee';
+    updateMissionDto.status = MissionStatus.ASSIGNED;
     updateMissionDto.userId = userIds[0];
     await this.update(missionId, assignedBy.id, updateMissionDto);
 
@@ -213,7 +213,7 @@ export class MissionService {
     errors: Array<{ row: number; error: string; data: any }>;
   }> {
     if (user.role !== UserRole.ADMIN) {
-      throw new BadRequestException('Only admins can import missions');
+      throw new BadRequestException('Seul les Admins peuvent importer des missions');
     }
 
     const requiredColumns = [
@@ -233,7 +233,7 @@ export class MissionService {
       'contactLastName',
       'contactEmail',
       'contactPhone',
-      'userId',
+      'userEmail',
     ];
 
     const allColumns = [...requiredColumns, ...optionalColumns];
@@ -258,15 +258,15 @@ export class MissionService {
         const sheet = workbook.Sheets[sheetName];
         rows = XLSX.utils.sheet_to_json(sheet);
       } else {
-        throw new BadRequestException('Unsupported file format. Please upload CSV or Excel file.');
+        throw new BadRequestException('Fichier non conforme. Merci de charger un fichier CSV ou Excel .');
       }
     } catch (error) {
       this.logger.error('Error parsing file:', error);
-      throw new BadRequestException('Failed to parse file: ' + error.message);
+      throw new BadRequestException('Impossible de lire le fichier : ' + error.message);
     }
 
     if (!rows || rows.length === 0) {
-      throw new BadRequestException('File is empty or has no valid data');
+      throw new BadRequestException('Fichier vide ou corrompu');
     }
 
     const fileColumns = Object.keys(rows[0]).map(col => col.toLowerCase().trim());
@@ -277,7 +277,7 @@ export class MissionService {
 
     if (missingColumns.length > 0) {
       throw new BadRequestException(
-        `Missing required columns: ${missingColumns.join(', ')}. Required columns are: ${requiredColumns.join(', ')}`
+        `Colonnes manquantes : ${missingColumns.join(', ')}. Les colonne requises sont : ${requiredColumns.join(', ')}`
       );
     }
 
@@ -310,29 +310,34 @@ export class MissionService {
           contactLastName: normalizedRow.contactlastname?.toString().trim() || null,
           contactEmail: normalizedRow.contactemail?.toString().trim() || null,
           contactPhone: normalizedRow.contactphone?.toString().trim() || null,
-          userId: normalizedRow.userid?.toString().trim() || user.id,
+          userEmail: normalizedRow.useremail?.toString().trim() || null,
           imported: true,
         };
+
+        let importUser: User = new User();
+        importUser.id = null;
+
+        if (missionData.userEmail){
+          importUser = await this.userService.findByEmail(missionData.userEmail);
+          if(!importUser){
+            errors.push({
+              row: rowNumber,
+              error: `L'utilisateur avec email : ${missionData.userEmail} n'existe pas dans la base, merci de le créer d'abord. `,
+              data: normalizedRow,
+            });
+            continue;
+          } else {
+            missionData.userId = importUser.id;
+          }
+        }
 
         if (!missionData.title || !missionData.client || !missionData.address || !missionData.date || !missionData.time) {
           errors.push({
             row: rowNumber,
-            error: 'Missing required fields',
+            error: 'Colonnes manquantes',
             data: normalizedRow,
           });
           continue;
-        }
-
-        if (missionData.userId !== user.id) {
-          const userExists = await this.userService.findById(missionData.userId);
-          if (!userExists) {
-            errors.push({
-              row: rowNumber,
-              error: `User with ID ${missionData.userId} not found`,
-              data: normalizedRow,
-            });
-            continue;
-          }
         }
 
         const existingMission = await this.missionRepository.findOne({
@@ -344,12 +349,16 @@ export class MissionService {
           },
         });
 
-        if (existingMission) {
+        if (existingMission && existingMission.status == MissionStatus.TERMINATED) {
           ignored.push({
             row: rowNumber,
-            reason: 'Mission already exists (same title, client, date, and address)',
+            reason: `Mission < ${existingMission.title} > exist déjà et son statut est terminée`,
             data: normalizedRow,
           });
+          continue;
+        } else if (existingMission){
+          const updatedMission = await this.update(existingMission.id, importUser.id, missionData);          
+          imported.push(updatedMission);
           continue;
         }
 
@@ -375,7 +384,7 @@ export class MissionService {
 
   private parseDate(dateValue: any): Date {
     if (!dateValue) {
-      throw new Error('Date is required');
+      throw new Error('La valeur doit être une date');
     }
 
     if (dateValue instanceof Date) {
@@ -410,6 +419,6 @@ export class MissionService {
       return parsedDate;
     }
 
-    throw new Error(`Invalid date format: ${dateStr}. Expected formats: YYYY-MM-DD, DD/MM/YYYY, or DD-MM-YYYY`);
+    throw new Error(`Le format de la date invalide : ${dateStr}. le format attendu est : YYYY-MM-DD, DD/MM/YYYY, ou DD-MM-YYYY`);
   }
 }
