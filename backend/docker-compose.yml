@@ -38,6 +38,7 @@ services:
 
   # Backend API
   backend:
+    network_mode: host
     build:
       context: .
       dockerfile: Dockerfile
@@ -66,8 +67,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    networks:
-      - csps-network
+    # networks:
+    #   - csps-network
     volumes:
       - ./logs:/app/logs
     healthcheck:
