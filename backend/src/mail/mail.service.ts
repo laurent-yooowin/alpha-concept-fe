@@ -33,7 +33,7 @@ export class MailService {
   /**
    * Génère un PDF à partir de HTML et retourne un Buffer
    */
-  async generatePdfBuffer(htmlContent: string): Promise<Buffer> {
+  async generatePdfBuffer(htmlContent: string): Promise<Uint8Array<ArrayBufferLike>> {
     try {
       const browser = await puppeteer.launch({ headless: true });
       const page = await browser.newPage();

@@ -6,7 +6,7 @@ import { CreateVisitDto, UpdateVisitDto } from './visit.dto';
 import { User, UserRole } from '../user/user.entity';
 import { MissionService } from '../missions/mission.service';
 import { UpdateMissionData } from '../../../services/missionService';
-import { UpdateMissionDto } from '../missions/mission.dto';
+import { MissionStatus, UpdateMissionDto } from '../missions/mission.dto';
 
 @Injectable()
 export class VisitService {
@@ -40,7 +40,7 @@ export class VisitService {
 
     if (mission && (mission.status === 'planifiee' || mission.status === 'assignee')) {
       const updateMissionDto = new UpdateMissionDto();
-      updateMissionDto.status = 'en_cours';
+      updateMissionDto.status = MissionStatus.IN_PROGRESS;
       await this.missionService.update(mission.id, user.id, updateMissionDto);
     }
 
