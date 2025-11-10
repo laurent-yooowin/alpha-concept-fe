@@ -1,8 +1,10 @@
-import { Controller, Get, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Put, Delete, Body, Param, UseGuards, Post, Optional } from '@nestjs/common';
 import { UserService } from './user.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { User } from './user.entity';
+import { User, UserRole } from './user.entity';
+import { IsBoolean, IsEmail, IsEnum, IsNumber, IsPhoneNumber, IsString } from 'class-validator';
+
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
