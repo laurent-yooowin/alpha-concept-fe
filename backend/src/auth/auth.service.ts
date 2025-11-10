@@ -14,6 +14,7 @@ export interface RegisterDto {
   firstName: string;
   lastName: string;
   phone?: string;
+  address?: string;
   company?: string;
   experience?: number;
 }
@@ -32,7 +33,7 @@ export class AuthService {
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async login(loginDto: LoginDto) {
     const user = await this.userService.findByEmail(loginDto.email);

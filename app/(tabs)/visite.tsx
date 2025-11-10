@@ -111,6 +111,7 @@ export default function VisiteScreen() {
 
   // États de chargement
   const [analyzingPhoto, setAnalyzingPhoto] = useState(false);
+  const [loadingMission, setLoadingMission] = useState(false);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [savingVisit, setSavingVisit] = useState(false);
@@ -230,22 +231,22 @@ export default function VisiteScreen() {
   };
 
   const selectMission = async (selectedMission: any) => {
+    setShowMissionSelector(false);
+    setLoadingMission(true);
     if (!mission || mission.id !== selectedMission.id) {
       setPhotos([]);
       setReportContent('');
       setVisitNotes('');
       setReportValidated(false);
-
       // console.log('selectedMission >>> ', selectedMission)
       await loadExistingVisitData(selectedMission.id);
     }
-
     setMission(selectedMission);
-    setShowMissionSelector(false);
   };
 
   const loadExistingVisitData = async (missionId: number) => {
     try {
+      setLoadingMission(true);
       const response = await visitService.getVisits(missionId);
       // console.log('getVisits - response.data >>> ', response.data)
 
@@ -269,7 +270,7 @@ export default function VisiteScreen() {
 
 
         if (visit.photos && visit.photos.length > 0) {
-          console.log('visit >>> : ', visit);
+          // console.log('visit >>> : ', visit);
           const loadedPhotos: Photo[] = await Promise.all(visit.photos.map(async (photo: any) => {
             const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
               'faible': 'low',
@@ -375,6 +376,8 @@ export default function VisiteScreen() {
       setHasExistingVisit(false);
       setExistingVisitId(null);
       setExistingReportId(null);
+    } finally {
+      setLoadingMission(false);
     }
   };
 
@@ -387,12 +390,13 @@ export default function VisiteScreen() {
 
       if (response.data) {
         const nonPhotoConfiormityMsgExists = response.data.nonConformities && response.data.nonConformities.length > 0;
+        const conformityMsgExist = response.data.photoConformityMessage && response.data.photoConformityMessage.trim() != "";
         return {
           observations: nonPhotoConfiormityMsgExists ? response.data.nonConformities : [response.data.photoConformityMessage || ""],
           recommendations: response.data.recommendations,
           riskLevel: response.data.riskLevel === 'faible' ? 'low' : response.data.riskLevel === 'moyen' ? 'medium' : 'high',
           confidence: parseInt(response.data.confidence || 0),
-          photoConformity: response.data.photoConformity || true,
+          photoConformity: conformityMsgExist ? false : response.data.photoConformity || true,
           photoConformityMessage: response.data.photoConformityMessage || "",
           references: response.data.references || [],
         };
@@ -452,21 +456,23 @@ export default function VisiteScreen() {
   };
   const analyzePhotoWithDirectives = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
     try {
-      console.log('selectedPhoto.analysis >>> : ', selectedPhoto.aiAnalysis);
+      // console.log('selectedPhoto.analysis >>> : ', selectedPhoto.aiAnalysis);
       const previousReport = JSON.stringify(selectedPhoto.aiAnalysis);
       // Use backend AI analysis
       const response = await aiService.analyzePhotoWithDirectives(photoUri, tempDirectives, previousReport);
-      console.log('analyzePhotoWithDirectives response >>> : ', response);
+      // console.log('analyzePhotoWithDirectives response >>> : ', response);
 
       if (response.data) {
+        const nonPhotoConfiormityMsgExists = response.data.nonConformities && response.data.nonConformities.length > 0;
+        const conformityMsgExist = response.data.photoConformityMessage && response.data.photoConformityMessage.trim() != "";
         return {
-          observations: response.data.nonConformities,
+          observations: nonPhotoConfiormityMsgExists ? response.data.nonConformities : [response.data.photoConformityMessage || ""],
           recommendations: response.data.recommendations,
           riskLevel: response.data.riskLevel === 'faible' ? 'low' : response.data.riskLevel === 'moyen' ? 'medium' : 'high',
           confidence: parseInt(response.data.confidence || 0),
-          photoConformity: response.data.photoConformity,
-          photoConformityMessage: response.data.photoConformityMessage,
-          references: response.data.references,
+          photoConformity: conformityMsgExist ? false : response.data.photoConformity || true,
+          photoConformityMessage: response.data.photoConformityMessage || "",
+          references: response.data.references || [],
         };
       }
     } catch (error) {
@@ -534,6 +540,7 @@ export default function VisiteScreen() {
       });
 
       if (photo) {
+        setAnalyzingPhoto(true);
         const newPhoto: Photo = {
           id: Date.now().toString(),
           uri: photo.uri,
@@ -567,6 +574,7 @@ export default function VisiteScreen() {
 
           if (uploadResults?.data && uploadResults.data?.length > 0) {
             const s3Url = uploadResults.data[0].url;
+            newPhoto.s3Url = s3Url;
             // Update the photo with S3 URL
             setPhotos(prev => prev.map(p =>
               p.id === newPhoto.id
@@ -585,24 +593,47 @@ export default function VisiteScreen() {
         }
 
         if (uploadResults?.data && uploadResults.data?.length > 0) {
-          // Lancer l'analyse IA
-          setAnalyzingPhoto(true);
+          // Lancer l'analyse IA          
           try {
             const analysis = await analyzePhoto(uploadResults.data[0].url);
-            setPhotos(prev => prev.map(p =>
-              p.id === newPhoto.id
-                ? { ...p, aiAnalysis: analysis }
-                : p
-            ));
+            if (!analysis.conformity) {
+              Alert.alert(
+                'Attention !',
+                "La photo n'est pas conforme pour générer le rapport CSPS, voullez-vous tout de même la garder ? ",
+                [
+                  {
+                    text: 'Oui',
+                    onPress: () => {
+                      setPhotos(prev => prev.map(p =>
+                        p.id === newPhoto.id
+                          ? { ...p, aiAnalysis: analysis }
+                          : p
+                      ));
+                      setAnalyzingPhoto(false);
+                    }
+                  },
+                  {
+                    text: 'Non',
+                    style: 'cancel',
+                    onPress: async () => {
+                      await deletePhoto(newPhoto, false);
+                    }
+                  }
+                ]
+              );
+            }
+
           } catch (error) {
             console.error('Erreur analyse IA:', error);
           } finally {
             setAnalyzingPhoto(false);
           }
         }
+        setAnalyzingPhoto(false);
       }
     } catch (error) {
       console.error('Erreur prise de photo:', error);
+      setAnalyzingPhoto(false);
       Alert.alert('Erreur', 'Impossible de prendre la photo');
     }
   };
@@ -633,7 +664,7 @@ export default function VisiteScreen() {
     try {
       await uploadService.deletePhotoByUrl(photo?.s3Url);
       const photosParam = photos.filter(p => p.id !== photo.id);
-      setPhotos(photosParam);
+      setPhotos(prev => photosParam);
       // await saveVisit(photosParam);
       setHasChanges(true);
       Alert.alert('Succès', 'Photo suppriméee du serveur');
@@ -644,27 +675,38 @@ export default function VisiteScreen() {
   };
 
   // Supprimer une photo
-  const deletePhoto = async (photo: Photo) => {
-    Alert.alert(
-      'Supprimer la photo',
-      'Êtes-vous sûr de vouloir supprimer cette photo et son analyse ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            await deletePhotoFromServer(photo);
-            if (selectedPhoto?.id === photo.id) {
-              setShowPhotoDetail(false);
-              setEditingComments(false);
-              setEditingDirectives(false);
-              setSelectedPhoto(null);
+  const deletePhoto = async (photo: Photo, isAlert = true) => {
+    if (isAlert) {
+      Alert.alert(
+        'Supprimer la photo',
+        'Êtes-vous sûr de vouloir supprimer cette photo et son analyse ?',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Supprimer',
+            style: 'destructive',
+            onPress: async () => {
+              await deletePhotoFromServer(photo);
+              if (selectedPhoto?.id === photo.id) {
+                setShowPhotoDetail(false);
+                setEditingComments(false);
+                setEditingDirectives(false);
+                setSelectedPhoto(null);
+              }
             }
           }
-        }
-      ]
-    );
+        ]
+      );
+    } else {
+      await deletePhotoFromServer(photo);
+      if (selectedPhoto?.id === photo.id) {
+        setShowPhotoDetail(false);
+        setEditingComments(false);
+        setEditingDirectives(false);
+        setSelectedPhoto(null);
+      }
+      setAnalyzingPhoto(false);
+    }
   };
 
   // Valider une photo
@@ -1031,7 +1073,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     }
     setIsSavingReport(true);
     setReportSaved(false);
-    
+
     try {
       const conformity = Math.round(
         photos.reduce((acc, p) => {
@@ -1312,7 +1354,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
         Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
       }
       return;
-    } finally{
+    } finally {
       setIsSavingReport(false);
     }
   };
@@ -1390,6 +1432,24 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
+              </LinearGradient>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Loading Mission Modal */}
+        <Modal visible={loadingMission} animationType="fade" transparent>
+          <View style={styles.pdfLoadingOverlay}>
+            <View style={styles.pdfLoadingModal}>
+              <LinearGradient
+                colors={['#8B5CF6', '#A855F7']}
+                style={styles.analyzingGradient}
+              >
+                <ActivityIndicator size={20} color="#FFFFFF" />
+                <Text style={styles.analyzingTitle}>CHARGEMENT EN COURS</Text>
+                <Text style={styles.analyzingSubtitle}>
+                  Chergement des détails de la mission avec les photos en cours ...
+                </Text>
               </LinearGradient>
             </View>
           </View>
@@ -1542,7 +1602,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                 <TouchableOpacity
                   style={styles.generateReportButton}
                   onPress={generateReport}
-                  disabled={generatingReport}
+                  disabled={generatingReport || analyzingPhoto}
                 >
                   <LinearGradient
                     colors={generatingReport ? ['#64748B', '#475569'] : ['#8B5CF6', '#A855F7']}
@@ -1580,7 +1640,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
           )}
 
           {/* Photos Grid */}
-          {photos.length > 0 && (
+          {photos.length > 0 && !analyzingPhoto && (
             <View style={styles.photosGrid}>
               {photos.map((photo, index) => (
                 <TouchableOpacity
@@ -1635,7 +1695,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
           )}
 
           {/* Analysis in Progress */}
-          {analyzingPhoto && (
+          {/* {analyzingPhoto && (
             <View style={styles.analyzingContainer}>
               <LinearGradient
                 colors={['#8B5CF6', '#A855F7']}
@@ -1648,7 +1708,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                 </Text>
               </LinearGradient>
             </View>
-          )}
+          )} */}
         </View>
 
         {/* Instructions */}
@@ -1721,7 +1781,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
       </Modal>
 
       {/* Photo Detail Modal */}
-      <Modal visible={showPhotoDetail} animationType="slide" transparent>
+      <Modal visible={showPhotoDetail && !analyzingPhoto} animationType="slide" transparent>
         <View style={styles.photoDetailOverlay}>
           <View style={styles.photoDetailModal}>
             <LinearGradient
@@ -1994,7 +2054,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
       </Modal>
 
       {/* Report Modal */}
-      <Modal visible={showReportModal} animationType="slide" transparent>
+      <Modal visible={showReportModal && !analyzingPhoto} animationType="slide" transparent>
         <View style={styles.reportModalOverlay}>
           <View style={styles.reportModal}>
             <LinearGradient
@@ -2211,6 +2271,24 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
               <Text style={styles.pdfLoadingTitle}>Génération du PDF</Text>
               <Text style={styles.pdfLoadingText}>{pdfLoadingProgress}</Text>
               <ActivityIndicator size="large" color="#FFFFFF" style={styles.pdfLoadingSpinner} />
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* AI ANALYSING Loading Modal */}
+      <Modal visible={analyzingPhoto} animationType="fade" transparent>
+        <View style={styles.pdfLoadingOverlay}>
+          <View style={styles.pdfLoadingModal}>
+            <LinearGradient
+              colors={['#8B5CF6', '#A855F7']}
+              style={styles.analyzingGradient}
+            >
+              <ActivityIndicator size={20} color="#FFFFFF" />
+              <Text style={styles.analyzingTitle}>ANALYSE IA EN COURS</Text>
+              <Text style={styles.analyzingSubtitle}>
+                L'intelligence artificielle analyse la photo pour identifier les risques sécurité...
+              </Text>
             </LinearGradient>
           </View>
         </View>
@@ -3053,7 +3131,7 @@ const styles = StyleSheet.create({
   sendReportButton: {
     flex: 1,
     overflow: 'hidden',
-    
+
     paddingVertical: 16,
   },
   sendReportButtonDisabled: {
