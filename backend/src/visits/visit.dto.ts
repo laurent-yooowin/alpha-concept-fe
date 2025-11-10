@@ -23,7 +23,7 @@ export class CreateVisitDto {
 export class UpdateVisitDto {
   @IsOptional()
   @IsDateString()
-  visitDate?: string;
+  visitDate?: string | Date;
 
   @IsOptional()
   @IsArray()

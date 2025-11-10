@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
 import * as bcrypt from 'bcrypt';
-import { CreateUserDto } from './user.controller';
+// import { CreateUserDto } from './user.controller';
 
 @Injectable()
 export class UserService {

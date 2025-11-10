@@ -22,7 +22,7 @@ export class MailController {
       // const arrayBuffer = await res.arrayBuffer();
       // const pdfBuffer = Buffer.from(arrayBuffer);
       const pdfBuffer = await this.uploadService.downloadStreamFile(pdfUrl);
-      this.logger.log('Downloaded PDF buffer size:', pdfBuffer?.length);
+      // this.logger.log('Downloaded PDF buffer size:', pdfBuffer?.length);
       // 2️⃣ Envoyer le mail
       return await this.mailService.sendPdfReport(email, subject, message, pdfBuffer, fileName || 'rapport.pdf');
 

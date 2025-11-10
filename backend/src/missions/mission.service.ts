@@ -396,7 +396,7 @@ export class MissionService {
         }
 
         const mission = this.missionRepository.create(missionData);
-        const savedMission = await this.missionRepository.save(mission);
+        const savedMission: any = await this.missionRepository.save(mission);
         imported.push(savedMission);
       } catch (error) {
         this.logger.error(`Error processing row ${rowNumber}:`, error);
