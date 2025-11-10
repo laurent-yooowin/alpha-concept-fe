@@ -53,19 +53,15 @@ services:
       - csps-network
     volumes:
       - ./logs:/app/logs
-      - ./wait-for-it.sh:/app/wait-for-it.sh # Assurez-vous que le script est présent
-    command:
-      [
-        "bash",
-        "./wait-for-it.sh",
-        "mysql:3306",
-        "--timeout=30",
-        "--strict",
-        "--",
-        "npm",
-        "run",
-        "start:prod",
-      ]
+      # - ./wait-for-it.sh:/app/wait-for-it.sh  # Assurez-vous que le script est présent
+    command: >
+      sh -c '
+        until nc -z -v -w30 $DATABASE_HOST $DATABASE_PORT; do
+          echo "Waiting for MySQL...";
+          sleep 2;
+        done;
+        npm run start:prod
+      '
     healthcheck:
       test:
         [

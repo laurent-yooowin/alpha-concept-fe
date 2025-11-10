@@ -22,7 +22,7 @@ FROM node:18-alpine
 WORKDIR /app
 
 # Install dumb-init for proper signal handling
-RUN apk add --no-cache bash
+RUN apk add --no-cache dumb-init netcat-openbsd
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
