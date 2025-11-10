@@ -5,7 +5,7 @@ import { Visit } from './visit.entity';
 import { CreateVisitDto, UpdateVisitDto } from './visit.dto';
 import { User, UserRole } from '../user/user.entity';
 import { MissionService } from '../missions/mission.service';
-import { UpdateMissionData } from '../../../services/missionService';
+// import { UpdateMissionData } from '../../../services/missionService';
 import { MissionStatus, UpdateMissionDto } from '../missions/mission.dto';
 
 @Injectable()
