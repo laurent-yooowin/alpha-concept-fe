@@ -82,6 +82,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    env_file:
+      - .env
 
   # Nginx Reverse Proxy with Rate Limiting
   nginx:
