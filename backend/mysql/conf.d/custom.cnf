@@ -1,0 +1,39 @@
+[mysqld]
+# General Settings
+default_authentication_plugin=mysql_native_password
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+
+# Performance Settings
+max_connections=500
+max_allowed_packet=64M
+thread_cache_size=50
+table_open_cache=4000
+query_cache_type=1
+query_cache_size=64M
+
+# InnoDB Settings
+innodb_buffer_pool_size=1G
+innodb_log_file_size=256M
+innodb_log_buffer_size=16M
+innodb_flush_log_at_trx_commit=2
+innodb_file_per_table=1
+innodb_buffer_pool_instances=4
+
+# Logging
+slow_query_log=1
+slow_query_log_file=/var/log/mysql/slow-query.log
+long_query_time=2
+log_error=/var/log/mysql/error.log
+
+# Binary Logging (for replication/backup)
+log_bin=mysql-bin
+binlog_format=ROW
+expire_logs_days=7
+max_binlog_size=100M
+
+# Security
+local_infile=0
+
+[client]
+default-character-set=utf8mb4
