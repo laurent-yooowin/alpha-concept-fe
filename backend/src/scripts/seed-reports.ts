@@ -132,7 +132,7 @@ L'ensemble des installations est conforme. Bon respect des procédures de sécur
 ## Validation
 Rapport validé et approuvé pour transmission au client.
         `,
-        status: ReportStatus.SENT,
+        status: ReportStatus.SENT_TO_CLIENT,
         conformityPercentage: 92.0,
         sentAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
         recipientEmail: 'marie.dubois@eiffage.fr'

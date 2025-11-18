@@ -19,6 +19,6 @@
     "noFallthroughCasesInSwitch": false,
     "esModuleInterop": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "src/migrations/1763401042726-initSchema.ts"],
   "exclude": ["node_modules", "dist"]
 }
