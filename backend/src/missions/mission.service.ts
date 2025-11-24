@@ -380,8 +380,7 @@ export class MissionService {
           imported: true,
         };
 
-        this.logger.log("missionData >>>: " + JSON.stringify(missionData));
-
+        // this.logger.log("missionData >>>: " + JSON.stringify(missionData));
 
         let importUser: User = new User();
         importUser.id = null;
@@ -466,7 +465,7 @@ export class MissionService {
     if (typeof dateValue === 'number') {
       const date = XLSX.SSF.parse_date_code(dateValue);
       const retDate = new Date(date.y, date.m - 1, date.d);
-      this.logger.log("retDate >>> : " + retDate);
+      // this.logger.log("retDate >>> : " + retDate);
       return retDate;
     }
 
