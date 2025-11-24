@@ -250,25 +250,25 @@ export class MissionService {
     }
 
     const requiredColumns = [
-      { key: "title", fileKey: "Nom de l'opération"},
-      { key: "client", fileKey: "Maîtrise d'ouvrage"},
-      { key: "address", fileKey: "Ville"},
-      { key: "date", fileKey: "Date prévisionnelle début de réalisation"},
-      { key: "type", fileKey: "Nature des travaux"},
+      { key: "title", fileKey: "Nom de l'opération" },
+      { key: "client", fileKey: "Maîtrise d'ouvrage" },
+      { key: "address", fileKey: "Ville" },
+      { key: "date", fileKey: "Date prévisionnelle début de réalisation" },
+      { key: "type", fileKey: "Nature des travaux" },
     ];
-    
+
     const optionalColumns = [
-      { key: "time", fileKey: "temps"},
-      { key: "endDate", fileKey: "Date prévisionnelle fin de réalisation"},
-      { key: "refBusiness", fileKey: "Référence de l'affaire"},
-      { key: "refClient", fileKey: "Référence client"},
-      { key: "description", fileKey: "Description mission"},
-      { key: "status", fileKey: "statut"},
-      { key: "contactFirstName", fileKey: "Contact MOU"},
-      { key: "contactLastName", fileKey: ""},
-      { key: "contactEmail", fileKey: "Email client"},
-      { key: "contactPhone", fileKey: "Téléphone client"},
-      { key: "userEmail", fileKey: "Email coordonnateur"},
+      { key: "time", fileKey: "temps" },
+      { key: "endDate", fileKey: "Date prévisionnelle fin de réalisation" },
+      { key: "refBusiness", fileKey: "Référence de l'affaire" },
+      { key: "refClient", fileKey: "Référence client" },
+      { key: "description", fileKey: "Description mission" },
+      { key: "status", fileKey: "statut" },
+      { key: "contactFirstName", fileKey: "Contact MOU" },
+      { key: "contactLastName", fileKey: "" },
+      { key: "contactEmail", fileKey: "Email client" },
+      { key: "contactPhone", fileKey: "Téléphone client" },
+      { key: "userEmail", fileKey: "Email coordonnateur" },
     ];
 
     const allColumns = [...requiredColumns, ...optionalColumns];
@@ -329,24 +329,24 @@ export class MissionService {
         Object.keys(row).forEach(key => {
           const normalizedKey = key.toLowerCase().trim();
           const filtredKeys = allColumns.filter(col => normalizedKey == col.fileKey.toLowerCase());
-          if (filtredKeys && filtredKeys.length > 0){
+          if (filtredKeys && filtredKeys.length > 0) {
             const filtredKey = filtredKeys[0].key;
-            if (filtredKey == "contactFirstName" && row[key] && row[key].toString().trim() != ""){
+            if (filtredKey == "contactFirstName" && row[key] && row[key].toString().trim() != "") {
               const vals = row[key].toString().trim().split(' ');
               const upperRegex = /^[A-Z]*$/;
               let contactFirstName = "";
               let contactLastName = "";
-              vals.array.forEach(element => {
-                if (element.match(upperRegex)){
+              vals.forEach(element => {
+                if (element.match(upperRegex)) {
                   contactLastName += element;
                 } else {
-                  contactFirstName += element; 
+                  contactFirstName += element;
                 }
               });
               normalizedRow['contactFirstName'] = contactFirstName;
               normalizedRow['contactLastName'] = contactLastName;
 
-            } else if (filtredKey == "address" && row[key] && row[key].toString().trim() != ""){
+            } else if (filtredKey == "address" && row[key] && row[key].toString().trim() != "") {
               const address = row[key] + ' ' + row['Code postal'];
               normalizedRow['address'] = address;
             } else {
@@ -370,7 +370,7 @@ export class MissionService {
           contactEmail: normalizedRow.contactemail?.toString().trim() || null,
           contactPhone: normalizedRow.contactphone?.toString().trim() || null,
           userEmail: normalizedRow.useremail?.toString().trim() || null,
-          endDate: normalizedRow.endDate?.toString().trim() || null,
+          endDate: normalizedRow.date ? this.parseDate(normalizedRow.date) : null,
           refBusiness: normalizedRow.refBusiness?.toString().trim() || null,
           imported: true,
         };
