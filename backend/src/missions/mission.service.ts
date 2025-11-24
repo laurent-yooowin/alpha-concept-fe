@@ -399,7 +399,7 @@ export class MissionService {
           }
         }
 
-        if (!missionData.title || !missionData.client || !missionData.address || !missionData.date) {
+        if (!missionData.title || !missionData.client || !missionData.address) {
           errors.push({
             row: rowNumber,
             error: 'Colonnes manquantes',
