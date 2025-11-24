@@ -23,8 +23,11 @@ export class Mission {
   @Column({ type: 'date' })
   date: Date;
 
-  @Column({ length: 10 })
+  @Column({ length: 10, nullable: true })
   time: string;
+
+  @Column({ type: 'date', nullable: true })
+  endDate: Date;
 
   @Column({
     type: 'enum',
@@ -43,11 +46,6 @@ export class Mission {
   })
   status: string;
 
-  // @Column({
-  //   type: 'text'
-  // })
-  // status: string;
-
   @Column({ length: 255, nullable: true })
   contactFirstName: string;
 
@@ -56,6 +54,9 @@ export class Mission {
 
   @Column({ length: 255, nullable: true })
   contactEmail: string;
+
+  @Column({ length: 255, nullable: true })
+  refBusiness: string;
 
   @Column({ length: 50, nullable: true })
   contactPhone: string;

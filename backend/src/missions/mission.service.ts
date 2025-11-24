@@ -250,23 +250,25 @@ export class MissionService {
     }
 
     const requiredColumns = [
-      'title',
-      'client',
-      'address',
-      'date',
-      'time',
-      'type',
+      { key: "title", fileKey: "Nom de l'opération"},
+      { key: "client", fileKey: "Maîtrise d'ouvrage"},
+      { key: "address", fileKey: "Ville"},
+      { key: "date", fileKey: "Date prévisionnelle début de réalisation"},
+      { key: "type", fileKey: "Nature des travaux"},
     ];
-
+    
     const optionalColumns = [
-      'refClient',
-      'description',
-      'status',
-      'contactFirstName',
-      'contactLastName',
-      'contactEmail',
-      'contactPhone',
-      'userEmail',
+      { key: "time", fileKey: "temps"},
+      { key: "endDate", fileKey: "Date prévisionnelle fin de réalisation"},
+      { key: "refBusiness", fileKey: "Référence de l'affaire"},
+      { key: "refClient", fileKey: "Référence client"},
+      { key: "description", fileKey: "Description mission"},
+      { key: "status", fileKey: "statut"},
+      { key: "contactFirstName", fileKey: "Contact MOU"},
+      { key: "contactLastName", fileKey: ""},
+      { key: "contactEmail", fileKey: "Email client"},
+      { key: "contactPhone", fileKey: "Téléphone client"},
+      { key: "userEmail", fileKey: "Email coordonnateur"},
     ];
 
     const allColumns = [...requiredColumns, ...optionalColumns];
@@ -305,12 +307,12 @@ export class MissionService {
     const fileColumns = Object.keys(rows[0]).map(col => col.toLowerCase().trim());
 
     const missingColumns = requiredColumns.filter(
-      col => !fileColumns.includes(col.toLowerCase())
+      col => !fileColumns.includes(col.fileKey.toLowerCase())
     );
 
     if (missingColumns.length > 0) {
       throw new BadRequestException(
-        `Colonnes manquantes : ${missingColumns.join(', ')}. Les colonne requises sont : ${requiredColumns.join(', ')}`
+        `Colonnes manquantes : ${missingColumns.map(col => col.fileKey).join(', ')}. Les colonne requises sont : ${requiredColumns.map(col => col.fileKey).join(', ')}`
       );
     }
 
@@ -326,7 +328,31 @@ export class MissionService {
         const normalizedRow: any = {};
         Object.keys(row).forEach(key => {
           const normalizedKey = key.toLowerCase().trim();
-          normalizedRow[normalizedKey] = row[key];
+          const filtredKeys = allColumns.filter(col => normalizedKey == col.fileKey.toLowerCase());
+          if (filtredKeys && filtredKeys.length > 0){
+            const filtredKey = filtredKeys[0].key;
+            if (filtredKey == "contactFirstName" && row[key] && row[key].toString().trim() != ""){
+              const vals = row[key].toString().trim().split(' ');
+              const upperRegex = /^[A-Z]*$/;
+              let contactFirstName = "";
+              let contactLastName = "";
+              vals.array.forEach(element => {
+                if (element.match(upperRegex)){
+                  contactLastName += element;
+                } else {
+                  contactFirstName += element; 
+                }
+              });
+              normalizedRow['contactFirstName'] = contactFirstName;
+              normalizedRow['contactLastName'] = contactLastName;
+
+            } else if (filtredKey == "address" && row[key] && row[key].toString().trim() != ""){
+              const address = row[key] + ' ' + row['Code postal'];
+              normalizedRow['address'] = address;
+            } else {
+              normalizedRow[filtredKey] = row[key];
+            }
+          }
         });
 
         const missionData: any = {
@@ -344,6 +370,8 @@ export class MissionService {
           contactEmail: normalizedRow.contactemail?.toString().trim() || null,
           contactPhone: normalizedRow.contactphone?.toString().trim() || null,
           userEmail: normalizedRow.useremail?.toString().trim() || null,
+          endDate: normalizedRow.endDate?.toString().trim() || null,
+          refBusiness: normalizedRow.refBusiness?.toString().trim() || null,
           imported: true,
         };
 
@@ -364,7 +392,7 @@ export class MissionService {
           }
         }
 
-        if (!missionData.title || !missionData.client || !missionData.address || !missionData.date || !missionData.time) {
+        if (!missionData.title || !missionData.client || !missionData.address || !missionData.date) {
           errors.push({
             row: rowNumber,
             error: 'Colonnes manquantes',

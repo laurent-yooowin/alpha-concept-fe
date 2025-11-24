@@ -65,8 +65,8 @@ services:
       - "${PORT}:3000"
     networks:
       - csps-network
-    volumes:
-      - ./logs:/app/logs
+    # volumes:
+    #   - ./logs:/app/logs
     healthcheck:
       test:
         [
@@ -75,14 +75,16 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://localhost:3000/health",
+          "http://localhost:3000/api/healthcheck",
         ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
+  # -----------------------
   # Frontend React / Vite
+  # -----------------------
   frontend:
     build:
       context: ./frontend
@@ -92,56 +94,56 @@ services:
     env_file:
       - ./frontend/.env
     ports:
-      - "80:80" # HTTPS exposé sur 8080
-      - "443:443" # HTTP redirigé vers HTTPS    
+      - "80:80"
+      - "443:443"
     networks:
       - csps-network
     volumes:
-      - ./logs:/app/logs
+      - certbot_challenge:/var/www/certbot
+      - certs:/etc/letsencrypt
     depends_on:
       - backend
 
-  # Nginx Reverse Proxy with Rate Limiting
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: csps-nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./nginx/conf.d:/etc/nginx/conf.d:ro
-  #     - ./nginx/ssl:/etc/nginx/ssl:ro
-  #     - nginx_cache:/var/cache/nginx
-  #     - nginx_logs:/var/log/nginx
-  #   depends_on:
-  #     - backend
-  #     # - frontend
-  #   networks:
-  #     - csps-network
-  #   healthcheck:
-  #     test:
-  #       [
-  #         "CMD",
-  #         "wget",
-  #         "--no-verbose",
-  #         "--tries=1",
-  #         "--spider",
-  #         "http://localhost/health",
-  #       ]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  # -----------------------
+  # Certbot SSL
+  # -----------------------
+  certbot:
+    image: certbot/certbot
+    container_name: csps-certbot
+    restart: unless-stopped
+    depends_on:
+      - frontend
+    networks:
+      - csps-network
+    volumes:
+      - certbot_challenge:/var/www/certbot
+      - certs:/etc/letsencrypt
+    entrypoint: >
+      sh -c "
+      if [ ! -d /etc/letsencrypt/live/reportbtp.com ]; then
+        certbot certonly --webroot -w /var/www/certbot \
+          --non-interactive --agree-tos --email toufik@yooowin.com \
+          -d reportbtp.com -d www.reportbtp.com;
+      fi &&
+      while true; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h;
+      done
+      "
 
+# -----------------------
+# Networks
+# -----------------------
 networks:
   csps-network:
     driver: bridge
 
+# -----------------------
+# Volumes
+# -----------------------
 volumes:
   mysql_data:
-    driver: local
+  certbot_challenge:
+  certs:
   nginx_cache:
-    driver: local
   nginx_logs:
-    driver: local

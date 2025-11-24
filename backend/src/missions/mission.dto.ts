@@ -30,10 +30,14 @@ export class CreateMissionDto {
   address: string;
 
   @IsDateString()
-  date: string;
-
+  date: string;  
+  
   @IsString()
   time: string;
+  
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 
   @IsString()
   type: MissionType;
@@ -53,6 +57,10 @@ export class CreateMissionDto {
   // @IsOptional()
   @IsString()
   contactLastName?: string;
+
+  @IsOptional()
+  @IsString()
+  refBusiness?: string;
 
   // @IsOptional()
   @IsEmail()
@@ -93,6 +101,10 @@ export class UpdateMissionDto {
   time?: string;
 
   @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  @IsOptional()
   @IsString()
   type?: MissionType;
 
@@ -115,6 +127,10 @@ export class UpdateMissionDto {
   @IsOptional()
   @IsEmail()
   contactEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  refBusiness?: string;
 
   @IsOptional()
   @IsString()

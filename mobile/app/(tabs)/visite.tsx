@@ -3217,10 +3217,11 @@ const styles = StyleSheet.create({
     flex: 1,
     // flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    // alignItems: 'center',
   },
   missionSelectorItemLeft: {
     flex: 1,
+    alignItems: "flex-start",
   },
   missionSelectorItemTitle: {
     fontSize: 14,
@@ -3240,9 +3241,11 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   missionSelectorItemRight: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 4,
+    justifyContent: "flex-end"
   },
   missionSelectorItemType: {
     fontSize: 10,

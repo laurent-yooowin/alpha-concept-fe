@@ -58,7 +58,7 @@ export default function Layout() {
 
       <div className="lg:hidden fixed top-0 left-0 right-0 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between z-50">
         <div className="flex items-center gap-3">
-          <img src="/logo admin.jpg" alt="Report BTP" className="h-8" />
+          <img src="/icon.jpg" alt="Report BTP" className="h-8" />
         </div>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}

@@ -13,6 +13,7 @@ import { ActivityLogModule } from './activity-logs/activity-log.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { MailModule } from './mail/mail.module';
 import { MailerModule } from '@nestjs-modules/mailer';
+import { HealthcheckModule } from './healthcheck/healthcheck.module';
 
 
 @Module({
@@ -51,6 +52,7 @@ import { MailerModule } from '@nestjs-modules/mailer';
     ActivityLogModule,
     DashboardModule,
     MailModule,
+    HealthcheckModule,
   ],
 })
 export class AppModule { }

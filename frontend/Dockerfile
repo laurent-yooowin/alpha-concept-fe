@@ -14,8 +14,11 @@ FROM nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+RUN mkdir -p /var/www/certbot
+
 COPY nginx/conf.d/frontend.conf /etc/nginx/conf.d/default.conf
-COPY nginx/conf.d/backend.conf /etc/nginx/conf.d/backend.conf
+# COPY nginx/conf.d/backend.conf /etc/nginx/conf.d/backend.conf
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/ssl /etc/nginx/ssl
 
 EXPOSE 80

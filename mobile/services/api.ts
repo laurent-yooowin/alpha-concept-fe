@@ -42,10 +42,14 @@ export async function apiRequest<T>(
       delete headers['Content-Type'];
     }
 
+    console.log("API_URL >>>: ", API_URL);
+
     const response = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       headers,
     });
+
+    console.log("response API >>>: ", response);
 
     if (response.status === 401) {
       await authService.logout();
@@ -65,8 +69,9 @@ export async function apiRequest<T>(
     const data = await response.json();
     return { data };
   } catch (error) {
+    console.log(error);
     return {
-      error: error instanceof Error ? error.message : 'Network request failed',
+      error: error instanceof Error ? error.message : 'Problème Serveur ',
     };
   }
 }

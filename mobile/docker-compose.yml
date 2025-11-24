@@ -1,0 +1,8 @@
+version: "3.9"
+services:
+  pwa-deploy:
+    build: .
+    container_name: expo-pwa-netlify
+    volumes:
+      - .:/app
+    tty: true
