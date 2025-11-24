@@ -39,3 +39,4 @@ backend/.env.prod
 frontend/.env.dev
 mobile/.env.production
 backend/.env.prod
+frontend/.env.production
