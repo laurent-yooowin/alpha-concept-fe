@@ -425,16 +425,14 @@ export class MissionService {
           });
           continue;
         } else if (existingMission) {
-          // const updatedMission = await this.update(existingMission.id, importUser.id, missionData);
-          // imported.push(updatedMission);
-          imported.push(missionData);
+          const updatedMission = await this.update(existingMission.id, importUser.id, missionData);
+          imported.push(updatedMission);
           continue;
         }
 
-        // const mission = this.missionRepository.create(missionData);
-        // const savedMission: any = await this.missionRepository.save(mission);
-        // imported.push(savedMission);
-        imported.push(missionData);
+        const mission = this.missionRepository.create(missionData);
+        const savedMission: any = await this.missionRepository.save(mission);
+        imported.push(savedMission);
       } catch (error) {
         this.logger.error(`Error processing row ${rowNumber}:`, error);
         errors.push({
