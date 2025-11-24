@@ -253,11 +253,11 @@ export class MissionService {
       { key: "title", fileKey: "Nom de l'opération" },
       { key: "client", fileKey: "Maîtrise d'ouvrage" },
       { key: "address", fileKey: "Ville" },
-      { key: "date", fileKey: "Date prévisionnelle début de réalisation" },
       { key: "type", fileKey: "Nature des travaux" },
     ];
 
     const optionalColumns = [
+      { key: "date", fileKey: "Date prévisionnelle début de réalisation" },
       { key: "time", fileKey: "temps" },
       { key: "endDate", fileKey: "Date prévisionnelle fin de réalisation" },
       { key: "refBusiness", fileKey: "Référence de l'affaire" },
@@ -328,7 +328,7 @@ export class MissionService {
         const normalizedRow: any = {};
         Object.keys(row).forEach(key => {
           const normalizedKey = key.toLowerCase().trim();
-          const filtredKeys = allColumns.filter(col => normalizedKey == col.fileKey.toLowerCase());
+          const filtredKeys = allColumns.filter(col => normalizedKey == col.fileKey.toLowerCase().trim());
           if (filtredKeys && filtredKeys.length > 0) {
             const filtredKey = filtredKeys[0].key;
             if (filtredKey == "contactFirstName" && row[key] && row[key].toString().trim() != "") {
@@ -343,12 +343,17 @@ export class MissionService {
                   contactFirstName += element;
                 }
               });
+              this.logger.log("contactFirstName >>> : " + contactFirstName);
               normalizedRow['contactFirstName'] = contactFirstName;
               normalizedRow['contactLastName'] = contactLastName;
-
             } else if (filtredKey == "address" && row[key] && row[key].toString().trim() != "") {
               const address = row[key] + ' ' + row['Code postal'];
               normalizedRow['address'] = address;
+            } else if (filtredKey == "type" && row[key] && row[key].toString().trim() != "") {
+              const val = row[key].toString().trim().toUpperCase();
+              if (val != "CSPS" && val != "AEU" && val != "DIVERS") {
+                normalizedRow[filtredKey] = "CSPS"
+              }
             } else {
               normalizedRow[filtredKey] = row[key];
             }
@@ -365,15 +370,18 @@ export class MissionService {
           refClient: normalizedRow.refclient?.toString().trim() || null,
           description: normalizedRow.description?.toString().trim() || null,
           status: normalizedRow.status?.toString().trim() || 'planifiee',
-          contactFirstName: normalizedRow.contactfirstname?.toString().trim() || null,
-          contactLastName: normalizedRow.contactlastname?.toString().trim() || null,
-          contactEmail: normalizedRow.contactemail?.toString().trim() || null,
-          contactPhone: normalizedRow.contactphone?.toString().trim() || null,
-          userEmail: normalizedRow.useremail?.toString().trim() || null,
-          endDate: normalizedRow.date ? this.parseDate(normalizedRow.date) : null,
+          contactFirstName: normalizedRow.contactFirstName || null,
+          contactLastName: normalizedRow.contactLastName || null,
+          contactEmail: normalizedRow.contactEmail?.toString().trim() || null,
+          contactPhone: normalizedRow.contactPhone?.toString().trim() || null,
+          userEmail: normalizedRow.userEmail?.toString().trim() || null,
+          endDate: normalizedRow.endDate ? this.parseDate(normalizedRow.endDate) : null,
           refBusiness: normalizedRow.refBusiness?.toString().trim() || null,
           imported: true,
         };
+
+        this.logger.log("missionData >>>: " + JSON.stringify(missionData));
+
 
         let importUser: User = new User();
         importUser.id = null;
@@ -418,14 +426,16 @@ export class MissionService {
           });
           continue;
         } else if (existingMission) {
-          const updatedMission = await this.update(existingMission.id, importUser.id, missionData);
-          imported.push(updatedMission);
+          // const updatedMission = await this.update(existingMission.id, importUser.id, missionData);
+          // imported.push(updatedMission);
+          imported.push(missionData);
           continue;
         }
 
-        const mission = this.missionRepository.create(missionData);
-        const savedMission: any = await this.missionRepository.save(mission);
-        imported.push(savedMission);
+        // const mission = this.missionRepository.create(missionData);
+        // const savedMission: any = await this.missionRepository.save(mission);
+        // imported.push(savedMission);
+        imported.push(missionData);
       } catch (error) {
         this.logger.error(`Error processing row ${rowNumber}:`, error);
         errors.push({
@@ -445,7 +455,8 @@ export class MissionService {
 
   private parseDate(dateValue: any): Date {
     if (!dateValue) {
-      throw new Error('La valeur doit être une date');
+      // throw new Error('La valeur doit être une date');
+      return null;
     }
 
     if (dateValue instanceof Date) {
@@ -454,7 +465,9 @@ export class MissionService {
 
     if (typeof dateValue === 'number') {
       const date = XLSX.SSF.parse_date_code(dateValue);
-      return new Date(date.y, date.m - 1, date.d);
+      const retDate = new Date(date.y, date.m - 1, date.d);
+      this.logger.log("retDate >>> : " + retDate);
+      return retDate;
     }
 
     const dateStr = dateValue.toString().trim();
