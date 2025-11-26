@@ -480,7 +480,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
   const filters = [
     { id: 'tous', label: 'Tous les rapports', count: filterCounts.tous, color: '#8B5CF6', icon: FileText, gradient: ['#8B5CF6', '#7C3AED'] },
     { id: 'envoye_au_client', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
-    { id: 'envoye', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
+    // { id: 'envoye', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
     { id: 'brouillon', label: 'En cours', count: filterCounts.brouillon, color: '#F59E0B', icon: Clock, gradient: ['#F59E0B', '#D97706'] },
     { id: 'valide', label: 'Validés', count: filterCounts.valide, color: '#3B82F6', icon: CheckCircle, gradient: ['#3B82F6', '#2563EB'] },
     { id: 'rejete', label: 'Refusés', count: filterCounts.rejete, color: '#EF4444', icon: X, gradient: ['#EF4444', '#DC2626'] },

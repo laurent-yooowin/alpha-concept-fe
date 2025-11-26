@@ -338,9 +338,9 @@ export class MissionService {
               let contactLastName = "";
               vals.forEach(element => {
                 if (element.match(upperRegex)) {
-                  contactLastName += element;
+                  contactLastName = contactLastName + ' ' + element;
                 } else {
-                  contactFirstName += element;
+                  contactFirstName = contactFirstName + ' ' + element;
                 }
               });
               this.logger.log("contactFirstName >>> : " + contactFirstName);

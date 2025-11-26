@@ -10,6 +10,8 @@ interface Mission {
   client: string;
   address: string;
   date: string;
+  endDate: string;
+  refBusiness: string;
   time: string;
   type: string;
   description: string | null;
@@ -47,6 +49,8 @@ export default function MissionManagement() {
     address: '',
     date: '',
     time: '',
+    endDate: '',
+    refBusiness: '',
     type: 'CSPS',
     description: '',
     contactFirstName: '',
@@ -90,6 +94,8 @@ export default function MissionManagement() {
         address: formData.address,
         date: formData.date,
         time: formData.time,
+        endDate: formData.endDate,
+        refBusiness: formData.refBusiness,
         type: formData.type,
         description: formData.description || null,
         contactFirstName: formData.contactFirstName || null,
@@ -179,7 +185,7 @@ export default function MissionManagement() {
   const handleRowClick = (mission: Mission) => {
     if (!isAdmin) return;
 
-    if(mission.status == 'terminee') return ;
+    if (mission.status == 'terminee') return;
 
     setSelectedMission(mission);
     setFormData({
@@ -190,6 +196,8 @@ export default function MissionManagement() {
       date: mission.date,
       time: mission.time,
       type: mission.type,
+      endDate: mission.endDate,
+      refBusiness: mission.refBusiness,
       description: mission.description || '',
       contactFirstName: mission.contactFirstName || '',
       contactLastName: mission.contactLastName || '',
@@ -213,12 +221,15 @@ export default function MissionManagement() {
         refClient: formData.refClient || null,
         address: formData.address,
         date: formData.date,
-        time: formData.time,
+        time: formData.time || null,
+        endDate: formData.endDate || null,
+        refBusiness: formData.refBusiness || null,
         type: formData.type,
         description: formData.description || null,
         contactFirstName: formData.contactFirstName || null,
         contactLastName: formData.contactLastName || null,
         contactEmail: formData.contactEmail || null,
+        contactPhone: formData.contactPhone || null,
         contactPhone: formData.contactPhone || null,
         userId: formData.userId || null,
       });
@@ -248,8 +259,8 @@ export default function MissionManagement() {
   const handleDeleteMission = async (mission: Mission, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (!isAdmin) return;   
-    
+    if (!isAdmin) return;
+
     if (mission.status == 'terminee') return;
 
     const result = await Swal.fire({
@@ -290,7 +301,9 @@ export default function MissionManagement() {
     const matchesSearch =
       mission.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       mission.client?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mission.address?.toLowerCase().includes(searchTerm.toLowerCase());
+      mission.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      mission.refClient?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      mission.refBusiness?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || mission.status === statusFilter;
 
@@ -533,7 +546,7 @@ export default function MissionManagement() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Date *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Date de début *</label>
                   <input
                     type="date"
                     value={formData.date}
@@ -543,13 +556,36 @@ export default function MissionManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Heure *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Heure de début</label>
                   <input
                     type="time"
                     value={formData.time}
                     onChange={(e) => setFormData({ ...formData, time: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
-                    required
+
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Date de fin</label>
+                  <input
+                    type="date"
+                    value={formData.endDate}
+                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Référence affaire </label>
+                  <input
+                    type="text"
+                    value={formData.refBusiness}
+                    onChange={(e) => setFormData({ ...formData, refBusiness: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+
                   />
                 </div>
               </div>
@@ -881,7 +917,7 @@ export default function MissionManagement() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Date *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Date de début *</label>
                   <input
                     type="date"
                     value={formData.date}
@@ -891,13 +927,36 @@ export default function MissionManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Heure *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Heure de début</label>
                   <input
                     type="time"
                     value={formData.time}
                     onChange={(e) => setFormData({ ...formData, time: e.target.value })}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
-                    required
+
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Date de fin</label>
+                  <input
+                    type="date"
+                    value={formData.endDate}
+                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Référence affaire </label>
+                  <input
+                    type="text"
+                    value={formData.refBusiness}
+                    onChange={(e) => setFormData({ ...formData, refBusiness: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+
                   />
                 </div>
               </div>

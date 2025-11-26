@@ -18,6 +18,9 @@ export interface Mission {
   reportsCount: number;
   createdAt: string;
   updatedAt: string;
+  endDate: string;
+  refClient: string;
+  refBusiness: string;
 }
 
 export interface CreateMissionData {

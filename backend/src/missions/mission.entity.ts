@@ -20,7 +20,7 @@ export class Mission {
   @Column({ type: 'text' })
   address: string;
 
-  @Column({ type: 'date' })
+  @Column({ type: 'date', nullable: true })
   date: Date;
 
   @Column({ length: 10, nullable: true })

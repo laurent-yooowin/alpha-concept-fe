@@ -38,14 +38,18 @@ export default function MissionsScreen() {
   const [editedMission, setEditedMission] = useState < any > (null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isCreatingMission, setIsCreatingMission] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedTime, setSelectedTime] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState();
+  const [selectedTime, setSelectedTime] = useState();
+  const [selectedEndDate, setSelectedEndDate] = useState();
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [editSelectedDate, setEditSelectedDate] = useState(new Date());
-  const [editSelectedTime, setEditSelectedTime] = useState(new Date());
+  const [editSelectedDate, setEditSelectedDate] = useState();
+  const [editSelectedTime, setEditSelectedTime] = useState();
+  const [editSelectedEndDate, setEditSelectedEndDate] = useState();
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
+  const [filteredMissions, setFilteredMissions] = useState([]);
   const [newMission, setNewMission] = useState({
     title: '',
     client: '',
@@ -53,11 +57,14 @@ export default function MissionsScreen() {
     description: '',
     date: '',
     time: '',
-    type: 'Visite de contrôle',
+    endDate: '',
+    type: 'CSPS',
     contactFirstName: '',
     contactLastName: '',
     contactEmail: '',
-    contactPhone: ''
+    contactPhone: '',
+    refBusiness: '',
+    refClient: '',
   });
 
   // État pour la reconnaissance vocale
@@ -83,30 +90,26 @@ export default function MissionsScreen() {
   ];
 
   const missionTypes = [
-    'Visite de contrôle',
-    'Inspection sécurité',
-    'Contrôle périodique',
-    'Visite mensuelle',
-    'Contrôle final',
-    'Audit conformité',
-    'Inspection préalable'
+    'CSPS',
+    'AEU',
+    'Divers'
   ];
   const [missions, setMissions] = useState < any[] > ([]);
 
   // Initialize date and time for new mission
+  // Charger les missions depuis le backend
   useEffect(() => {
     const today = new Date();
-    setSelectedDate(today);
-    setSelectedTime(today);
+    // setSelectedDate(today);
+    // setSelectedTime(today);
+    // setEditSelectedTime(today);
     setNewMission(prev => ({
       ...prev,
       date: formatDateForInput(today),
+      endDate: formatDateForInput(today),
       time: formatTime(today)
     }));
-  }, []);
 
-  // Charger les missions depuis le backend
-  useEffect(() => {
     loadMissions();
   }, []);
 
@@ -117,6 +120,7 @@ export default function MissionsScreen() {
   );
 
   const formatDateForInput = (date: Date) => {
+    if (!date) return null;
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -124,25 +128,27 @@ export default function MissionsScreen() {
   };
 
   const formatTime = (date: Date) => {
+    if (!date) return null;
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
   };
 
   const formatDisplayDate = (date: Date) => {
-    return date.toLocaleDateString('fr-FR', {
+    if (!date) return null;
+    if (date instanceof Date) {
+      return date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    }
+    return new Date(date).toLocaleDateString('fr-FR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
     });
-  };
 
-  const onDateChange = (event: any, selected?: Date) => {
-    setShowDatePicker(Platform.OS === 'ios');
-    if (selected) {
-      setSelectedDate(selected);
-      setNewMission(prev => ({ ...prev, date: formatDateForInput(selected) }));
-    }
   };
 
   const onTimeChange = (event: any, selected?: Date) => {
@@ -153,6 +159,14 @@ export default function MissionsScreen() {
     }
   };
 
+  const onDateChange = (event: any, selected?: Date) => {
+    setShowDatePicker(Platform.OS === 'ios');
+    if (selected) {
+      setSelectedDate(selected);
+      setNewMission(prev => ({ ...prev, date: formatDateForInput(selected) }));
+    }
+  };
+
   const onEditDateChange = (event: any, selected?: Date) => {
     setShowEditDatePicker(Platform.OS === 'ios');
     if (selected) {
@@ -160,6 +174,25 @@ export default function MissionsScreen() {
       setEditedMission((prev: any) => ({
         ...prev,
         date: formatDateForInput(selected)
+      }));
+    }
+  };
+
+  const onEndDateChange = (event: any, selected?: Date) => {
+    setShowEndDatePicker(Platform.OS === 'ios');
+    if (selected) {
+      setSelectedEndDate(selected);
+      setNewMission(prev => ({ ...prev, endDate: formatDateForInput(selected) }));
+    }
+  };
+
+  const onEditEndDateChange = (event: any, selected?: Date) => {
+    setShowEditDatePicker(Platform.OS === 'ios');
+    if (selected) {
+      setEditSelectedEndDate(selected);
+      setEditedMission((prev: any) => ({
+        ...prev,
+        endDate: formatDateForInput(selected)
       }));
     }
   };
@@ -207,6 +240,9 @@ export default function MissionsScreen() {
             console.log('Error checking visit/report for mission:', mission.id, error);
           }
 
+          let nextVisit = mission.date ? `${mission.date}` : new Date().toISOString();
+          nextVisit = mission.time ? `${nextVisit}T${mission.time}:00` : nextVisit;
+
           return {
             id: mission.id,
             title: mission.title?.toUpperCase() || 'MISSION SANS TITRE',
@@ -215,15 +251,20 @@ export default function MissionsScreen() {
               mission.status === 'terminee' ? 'planifiees' :
                 mission.status === 'rejetee_replanifiee' ? 'en_retard' :
                   mission.status === 'planifiee' ? 'planifiees' : 'planifiees',
-            nextVisit: mission.date && mission.time ? `${mission.date}T${mission.time}:00` : new Date().toISOString(),
+            nextVisit: nextVisit,
+            date: mission.date,
+            time: mission.time,
+            endDate: response.data.endDate || (response.data.endDate ? new Date(response.data.endDate).toLocaleDateString('fr-FR') : ''),
+            refBusiness: response.data.refBusiness || '',
+            refClient: response.data.refClient || '',
             location: mission.address || 'Localisation non renseignée',
             description: mission.description || '',
             alerts: mission.status === 'rejetee_replanifiee' ? 1 : 0,
-            completion: 50,
+            completion: mission.status == 'terminee' ? 100 : (hasVisit ? 50 : 0),
             gradient: missionStatusInfo.gradient,
             statusLabel: missionStatusInfo.label,
             originalStatus: mission.status,
-            type: mission.type || 'Visite de contrôle',
+            type: mission.type || 'CSPS',
             contact: {
               firstName: mission.contactFirstName || '',
               lastName: mission.contactLastName || '',
@@ -238,6 +279,7 @@ export default function MissionsScreen() {
 
         setMissions(backendMissions);
         setUserMissions(backendMissions);
+        filtermissions(backendMissions);
       } else {
         setMissions([]);
       }
@@ -260,9 +302,15 @@ export default function MissionsScreen() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+  const formatDate = (dateString: any) => {
+    if (!dateString) return ""
     const today = new Date();
+    let date;
+    if (dateString instanceof Date) {
+      date = dateString;
+    } else {
+      date = new Date(dateString);
+    }
 
     if (date.toDateString() === today.toDateString()) {
       return `Aujourd'hui ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
@@ -284,8 +332,8 @@ export default function MissionsScreen() {
   const getCounts = () => {
     const counts = {
       toutes: missions.length,
-      aujourdhui: missions.filter(m => m.status === 'aujourdhui').length,
-      en_retard: missions.filter(m => m.status === 'en_retard').length,
+      aujourdhui: missions.filter(m => m.status === 'aujourdhui' || m.date && (new Date(m.date).toLocaleDateString('fr-FR') == new Date().toLocaleDateString('fr-FR'))).length,
+      en_retard: missions.filter(m => m.status === 'en_retard' || m.date && (new Date(m.date).toLocaleDateString('fr-FR') > new Date().toLocaleDateString('fr-FR'))).length,
       planifiees: missions.filter(m => m.status === 'planifiees').length,
     };
     return counts;
@@ -299,15 +347,38 @@ export default function MissionsScreen() {
     count: dynamicCounts[filter.id as keyof typeof dynamicCounts] || 0
   }));
 
-  const filteredMissions = missions.filter(mission => {
-    const matchesSearch = mission.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      mission.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      mission.location.toLowerCase().includes(searchQuery.toLowerCase());
+  const filtermissions = (missionsParam, filterId) => {
+    const data = missionsParam && missionsParam.length > 0 ? missionsParam : missions;
+    const filterItem = filterId ? filterId : activeFilter;
+    const filtred = data.filter(mission => {
+      const matchesSearch = mission.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        mission.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        mission.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        mission.refClient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        mission.refBusiness.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesFilter = activeFilter === 'toutes' || mission.status === activeFilter;
+      const matchesAllFilter = filterItem === 'toutes';
+      // || mission.status === activeFilter;
+      let matchesFilter = false;
+      switch (filterItem) {
+        case "aujourdhui":
+          matchesFilter = mission.date && new Date(mission.date).toLocaleDateString() == new Date().toLocaleDateString() || mission.status == "aujourdhui";
+          break;
+        case "en_retard":
+          matchesFilter = mission.date && new Date(mission.date).toLocaleDateString() > new Date().toLocaleDateString() || mission.status == "en_retard";
+          break;
+        case "planifiees":
+          matchesFilter = mission.status == "planifiees";
+          break;
 
-    return matchesSearch && matchesFilter;
-  });
+        default:
+          break;
+      }
+
+      return matchesSearch && matchesFilter || matchesAllFilter;
+    });
+    setFilteredMissions(prev => filtred);
+  }
 
   // Fonction pour démarrer une visite avec les données de la mission
   const startVisitForMission = (mission: any) => {
@@ -344,7 +415,7 @@ export default function MissionsScreen() {
 
   // Toutes les missions peuvent maintenant avoir un bouton visite
   const canStartVisit = (status: string) => {
-    return true; // Toutes les missions peuvent démarrer une visite
+    return status != 'terminée'; // Toutes les missions peuvent démarrer une visite
   };
 
   // Fonction pour ouvrir les détails de visite
@@ -513,6 +584,8 @@ export default function MissionsScreen() {
   const handleFilterSelect = (filterId: string) => {
     setActiveFilter(filterId);
     setShowFilterMenu(false);
+    // console.log("filterId >>> : ", filterId);
+    filtermissions(missions, filterId);
   };
 
   // Fonction pour ouvrir la fiche de mission
@@ -521,16 +594,21 @@ export default function MissionsScreen() {
       const isBackendMission = typeof mission.id === 'string' && mission.id.length > 10;
 
       if (isBackendMission) {
-        // Charger les détails complets depuis le backend
-        const { missionService } = await import('@/services/missionService');
+        // Charger les détails complets depuis le backend        
         const response = await missionService.getMission(mission.id);
-
+        let nextVisit = response.data.date ? `${response.data.date}` : new Date().toISOString();
+        nextVisit = response.data.time ? `${nextVisit}T${response.data.time}:00` : nextVisit;
         if (response.data) {
           const fullMission = {
             ...mission,
             ...response.data,
             location: response.data.address || mission.location,
-            nextVisit: response.data.date && response.data.time ? `${response.data.date}T${response.data.time}:00` : mission.nextVisit,
+            nextVisit: nextVisit,
+            date: response.data.date,
+            time: response.data.time,
+            endDate: response.data.endDate || (response.data.endDate ? new Date(response.data.endDate).toLocaleDateString('fr-FR') : ''),
+            refBusiness: response.data.refBusiness || '',
+            refClient: response.data.refClient || '',
             type: response.data.type || mission.type,
             contact: {
               firstName: response.data.contactFirstName || '',
@@ -542,8 +620,6 @@ export default function MissionsScreen() {
           setSelectedMission(fullMission);
           setEditedMission({
             ...fullMission,
-            date: response.data.date || (fullMission.nextVisit ? new Date(fullMission.nextVisit).toLocaleDateString('fr-FR') : ''),
-            time: response.data.time || (fullMission.nextVisit ? new Date(fullMission.nextVisit).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''),
             contactFirstName: response.data.contactFirstName || '',
             contactLastName: response.data.contactLastName || '',
             contactEmail: response.data.contactEmail || '',
@@ -551,18 +627,34 @@ export default function MissionsScreen() {
           });
 
           // Initialize date/time pickers for edit mode
-          if (fullMission.nextVisit) {
-            const visitDate = new Date(fullMission.nextVisit);
+          if (fullMission.date) {
+            const visitDate = new Date(fullMission.date);
             setEditSelectedDate(visitDate);
-            setEditSelectedTime(visitDate);
+            setSelectedDate(visitDate);
+
+            if (fullMission.time) {
+              const [hours, minutes] = fullMission.time.split(":").map(Number);
+              const visitTime = new Date(visitDate.getFullYear(), visitDate.getMonth(), visitDate.getDay(), hours, minutes, 0);
+              setEditSelectedTime(visitTime);
+              setSelectedTime(visitTime);
+            }
           }
+
+
+          // Initialize date/time pickers for edit mode
+          if (fullMission.endDate) {
+            const visitEndDate = new Date(fullMission.endDate);
+            setEditSelectedEndDate(visitEndDate);
+            setSelectedDate(visitEndDate);
+          }
+          console.log("selectedDate >>>: ", selectedDate)
+          console.log("selectedTime >>>: ", selectedTime)
+          console.log("selectedEndDate >>>: ", selectedEndDate)
         }
       } else {
         setSelectedMission(mission);
         setEditedMission({
           ...mission,
-          date: mission.nextVisit ? new Date(mission.nextVisit).toLocaleDateString('fr-FR') : '',
-          time: mission.nextVisit ? new Date(mission.nextVisit).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '',
           contactFirstName: mission.contact?.firstName || '',
           contactLastName: mission.contact?.lastName || '',
           contactEmail: mission.contact?.email || '',
@@ -570,10 +662,25 @@ export default function MissionsScreen() {
         });
 
         // Initialize date/time pickers for edit mode
-        if (mission.nextVisit) {
-          const visitDate = new Date(mission.nextVisit);
+        if (mission.date) {
+          const visitDate = new Date(mission.date);
+          const visitTime = new Date(mission.time);
           setEditSelectedDate(visitDate);
-          setEditSelectedTime(visitDate);
+          setSelectedDate(visitDate);
+
+          if (mission.time) {
+            const [hours, minutes] = mission.time.split(":").map(Number);
+            const visitTime = new Date(visitDate.getFullYear(), visitDate.getMonth(), visitDate.getDay(), hours, minutes, 0);
+            setEditSelectedTime(visitTime);
+            setSelectedTime(visitTime);
+          }
+        }
+
+        // Initialize date/time pickers for edit mode
+        if (mission.endDate) {
+          const visitEndDate = new Date(mission.endDate);
+          setEditSelectedEndDate(visitEndDate);
+          setSelectedDate(visitEndDate);
         }
       }
 
@@ -675,10 +782,10 @@ export default function MissionsScreen() {
       Alert.alert('Erreur', 'La date est obligatoire');
       return;
     }
-    if (!editedMission.time.trim()) {
-      Alert.alert('Erreur', 'L\'heure est obligatoire');
-      return;
-    }
+    // if (!editedMission.time.trim()) {
+    //   Alert.alert('Erreur', 'L\'heure est obligatoire');
+    //   return;
+    // }
     if (!editedMission.contactEmail.trim()) {
       Alert.alert('Erreur', 'L\'email du contact est obligatoire');
       return;
@@ -703,16 +810,19 @@ export default function MissionsScreen() {
         client: editedMission.client,
         address: editedMission.location,
         description: editedMission.description,
-        date: editedMission.date,
-        time: editedMission.time,
+        date: editSelectedDate.toISOString().slice(0, 10),
+        time: editSelectedTime.toLocaleTimeString(),
         type: editedMission.type,
         status: selectedMission.status === 'aujourdhui' ? 'en_cours' as const :
           selectedMission.status === 'terminee' ? 'terminee' as const :
-            'en_attente' as const,
+            'planifiee' as const,
         contactFirstName: editedMission.contactFirstName,
         contactLastName: editedMission.contactLastName,
         contactEmail: editedMission.contactEmail,
         contactPhone: editedMission.contactPhone,
+        endDate: editSelectedEndDate.toISOString().slice(0, 10),
+        refBusiness: editedMission.refBusiness,
+        refClient: editedMission.refClient,
       };
 
       const response = await missionService.updateMission(selectedMission.id, updateData);
@@ -762,8 +872,8 @@ export default function MissionsScreen() {
   const handleCancelEdit = () => {
     setEditedMission({
       ...selectedMission,
-      date: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleDateString('fr-FR') : '',
-      time: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '',
+      // date: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleDateString('fr-FR') : '',
+      // time: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '',
       contactFirstName: selectedMission.contact?.firstName || '',
       contactLastName: selectedMission.contact?.lastName || '',
       contactEmail: selectedMission.contact?.email || '',
@@ -828,11 +938,14 @@ export default function MissionsScreen() {
       description: '',
       date: '',
       time: '',
-      type: 'Visite de contrôle',
+      type: 'CSPS',
       contactFirstName: '',
       contactLastName: '',
       contactEmail: '',
-      contactPhone: ''
+      contactPhone: '',
+      endDate: '',
+      refBusiness: '',
+      refClient: '',
     });
     if (isRecordingDescription) {
       stopRecording();
@@ -841,7 +954,7 @@ export default function MissionsScreen() {
 
   const handleCancelButton = () => {
     const hasData = Object.values(newMission).some(value =>
-      value.trim() !== '' && value !== 'Visite de contrôle'
+      value.trim() !== '' && value !== 'CSPS'
     );
 
     if (hasData) {
@@ -883,10 +996,10 @@ export default function MissionsScreen() {
       Alert.alert('Erreur', 'La date est obligatoire');
       return;
     }
-    if (!newMission.time.trim()) {
-      Alert.alert('Erreur', 'L\'heure est obligatoire');
-      return;
-    }
+    // if (!newMission.time.trim()) {
+    //   Alert.alert('Erreur', 'L\'heure est obligatoire');
+    //   return;
+    // }
     if (!newMission.contactEmail.trim()) {
       Alert.alert('Erreur', 'L\'email du contact est obligatoire');
       return;
@@ -907,7 +1020,7 @@ export default function MissionsScreen() {
         title: newMission.title,
         client: newMission.client,
         address: newMission.location,
-        date: newMission.date,
+        date: new Date(newMission.date).toISOString().slice(0, 10),
         time: newMission.time,
         type: newMission.type,
         description: newMission.description,
@@ -916,6 +1029,9 @@ export default function MissionsScreen() {
         contactLastName: newMission.contactLastName,
         contactEmail: newMission.contactEmail,
         contactPhone: newMission.contactPhone,
+        endDate: new Date(newMission.endDate).toISOString().slice(0, 10),
+        refBusiness: newMission.refBusiness,
+        refClient: newMission.refClient,
       };
 
       await missionService.createMission(missionData);
@@ -1116,7 +1232,7 @@ export default function MissionsScreen() {
 
                         <View style={styles.detailRow}>
                           <Calendar size={12} color="#FFFFFF" />
-                          <Text style={styles.detailText}>{formatDate(mission.nextVisit)}</Text>
+                          <Text style={styles.detailText}>{formatDate(mission.date)}</Text>
                         </View>
                       </View>
 
@@ -1310,6 +1426,25 @@ export default function MissionsScreen() {
                       )}
                     </View>
                   </View>
+
+                  {/* Référence client */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Référence client</Text>
+                    <View style={styles.inputContainer}>
+                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                      {isEditing ? (
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Ex: B-2079854"
+                          placeholderTextColor="#64748B"
+                          value={editedMission.refClient}
+                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, refClient: text }))}
+                        />
+                      ) : (
+                        <Text style={styles.displayText}>{selectedMission?.refClient || 'Non renseigné'}</Text>
+                      )}
+                    </View>
+                  </View>
                 </View>
 
                 {/* Adresse */}
@@ -1368,7 +1503,7 @@ export default function MissionsScreen() {
                 {/* Date et heure */}
                 <View style={styles.dateTimeRow}>
                   <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>DATE *</Text>
+                    <Text style={styles.inputLabel}>Date de début *</Text>
                     {isEditing ? (
                       <>
                         <TouchableOpacity
@@ -1393,14 +1528,14 @@ export default function MissionsScreen() {
                       <View style={styles.dateTimeInputContainer}>
                         <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
                         <Text style={styles.dateTimeDisplayText}>
-                          {selectedMission?.nextVisit ? new Date(selectedMission.nextVisit).toLocaleDateString('fr-FR') : 'Non définie'}
+                          {selectedMission?.date ? selectedMission.date : 'Non définie'}
                         </Text>
                       </View>
                     )}
                   </View>
 
                   <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>HEURE *</Text>
+                    <Text style={styles.inputLabel}>Heure de début</Text>
                     {isEditing ? (
                       <>
                         <TouchableOpacity
@@ -1426,9 +1561,64 @@ export default function MissionsScreen() {
                       <View style={styles.dateTimeInputContainer}>
                         <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
                         <Text style={styles.dateTimeDisplayText}>
-                          {selectedMission?.nextVisit ? new Date(selectedMission.nextVisit).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'Non définie'}
+                          {selectedMission?.time ? selectedMission.time : 'Non définie'}
                         </Text>
                       </View>
+                    )}
+                  </View>
+
+                </View>
+
+                {/* Date de fin et ref business */}
+                <View style={styles.dateTimeRow}>
+                  <View style={styles.dateTimeFieldContainer}>
+                    <Text style={styles.inputLabel}>Date de fin</Text>
+                    {isEditing ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.dateTimeInputContainer}
+                          onPress={() => setShowEditDatePicker(true)}
+                        >
+                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <Text style={styles.dateTimeTextInput}>
+                            {formatDisplayDate(editSelectedEndDate)}
+                          </Text>
+                        </TouchableOpacity>
+                        {showEditDatePicker && (
+                          <DateTimePicker
+                            value={editSelectedEndDate}
+                            mode="date"
+                            display="default"
+                            onChange={onEditEndDateChange}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <View style={styles.dateTimeInputContainer}>
+                        <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                        <Text style={styles.dateTimeDisplayText}>
+                          {selectedMission?.endDate ? selectedMission.endDate : 'Non définie'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* Référence affaire */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Référence affaire</Text>
+                  <View style={styles.inputRefContainer}>
+                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                    {isEditing ? (
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Ex: 2078569"
+                        placeholderTextColor="#64748B"
+                        value={editedMission?.refBusiness || ''}
+                        onChangeText={(text) => setEditedMission(prev => ({ ...prev, refBusiness: text }))}
+                      />
+                    ) : (
+                      <Text style={styles.displayText}>{selectedMission?.refBusiness}</Text>
                     )}
                   </View>
                 </View>
@@ -1602,7 +1792,13 @@ export default function MissionsScreen() {
       {/* FAB Button */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => setShowCreateModal(true)}
+        onPress={() => {
+          const today = new Date()
+          setSelectedDate(today);
+          setSelectedTime(new Date(today.getFullYear(), today.getMonth(), today.getDay(), today.getHours(), today.getMinutes(), 0));
+          setSelectedEndDate(new Date(today.getFullYear(), today.getMonth() + 1), today.getDay() + 1);
+          setShowCreateModal(true);
+        }}
       >
         <LinearGradient
           colors={['#10B981', '#059669']}
@@ -1732,6 +1928,21 @@ export default function MissionsScreen() {
                       />
                     </View>
                   </View>
+
+                  {/* Référence client */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Référence client</Text>
+                    <View style={styles.inputContainer}>
+                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Ex: 2079854"
+                        placeholderTextColor="#64748B"
+                        value={newMission.refClient}
+                        onChangeText={(text) => setNewMission(prev => ({ ...prev, refClient: text }))}
+                      />
+                    </View>
+                  </View>
                 </View>
 
                 {/* Adresse */}
@@ -1779,7 +1990,7 @@ export default function MissionsScreen() {
                 {/* Date et heure */}
                 <View style={styles.dateTimeRow}>
                   <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>DATE *</Text>
+                    <Text style={styles.inputLabel}>Date de début *</Text>
                     {Platform.OS === 'web' ? (
                       <View style={styles.dateTimeInputContainer}>
                         <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
@@ -1820,7 +2031,7 @@ export default function MissionsScreen() {
                   </View>
 
                   <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>HEURE *</Text>
+                    <Text style={styles.inputLabel}>Heure de début</Text>
                     {Platform.OS === 'web' ? (
                       <View style={styles.dateTimeInputContainer}>
                         <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
@@ -1859,6 +2070,67 @@ export default function MissionsScreen() {
                     )}
                   </View>
                 </View>
+
+
+                {/* Date de fin et ref affaire */}
+                <View style={styles.dateTimeFieldContainer}>
+                  <View style={styles.dateTimeFieldContainer}>
+                    <Text style={styles.inputLabel}>Date de fin</Text>
+                    {Platform.OS === 'web' ? (
+                      <View style={styles.dateTimeInputContainer}>
+                        <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                        <TextInput
+                          style={[styles.dateTimeTextInput, styles.webDateInput]}
+                          type="date"
+                          value={newMission.endDate}
+                          onChange={(e: any) => {
+                            const dateValue = e.target.value || e.nativeEvent.text;
+                            const newDate = new Date(dateValue);
+                            setSelectedEndDate(newDate);
+                            setNewMission(prev => ({ ...prev, endDate: dateValue }));
+                          }}
+                          placeholderTextColor="#94A3B8"
+                        />
+                      </View>
+                    ) : (
+                      <>
+                        <TouchableOpacity
+                          style={styles.dateTimeInputContainer}
+                          onPress={() => setShowEndDatePicker(true)}
+                        >
+                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <Text style={styles.dateTimeTextInput}>
+                            {formatDisplayDate(selectedEndDate)}
+                          </Text>
+                        </TouchableOpacity>
+                        {showEndDatePicker && (
+                          <DateTimePicker
+                            value={selectedEndDate}
+                            mode="date"
+                            display="default"
+                            onChange={onEndDateChange}
+                          />
+                        )}
+                      </>
+                    )}
+                  </View>
+                </View>
+
+                {/* Référence affaire    */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Référence affaire</Text>
+                  <View style={styles.inputRefContainer}>
+                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Ex: 2079854"
+                      placeholderTextColor="#64748B"
+                      value={newMission.refBusiness}
+                      onChangeText={(text) => setNewMission(prev => ({ ...prev, refBusiness: text }))}
+                    />
+                  </View>
+                </View>
+
 
                 {/* Description */}
                 <View style={styles.descriptionInputGroup}>
@@ -2515,6 +2787,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minHeight: 48,
   },
+  inputRefContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#374151',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 45,
+  },
   inputIcon: {
     marginRight: 12,
   },
@@ -2611,7 +2892,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 10,
-    minHeight: 44,
+    minHeight: 45,
   },
   dateTimeInputIcon: {
     marginRight: 6,
@@ -2636,7 +2917,7 @@ const styles = StyleSheet.create({
   // Description with speech-to-text
   descriptionInputGroup: {
     marginBottom: 20,
-    marginTop: 32,
+    marginTop: 20,
   },
   descriptionLabelContainer: {
     flexDirection: 'row',
