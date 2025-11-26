@@ -5,8 +5,7 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
+  StyleSheet,  
   Dimensions,
   Modal,
   TextInput,
@@ -14,6 +13,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Camera, FileText, Clock, TrendingUp, Calendar, MapPin, ArrowRight, Shield, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Users, Plus, X, Building, User, MapPin as Location, FileText as Description, CalendarDays, Check, Mail, Phone, Mic, MicOff, Save } from 'lucide-react-native';
 import { Search, Filter, Download, ChevronDown, CreditCard as Edit3, Trash2, Eye, Image as ImageIcon } from 'lucide-react-native';
@@ -570,7 +570,7 @@ export default function HomeScreen() {
 
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <View>

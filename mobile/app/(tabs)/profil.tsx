@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Switch,
   Dimensions,
   Modal,
@@ -14,6 +13,7 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { User, Bell, Download, LogOut, ChevronRight, Award, MapPin, Phone, Mail, Calendar, Database, Lock, Smartphone, CreditCard as Edit, Save, X } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -247,7 +247,7 @@ export default function ProfilScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>MON PROFIL</Text>

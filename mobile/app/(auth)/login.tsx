@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   Alert,
@@ -13,6 +12,7 @@ import {
   Modal,
   ScrollView
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Shield, User, Lock, Eye, EyeOff, ArrowRight, X, Phone, Building, Award } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { authService } from '@/services/authService';
@@ -191,7 +191,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <LinearGradient
         colors={['#0F172A', '#1E293B']}
         style={styles.backgroundGradient}

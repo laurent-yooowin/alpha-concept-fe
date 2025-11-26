@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Dimensions,
   Modal,
   TextInput,
@@ -14,6 +13,7 @@ import {
   ActivityIndicator,
   Platform
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight, RefreshCw, Save, NotebookPen } from 'lucide-react-native';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -1379,7 +1379,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
   if (!mission) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerContent}>
@@ -1498,7 +1498,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
         <View style={styles.permissionContainer}>
           <Camera size={64} color="#64748B" />
           <Text style={styles.permissionTitle}>Autorisation caméra requise</Text>
@@ -1519,7 +1519,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
