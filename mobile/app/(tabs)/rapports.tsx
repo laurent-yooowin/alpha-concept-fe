@@ -596,7 +596,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>MES RAPPORTS</Text>
@@ -1680,11 +1680,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 4,
     letterSpacing: 0.5,
-  },
-  reportDetailSubtitle: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: 'rgba(255, 255, 255, 0.8)',
   },
   closeReportDetailButton: {
     width: 36,

@@ -12,13 +12,14 @@
       "distribution": "internal"
     },
     "production": {
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://reportbtp.com/api",
+        "EXPO_PUBLIC_API_URL_LOCAL": "https://reportbtp.com/api"
+      },
       "autoIncrement": true,
       "android": {
         "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease",
-        "env": {
-          "ENVFILE": ".env.production"
-        }
+        "gradleCommand": ":app:assembleRelease"        
       },
       "ios": {
         "simulator": false

@@ -191,7 +191,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <LinearGradient
         colors={['#0F172A', '#1E293B']}
         style={styles.backgroundGradient}

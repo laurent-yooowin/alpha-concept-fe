@@ -1379,7 +1379,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
   if (!mission) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerContent}>
@@ -1498,7 +1498,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.permissionContainer}>
           <Camera size={64} color="#64748B" />
           <Text style={styles.permissionTitle}>Autorisation caméra requise</Text>
@@ -1519,7 +1519,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -2635,6 +2635,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     marginTop: 20,
+    marginBottom: 10,
   },
   instructionsGradient: {
     alignItems: 'center',

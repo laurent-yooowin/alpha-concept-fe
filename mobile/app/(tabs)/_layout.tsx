@@ -1,7 +1,9 @@
 import { Tabs } from 'expo-router';
 import { Chrome as Home, Clipboard, Camera, FileText, User } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
@@ -10,9 +12,12 @@ export default function TabLayout() {
           backgroundColor: '#1E293B',
           borderTopWidth: 1,
           borderTopColor: '#374151',
+          // height: 80,
+          // paddingBottom: 20,
+          paddingTop: 5,
           height: 80,
-          paddingBottom: 20,
-          paddingTop: 8,
+          // paddingBottom: insets.bottom,
+          marginBottom: insets.bottom,
         },
         tabBarActiveTintColor: '#3B82F6',
         tabBarInactiveTintColor: '#64748B',

@@ -27,12 +27,12 @@ function RootLayoutNav() {
 
   return (
     <>
-      <Stack screenOptions={{ contentStyle: { backgroundColor: '#fff' }, safeAreaInsets: { top: 0, bottom: 0 } }} >
+      <Stack screenOptions={{ contentStyle: { backgroundColor: '#fff' } }} >
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="light" backgroundColor="#1E40AF" />
+      {/* <StatusBar style="light" backgroundColor="#1E40AF" /> */}
     </>
   );
 }
