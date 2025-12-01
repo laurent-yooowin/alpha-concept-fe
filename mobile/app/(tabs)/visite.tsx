@@ -455,6 +455,7 @@ export default function VisiteScreen() {
     return analyses[Math.floor(Math.random() * analyses.length)];
   };
   const analyzePhotoWithDirectives = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
+    setHasChanges(true);
     try {
       // console.log('selectedPhoto.analysis >>> : ', selectedPhoto.aiAnalysis);
       const previousReport = JSON.stringify(selectedPhoto.aiAnalysis);
@@ -779,8 +780,8 @@ export default function VisiteScreen() {
         uri: p.uri,
         s3Url: p.s3Url,
         analysis: {
-          observation: p.aiAnalysis?.observations.join(', ') || '',
-          recommendation: p.aiAnalysis?.recommendations.join(', ') || '',
+          observation: p.aiAnalysis?.observations?.join(', ') || '',
+          recommendation: p.aiAnalysis?.recommendations?.join(', ') || '',
           riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
             p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
               'faible' as const,
@@ -950,12 +951,12 @@ Photo ${index + 1} - Niveau de risque: ${photo.aiAnalysis.riskLevel.toUpperCase(
 📸 Photo: ${photo.s3Url}
 
 Observations:
-${photo.aiAnalysis.observations.map(obs => `• ${obs}`).join('\n')}
+${photo.aiAnalysis?.observations?.map(obs => `• ${obs}`).join('\n')}
 
 Recommandations:
-${photo.aiAnalysis.recommendations.map(rec => `• ${rec}`).join('\n')}
+${(photo.aiAnalysis?.recommendations?.map(rec => `• ${rec}`)) || [].join('\n')}
 
-${photo.aiAnalysis.references ? `🏛️ Références : ${photo.aiAnalysis.references}` : ''}
+${photo.aiAnalysis?.references ? `🏛️ Références : ${photo.aiAnalysis.references}` : ''}
 
 ${photo.userComments ? `💬 Commentaires du coordonnateur: ${photo.userComments}` : ''}
 
@@ -1090,13 +1091,13 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         uri: p.uri,
         s3Url: p.s3Url,
         analysis: {
-          observation: p.aiAnalysis?.observations.join(', ') || '',
-          recommendation: p.aiAnalysis?.recommendations.join(', ') || '',
+          observation: p.aiAnalysis?.observations?.join(', ') || '',
+          recommendation: p.aiAnalysis?.recommendations?.join(', ') || '',
           riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
             p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
               'faible' as const,
           confidence: p.aiAnalysis?.confidence || 0,
-          references: p.aiAnalysis?.references.join(', ') || ''
+          references: p.aiAnalysis?.references?.join(', ') || ''
         },
         comment: p.userComments,
         userDirectives: p.userDirectives,
@@ -1537,12 +1538,12 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
           <Text style={styles.headerTitle}>VISITE SPS</Text>
           <Text style={styles.headerSubtitle}>{mission.title}</Text>
         </View>
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.changeMissionButton}
           onPress={() => setShowMissionSelector(true)}
         >
           <RefreshCw size={20} color="#FFFFFF" />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
         {uploadedPhotoUrls.length > 0 && (
           <TouchableOpacity
             style={styles.generateReportButton}
@@ -2090,7 +2091,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                       value={reportHeader}
                       onChangeText={setReportHeader}
                       multiline
-                      numberOfLines={5}
+                      numberOfLines={10}
                       textAlignVertical="top"
                       placeholder="En-tête du rapport..."
                       placeholderTextColor="#64748B"
@@ -2101,7 +2102,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                       value={reportContent}
                       onChangeText={setReportContent}
                       multiline
-                      numberOfLines={10}
+                      numberOfLines={15}
                       textAlignVertical="top"
                       placeholder="Observations principales..."
                       placeholderTextColor="#64748B"
@@ -2112,7 +2113,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                       value={reportFooter}
                       onChangeText={setReportFooter}
                       multiline
-                      numberOfLines={5}
+                      numberOfLines={10}
                       textAlignVertical="top"
                       placeholder="Conclusion et recommandations..."
                       placeholderTextColor="#64748B"
@@ -2976,7 +2977,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   reportModal: {
-    height: '80%',
+    height: '95%',
     borderRadius: 20,
     overflow: 'hidden',
   },
@@ -3089,9 +3090,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     backgroundColor: '#374151',
     borderRadius: 12,
-    padding: 16,
-    minHeight: 120,
-    marginBottom: 12,
+    padding: 10,
+    minHeight: 150,
+    marginBottom: 10,
     textAlignVertical: 'top',
   },
   reportModalFooter: {

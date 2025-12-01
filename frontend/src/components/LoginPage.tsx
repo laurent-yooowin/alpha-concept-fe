@@ -46,7 +46,7 @@ export default function LoginPage() {
         <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8">
           <div className="text-center mb-8">
             <div className="flex justify-center mb-6">
-              <img src="/logo admin.jpg" alt="Report BTP" className="h-20" />
+              <img src="/logo_new.png" alt="Report BTP" className="h-40" />
             </div>
             <h1 className="text-3xl font-bold text-slate-900 mb-2">Administration SPS</h1>
             <p className="text-slate-600">Connectez-vous à votre compte</p>

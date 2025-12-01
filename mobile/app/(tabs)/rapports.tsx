@@ -59,17 +59,17 @@ export default function RapportsScreen() {
   const [showPdfLoadingModal, setShowPdfLoadingModal] = useState(false);
   const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
 
-  // useEffect(() => {
-  //   loadReports();
-  //   loadReportCounts();
-  // }, []);
+  useEffect(() => {
+    loadReports();
+    loadReportCounts();
+  }, []);
 
-  // useFocusEffect(
-  //   useCallback(() => {
-  //     loadReports();
-  //     loadReportCounts();
-  //   }, [])
-  // );
+  useFocusEffect(
+    useCallback(() => {
+      loadReports();
+      loadReportCounts();
+    }, [])
+  );
 
   useEffect(() => {
     let missionData;
@@ -94,49 +94,62 @@ export default function RapportsScreen() {
       let selectedReportMission = null;
 
       if (response.data && Array.isArray(response.data)) {
-        const backendReports = response.data.map((report: any) => {
-          const statusInfo = getReportStatusInfo(report.status);
-          const reportRet = {
-            id: report.id,
-            visitId: report.visitId,
-            title: report.title,
-            mission: report.mission?.title || 'Mission inconnue',
-            client: report.mission?.client || 'Client inconnu',
-            date: new Date(report.createdAt).toISOString().split('T')[0],
-            status: report.status || 'brouillon',
-            originalStatus: report.status || 'brouillon',
-            type: report.mission?.type,
-            pages: Math.ceil(report.content.length / 500),
-            photos: report.visit?.photos || 0,
-            anomalies: 0,
-            conformity: report.conformityPercentage,
-            aiGenerated: true,
-            gradient: statusInfo.gradient,
-            backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-            reportContent: report.content,
-            reportHeader: report.header,
-            reportFooter: report.footer,
-            observations: report.observations,
-            reportFileUrl: report.reportFileUrl,
-            validatedAt: report.validatedAt,
-            sentToClientAt: report.sentToClientAt,
-            location: report.mission.address,
-            dateMission: report.mission.date,
-            timeMission: report.mission.time,
-            contact: {
-              firstName: report.mission.contactFirstName,
-              lasstName: report.mission.contactLastName,
-              email: report.mission.contactEmail,
-              phone: report.mission.contactPhone,
+        const backendReports = await Promise.all(
+          response.data.map(async (report: any) => {
+            const statusInfo = getReportStatusInfo(report.status);
+            let nbrPhotos = 0;
+            let anomalies = 0;
+            if (report.visitId) {
+              const photos = await visitService.getVisit(report.visitId).then(res => res.data.photos).catch(() => []);
+              nbrPhotos = photos.length;
+              photos.forEach((photo: any) => {
+                if (photo.analysis && photo.analysis.riskLevel && (photo.analysis.riskLevel.toLowerCase() === 'eleve' || photo.analysis.riskLevel.toLowerCase() === 'high')) {
+                  anomalies += 1;
+                }
+              });
+
             }
-          };
-          if (missionData && report.mission.id == missionData.id) {
-            missionExists = true;
-            setSelectedReport(reportRet);
-            selectedReportMission = reportRet;
-          }
-          return reportRet;
-        });
+            const reportRet = {
+              id: report.id,
+              visitId: report.visitId,
+              title: report.title,
+              mission: report.mission?.title || 'Mission inconnue',
+              client: report.mission?.client || 'Client inconnu',
+              date: new Date(report.createdAt).toISOString().split('T')[0],
+              status: report.status || 'brouillon',
+              originalStatus: report.status || 'brouillon',
+              type: report.mission?.type,
+              pages: Math.ceil(report.content.length / 500),
+              photos: nbrPhotos || 0,
+              anomalies: anomalies,
+              conformity: report.conformityPercentage,
+              aiGenerated: true,
+              gradient: statusInfo.gradient,
+              backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
+              reportContent: report.content,
+              reportHeader: report.header,
+              reportFooter: report.footer,
+              observations: report.observations,
+              reportFileUrl: report.reportFileUrl,
+              validatedAt: report.validatedAt,
+              sentToClientAt: report.sentToClientAt,
+              location: report.mission.address,
+              dateMission: report.mission.date,
+              timeMission: report.mission.time,
+              contact: {
+                firstName: report.mission.contactFirstName,
+                lasstName: report.mission.contactLastName,
+                email: report.mission.contactEmail,
+                phone: report.mission.contactPhone,
+              }
+            };
+            if (missionData && report.mission.id == missionData.id) {
+              missionExists = true;
+              setSelectedReport(reportRet);
+              selectedReportMission = reportRet;
+            }
+            return reportRet;
+          }));
 
         // Load local reports as well
         const localReports = await AsyncStorage.getItem('userReports');
@@ -693,12 +706,6 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                         <View style={styles.rapportTitleContainer}>
                           <View style={styles.titleRow}>
                             <Text style={styles.rapportTitle}>{rapport.title}</Text>
-                            {rapport.aiGenerated && (
-                              <View style={styles.aiBadge}>
-                                <Sparkles size={10} color="#FFFFFF" />
-                                <Text style={styles.aiText}>IA</Text>
-                              </View>
-                            )}
                           </View>
                           <Text style={styles.rapportMission}>{rapport.mission}</Text>
                           <View style={styles.clientContainer}>
@@ -734,6 +741,12 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                             {rapport.anomalies} anomalie{rapport.anomalies > 1 ? 's' : ''}
                           </Text>
                         </View>
+                        {rapport.aiGenerated && (
+                          <View style={styles.aiBadge}>
+                            <Sparkles size={10} color="#FFFFFF" />
+                            <Text style={styles.aiText}>IA</Text>
+                          </View>
+                        )}
                       </View>
 
                       {/* Conformity */}
@@ -1109,7 +1122,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                 value={editedHeader}
                 onChangeText={setEditedHeader}
                 multiline
-                numberOfLines={5}
+                numberOfLines={10}
                 placeholder="Saisissez l'en-tête du rapport..."
                 placeholderTextColor="#64748B"
               />
@@ -1120,7 +1133,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                 value={editedContent}
                 onChangeText={setEditedContent}
                 multiline
-                numberOfLines={10}
+                numberOfLines={15}
                 placeholder="Saisissez les observations du rapport..."
                 placeholderTextColor="#64748B"
               />
@@ -1131,7 +1144,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                 value={editedFooter}
                 onChangeText={setEditedFooter}
                 multiline
-                numberOfLines={5}
+                numberOfLines={10}
                 placeholder="Saisissez la conclusion du rapport..."
                 placeholderTextColor="#64748B"
               />
@@ -1298,7 +1311,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   rapportCard: {
-    height: 200,
+    height: 250,
     borderRadius: 16,
     overflow: 'hidden',
     marginBottom: 16,
@@ -1338,7 +1351,7 @@ const styles = StyleSheet.create({
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
     marginBottom: 4,
   },
   rapportTitle: {
@@ -1358,7 +1371,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 12,
-    gap: 2,
+    gap: 3,
   },
   aiText: {
     fontSize: 9,
@@ -1394,7 +1407,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 2,
     borderRadius: 12,
     gap: 4,
   },
@@ -1406,7 +1419,7 @@ const styles = StyleSheet.create({
   rapportStats: {
     flexDirection: 'row',
     gap: 16,
-    marginVertical: 8,
+    marginVertical: 2,
   },
   statItem: {
     flexDirection: 'row',
@@ -1431,7 +1444,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   conformitySection: {
-    marginVertical: 6,
+    marginVertical: 0,
   },
   conformityHeader: {
     flexDirection: 'row',
@@ -1649,10 +1662,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
   reportDetailModal: {
     width: width * 0.95,
-    height: '90%',
+    height: '95%',
     backgroundColor: '#1E293B',
     borderRadius: 24,
     overflow: 'hidden',
@@ -1735,7 +1749,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     padding: 16,
     borderRadius: 12,
-    minHeight: 200,
+    minHeight: 150,
   },
   reportPhotoContainer: {
     gap: 16,

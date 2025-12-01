@@ -230,7 +230,6 @@ export default function MissionManagement() {
         contactLastName: formData.contactLastName || null,
         contactEmail: formData.contactEmail || null,
         contactPhone: formData.contactPhone || null,
-        contactPhone: formData.contactPhone || null,
         userId: formData.userId || null,
       });
 
