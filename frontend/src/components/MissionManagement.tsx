@@ -12,6 +12,7 @@ interface Mission {
   date: string;
   endDate: string;
   refBusiness: string;
+  refClient: string;
   time: string;
   type: string;
   description: string | null;
@@ -122,6 +123,8 @@ export default function MissionManagement() {
       address: '',
       date: '',
       time: '',
+      endDate: '',
+      refBusiness: '',
       type: 'CSPS',
       description: '',
       contactFirstName: '',
