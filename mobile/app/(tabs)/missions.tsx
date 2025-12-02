@@ -24,10 +24,11 @@ import { getMissionStatusInfo } from '@/utils/missionHelpers';
 import { visitService } from '@/services/visitService';
 import { reportService } from '@/services/reportService';
 import { missionService } from '@/services/missionService';
+import { userService } from '@/services/userService';
 
 const { width } = Dimensions.get('window');
 
-export default function MissionsScreen() {
+export default function MissionsScreen() {  
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('toutes');
   const [userMissions, setUserMissions] = useState < any[] > ([]);
@@ -48,6 +49,7 @@ export default function MissionsScreen() {
   const [editSelectedTime, setEditSelectedTime] = useState();
   const [editSelectedEndDate, setEditSelectedEndDate] = useState();
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
+  const [showEditEndDatePicker, setShowEditEndDatePicker] = useState(false);
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
   const [filteredMissions, setFilteredMissions] = useState([]);
   const [newMission, setNewMission] = useState({
@@ -187,7 +189,7 @@ export default function MissionsScreen() {
   };
 
   const onEditEndDateChange = (event: any, selected?: Date) => {
-    setShowEditDatePicker(Platform.OS === 'ios');
+    setShowEditEndDatePicker(Platform.OS === 'ios');
     if (selected) {
       setEditSelectedEndDate(selected);
       setEditedMission((prev: any) => ({
@@ -591,6 +593,12 @@ export default function MissionsScreen() {
   // Fonction pour ouvrir la fiche de mission
   const openMissionDetail = async (mission: any) => {
     try {
+      setEditSelectedDate(null);
+      setSelectedDate(null);
+      setEditSelectedTime(null);
+      setSelectedTime(null);
+      setEditSelectedEndDate(null);
+      setSelectedEndDate(null);
       const isBackendMission = typeof mission.id === 'string' && mission.id.length > 10;
 
       if (isBackendMission) {
@@ -645,7 +653,7 @@ export default function MissionsScreen() {
           if (fullMission.endDate) {
             const visitEndDate = new Date(fullMission.endDate);
             setEditSelectedEndDate(visitEndDate);
-            setSelectedDate(visitEndDate);
+            setSelectedEndDate(visitEndDate);
           }
           console.log("selectedDate >>>: ", selectedDate)
           console.log("selectedTime >>>: ", selectedTime)
@@ -810,8 +818,8 @@ export default function MissionsScreen() {
         client: editedMission.client,
         address: editedMission.location,
         description: editedMission.description,
-        date: editSelectedDate.toISOString().slice(0, 10),
-        time: editSelectedTime.toLocaleTimeString(),
+        date: editSelectedDate?.toISOString().slice(0, 10),
+        time: editSelectedTime?.toLocaleTimeString(),
         type: editedMission.type,
         status: selectedMission.status === 'aujourdhui' ? 'en_cours' as const :
           selectedMission.status === 'terminee' ? 'terminee' as const :
@@ -820,7 +828,7 @@ export default function MissionsScreen() {
         contactLastName: editedMission.contactLastName,
         contactEmail: editedMission.contactEmail,
         contactPhone: editedMission.contactPhone,
-        endDate: editSelectedEndDate.toISOString().slice(0, 10),
+        endDate: editSelectedEndDate?.toISOString().slice(0, 10),
         refBusiness: editedMission.refBusiness,
         refClient: editedMission.refClient,
       };
@@ -1060,6 +1068,12 @@ export default function MissionsScreen() {
       setIsCreatingMission(false);
     }
   };
+
+  const getDefaultTime = (): Date => {
+    const now = new Date();
+    const [hours, minutes] = now.toLocaleTimeString().split(":").map(Number);
+    return new Date(now.getFullYear(), now.getMonth(), now.getDay(), hours, minutes, 0);
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']} >
@@ -1517,7 +1531,7 @@ export default function MissionsScreen() {
                         </TouchableOpacity>
                         {showEditDatePicker && (
                           <DateTimePicker
-                            value={editSelectedDate}
+                            value={editSelectedDate || new Date()}
                             mode="date"
                             display="default"
                             onChange={onEditDateChange}
@@ -1549,7 +1563,7 @@ export default function MissionsScreen() {
                         </TouchableOpacity>
                         {showEditTimePicker && (
                           <DateTimePicker
-                            value={editSelectedTime}
+                            value={editSelectedTime || getDefaultTime()}
                             mode="time"
                             display="default"
                             onChange={onEditTimeChange}
@@ -1577,16 +1591,16 @@ export default function MissionsScreen() {
                       <>
                         <TouchableOpacity
                           style={styles.dateTimeInputContainer}
-                          onPress={() => setShowEditDatePicker(true)}
+                          onPress={() => setShowEditEndDatePicker(true)}
                         >
                           <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
                           <Text style={styles.dateTimeTextInput}>
                             {formatDisplayDate(editSelectedEndDate)}
                           </Text>
                         </TouchableOpacity>
-                        {showEditDatePicker && (
+                        {showEditEndDatePicker && (
                           <DateTimePicker
-                            value={editSelectedEndDate}
+                            value={editSelectedEndDate || new Date()}
                             mode="date"
                             display="default"
                             onChange={onEditEndDateChange}
@@ -3004,10 +3018,10 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
     borderTopWidth: 1,
     borderTopColor: '#374151',
-    gap: 12,
+    gap: 6,
   },
   cancelButton: {
-    flex: 1,
+    flex: 0.6,
     paddingVertical: 16,
     borderRadius: 16,
     backgroundColor: '#374151',

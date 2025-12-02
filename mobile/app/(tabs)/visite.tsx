@@ -77,7 +77,8 @@ interface Mission {
 
 export default function VisiteScreen() {
   const params = useLocalSearchParams();
-  const user = useAuth();
+  // const user = useAuth();
+  const [userProfile, setUserProfile] = useState < any > (null);
   const [mission, setMission] = useState < Mission | null > (null);
   const [availableMissions, setAvailableMissions] = useState < Mission[] > ([]);
   const [showMissionSelector, setShowMissionSelector] = useState(false);
@@ -128,7 +129,6 @@ export default function VisiteScreen() {
   const [hasChanges, setHasChanges] = useState(false);
 
   useEffect(() => {
-
     if (params.mission) {
       try {
         const missionData = JSON.parse(params.mission as string);
@@ -140,6 +140,18 @@ export default function VisiteScreen() {
 
     loadAvailableMissions();
   }, [params.mission]);
+
+  const loadUserProfile = async () => {
+    try {
+      const response = await userService.getProfile();
+      if (response.data) {
+        setUserProfile(response.data);
+      }
+
+    } catch (error) {
+      console.log('Erreur lors du chargement du profil:', error);
+    }
+  };
 
   const loadMissions = async () => {
     try {
@@ -196,7 +208,9 @@ export default function VisiteScreen() {
   };
 
   const loadAvailableMissions = async () => {
+
     try {
+      await loadUserProfile();
       // Charger les missions utilisateur depuis AsyncStorage
       // const userMissions = await AsyncStorage.getItem('userMissions');
       // const parsedUserMissions = userMissions ? JSON.parse(userMissions) : [];
@@ -246,6 +260,9 @@ export default function VisiteScreen() {
 
   const loadExistingVisitData = async (missionId: number) => {
     try {
+      if (!userProfile) {
+        await loadUserProfile();
+      }
       setLoadingMission(true);
       const response = await visitService.getVisits(missionId);
       // console.log('getVisits - response.data >>> ', response.data)
@@ -335,6 +352,8 @@ export default function VisiteScreen() {
               Alert.alert("La photo n'a pas pu être telechargé");
             }
 
+            console.log('photo.analysis?.references', photo.analysis?.references);
+
             return {
               id: photo.id || `photo-${Date.now()}-${Math.random()}`,
               uri: fileUri || photo.s3Url,
@@ -343,6 +362,7 @@ export default function VisiteScreen() {
               aiAnalysis: photo.analysis ? {
                 observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
                 recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+                references: photo.analysis?.references ? (photo.analysis.references.split('. ').filter((s: string) => s.length > 0)) : [],
                 riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
                 confidence: (photo.analysis.confidence || 0)
               } : undefined,
@@ -456,6 +476,7 @@ export default function VisiteScreen() {
   };
   const analyzePhotoWithDirectives = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
     setHasChanges(true);
+    setReportSaved(false);
     try {
       // console.log('selectedPhoto.analysis >>> : ', selectedPhoto.aiAnalysis);
       const previousReport = JSON.stringify(selectedPhoto.aiAnalysis);
@@ -668,6 +689,7 @@ export default function VisiteScreen() {
       setPhotos(prev => photosParam);
       // await saveVisit(photosParam);
       setHasChanges(true);
+      setReportSaved(false);
       Alert.alert('Succès', 'Photo suppriméee du serveur');
     } catch (error) {
       console.error('Erreur suppression photo S3:', error);
@@ -920,6 +942,7 @@ export default function VisiteScreen() {
     }
 
     setGeneratingReport(true);
+    setReportSaved(false);
 
     // Simulation de génération de rapport
     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -951,10 +974,10 @@ Photo ${index + 1} - Niveau de risque: ${photo.aiAnalysis.riskLevel.toUpperCase(
 📸 Photo: ${photo.s3Url}
 
 Observations:
-${photo.aiAnalysis?.observations?.map(obs => `• ${obs}`).join('\n')}
+${photo.aiAnalysis?.observations.map(obs => `• ${obs}`).join('\n')}
 
 Recommandations:
-${(photo.aiAnalysis?.recommendations?.map(rec => `• ${rec}`)) || [].join('\n')}
+${(photo.aiAnalysis?.recommendations.map(rec => `• ${rec}`)) || [].join('\n')}
 
 ${photo.aiAnalysis?.references ? `🏛️ Références : ${photo.aiAnalysis.references}` : ''}
 
@@ -974,7 +997,6 @@ ${totalRisks > 0
           : 'Le chantier présente un bon niveau de conformité sécurité.'
       }
 
-Rapport généré automatiquement par l'IA CSPS
 Coordonnateur: Pierre Dupont
 Date: ${new Date().toLocaleString('fr-FR')}`;
 
@@ -1269,7 +1291,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
         setPdfLoadingProgress('Finalisation...');
         const subject = `Rapport de visite - ${mission?.title}`;
-        const body = `Bonjour ${mission?.contact.firstName},
+        const body = `Bonjour ${mission?.contact?.firstName},
 Veuillez trouver ci-joint le rapport de visite suivant:
 
 Mission: ${mission?.title}
@@ -1282,7 +1304,7 @@ Nombre de photos: ${photos.length}
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement.
-${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
+${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
 `;
         // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
         //   clientEmail,
@@ -1838,26 +1860,36 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                         </Text>
 
                         {/* Observations */}
-                        <View style={styles.analysisBlock}>
+                        {selectedPhoto.aiAnalysis?.observations && <View style={styles.analysisBlock}>
                           <Text style={styles.analysisBlockTitle}>OBSERVATIONS</Text>
-                          {selectedPhoto.aiAnalysis.observations.map((obs, index) => (
+                          {selectedPhoto.aiAnalysis?.observations.map((obs, index) => (
                             <View key={index} style={styles.analysisItem}>
                               <Eye size={14} color="#94A3B8" />
                               <Text style={styles.analysisText}>{obs}</Text>
                             </View>
                           ))}
-                        </View>
+                        </View>}
 
                         {/* Recommendations */}
-                        <View style={styles.analysisBlock}>
+                        {selectedPhoto.aiAnalysis?.recommendations && <View style={styles.analysisBlock}>
                           <Text style={styles.analysisBlockTitle}>RECOMMANDATIONS</Text>
-                          {selectedPhoto.aiAnalysis.recommendations.map((rec, index) => (
+                          {selectedPhoto.aiAnalysis?.recommendations.map((rec, index) => (
                             <View key={index} style={styles.analysisItem}>
                               <AlertTriangle size={14} color="#F59E0B" />
                               <Text style={styles.analysisText}>{rec}</Text>
                             </View>
                           ))}
-                        </View>
+                        </View>}
+                        {/* Recommendations */}
+                        {selectedPhoto.aiAnalysis?.references && <View style={styles.analysisBlock}>
+                          <Text style={styles.analysisBlockTitle}>REFERENCES</Text>
+                          {selectedPhoto.aiAnalysis?.references.map((ref, index) => (
+                            <View key={index} style={styles.analysisItem}>
+                              <NotebookPen size={14} color="#F59E0B" />
+                              <Text style={styles.analysisText}>{ref}</Text>
+                            </View>
+                          ))}
+                        </View>}
                       </View>
                     ) : (
                       <View style={styles.analyzingDetailContainer}>
@@ -2137,11 +2169,15 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                           {photo.aiAnalysis && (
                             <>
                               <Text style={styles.reportSectionTitle}>Observations:</Text>
-                              {photo.aiAnalysis.observations.map((obs, i) => (
+                              {photo.aiAnalysis?.observations.map((obs, i) => (
                                 <Text key={i} style={styles.reportListItem}>• {obs}</Text>
                               ))}
                               <Text style={styles.reportSectionTitle}>Recommandations:</Text>
-                              {photo.aiAnalysis.recommendations.map((rec, i) => (
+                              {photo.aiAnalysis?.recommendations.map((rec, i) => (
+                                <Text key={i} style={styles.reportListItem}>• {rec}</Text>
+                              ))}
+                              <Text style={styles.reportSectionTitle}>Références:</Text>
+                              {photo.aiAnalysis?.references.map((rec, i) => (
                                 <Text key={i} style={styles.reportListItem}>• {rec}</Text>
                               ))}
                             </>
@@ -2183,7 +2219,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                         styles.validateReportText,
                         reportSaved && styles.validateReportTextActive
                       ]}>
-                        {isSavingReport ? 'Enregistrement...' : 'Enregister le rapport'}
+                        {isSavingReport ? 'Enregistrement...' : 'Enregistrer le rapport'}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -2288,7 +2324,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
               <ActivityIndicator size={20} color="#FFFFFF" />
               <Text style={styles.analyzingTitle}>ANALYSE IA EN COURS</Text>
               <Text style={styles.analyzingSubtitle}>
-                L'intelligence artificielle analyse la photo pour identifier les risques sécurité...
+                L'analyse de la photo pour identifier les risques sécurité en cours ...
               </Text>
             </LinearGradient>
           </View>
@@ -2977,7 +3013,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   reportModal: {
-    height: '95%',
+    height: '90%',
     borderRadius: 20,
     overflow: 'hidden',
   },

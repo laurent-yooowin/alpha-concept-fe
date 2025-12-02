@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
   Dimensions,
   Modal,
   ScrollView
@@ -196,7 +197,7 @@ export default function LoginScreen() {
         colors={['#0F172A', '#1E293B']}
         style={styles.backgroundGradient}
       >
-        <KeyboardAvoidingView 
+        <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardContainer}
         >
@@ -204,14 +205,15 @@ export default function LoginScreen() {
             {/* Logo et titre */}
             <View style={styles.header}>
               <View style={styles.logoContainer}>
-                <LinearGradient
+                {/* <LinearGradient
                   colors={['#3B82F6', '#1D4ED8']}
                   style={styles.logoGradient}
                 >
                   <Shield size={32} color="#FFFFFF" strokeWidth={2} />
-                </LinearGradient>
+                </LinearGradient> */}
+                <Image source={require('../../assets/images/logo_admin.png')} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
               </View>
-              <Text style={styles.title}>Report BTP COORDINATEUR</Text>
+              <Text style={styles.title}>Report BTP COORDONNATEUR</Text>
               <Text style={styles.subtitle}>Application mobile pour coordonnateurs SPS</Text>
             </View>
 
@@ -251,7 +253,7 @@ export default function LoginScreen() {
                     secureTextEntry={!showPassword}
                     autoComplete="password"
                   />
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.eyeIcon}
                     onPress={() => setShowPassword(!showPassword)}
                   >
@@ -264,7 +266,7 @@ export default function LoginScreen() {
                 </LinearGradient>
               </View>
 
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.loginButton}
                 onPress={handleLogin}
                 disabled={loading}
@@ -343,7 +345,7 @@ export default function LoginScreen() {
                       placeholder="Prénom *"
                       placeholderTextColor="#64748B"
                       value={registerData.firstName}
-                      onChangeText={(text) => setRegisterData({...registerData, firstName: text})}
+                      onChangeText={(text) => setRegisterData({ ...registerData, firstName: text })}
                       autoCapitalize="words"
                     />
                   </LinearGradient>
@@ -357,7 +359,7 @@ export default function LoginScreen() {
                       placeholder="Nom *"
                       placeholderTextColor="#64748B"
                       value={registerData.lastName}
-                      onChangeText={(text) => setRegisterData({...registerData, lastName: text})}
+                      onChangeText={(text) => setRegisterData({ ...registerData, lastName: text })}
                       autoCapitalize="words"
                     />
                   </LinearGradient>
@@ -371,7 +373,7 @@ export default function LoginScreen() {
                       placeholder="Email professionnel *"
                       placeholderTextColor="#64748B"
                       value={registerData.email}
-                      onChangeText={(text) => setRegisterData({...registerData, email: text})}
+                      onChangeText={(text) => setRegisterData({ ...registerData, email: text })}
                       keyboardType="email-address"
                       autoCapitalize="none"
                       autoComplete="email"
@@ -387,7 +389,7 @@ export default function LoginScreen() {
                       placeholder="Mot de passe *"
                       placeholderTextColor="#64748B"
                       value={registerData.password}
-                      onChangeText={(text) => setRegisterData({...registerData, password: text})}
+                      onChangeText={(text) => setRegisterData({ ...registerData, password: text })}
                       secureTextEntry={!showRegisterPassword}
                       autoComplete="password"
                     />
@@ -412,7 +414,7 @@ export default function LoginScreen() {
                       placeholder="Téléphone"
                       placeholderTextColor="#64748B"
                       value={registerData.phone}
-                      onChangeText={(text) => setRegisterData({...registerData, phone: text})}
+                      onChangeText={(text) => setRegisterData({ ...registerData, phone: text })}
                       keyboardType="phone-pad"
                     />
                   </LinearGradient>
@@ -426,7 +428,7 @@ export default function LoginScreen() {
                       placeholder="Entreprise"
                       placeholderTextColor="#64748B"
                       value={registerData.company}
-                      onChangeText={(text) => setRegisterData({...registerData, company: text})}
+                      onChangeText={(text) => setRegisterData({ ...registerData, company: text })}
                     />
                   </LinearGradient>
                 </View>
@@ -441,7 +443,7 @@ export default function LoginScreen() {
                       value={registerData.experience > 0 ? registerData.experience.toString() : ''}
                       onChangeText={(text) => {
                         const num = parseInt(text) || 0;
-                        setRegisterData({...registerData, experience: num});
+                        setRegisterData({ ...registerData, experience: num });
                       }}
                       keyboardType="numeric"
                     />
@@ -635,7 +637,7 @@ const styles = StyleSheet.create({
   logoContainer: {
     width: 80,
     height: 80,
-    borderRadius: 20,
+    borderRadius: 10,
     overflow: 'hidden',
     marginBottom: 16,
   },

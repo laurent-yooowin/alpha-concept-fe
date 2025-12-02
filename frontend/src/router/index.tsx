@@ -7,12 +7,21 @@ import MissionDispatch from '../components/MissionDispatch';
 import ReportManagement from '../components/ReportManagement';
 import ActivityLogs from '../components/ActivityLogs';
 import LoginPage from '../components/LoginPage';
-import LegalDocs from '../components/cgu';
+import Privacy from '../components/privacy';
+import Cgu from '../components/cgu';
 
 export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    path: 'privacy',
+    element: <Privacy />,
+  },
+  {
+    path: 'cgu',
+    element: <Cgu />,
   },
   {
     path: '/',
@@ -47,12 +56,12 @@ export const router = createBrowserRouter([
         element: <ActivityLogs />,
       },
       {
-        path: 'privacy',
-        element: <LegalDocs isCgu={false} />,
+        path: 'privacy-policy',
+        element: <Privacy />,
       },
       {
-        path: 'cgu',
-        element: <LegalDocs isCgu={true} />,
+        path: 'cgu-terms',
+        element: <Cgu />,
       },
     ],
   },

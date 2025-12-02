@@ -31,11 +31,13 @@ import * as MailComposer from 'expo-mail-composer';
 import { uploadService } from '@/services/uploadService';
 import { Mission } from '../../services/missionService';
 import { useLocalSearchParams } from 'expo-router';
+import { userService } from '@/services/userService';
 
 const { width } = Dimensions.get('window');
 
 export default function RapportsScreen() {
-  const { user } = useAuth();
+  // const { user } = useAuth();
+  const [userProfile, setUserProfile] = useState < any > (null);
   const params = useLocalSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('tous');
@@ -86,8 +88,21 @@ export default function RapportsScreen() {
     loadReportCounts();
   }, [params.mission]);
 
+  const loadUserProfile = async () => {
+    try {
+      const response = await userService.getProfile();
+      if (response.data) {
+        setUserProfile(response.data);
+      }
+
+    } catch (error) {
+      console.log('Erreur lors du chargement du profil:', error);
+    }
+  };
+
   const loadReports = async (missionData?: Mission | null) => {
     try {
+      await loadUserProfile();
       setLoading(true);
       const response = await reportService.getReports();
       let missionExists = false;
@@ -432,7 +447,7 @@ Nombre de photos: ${visitResponse?.data?.photos?.length}
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement.
-${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
+${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
 `;
 
       // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
@@ -591,6 +606,7 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                 aiAnalysis: photo.analysis ? {
                   observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
                   recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+                  references: photo.analysis?.references ? photo.analysis?.references.split(', ').filter((s: string) => s.length > 0) : [],
                   riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
                   confidence: (photo.analysis.confidence || 0)
                 } : undefined,
@@ -1022,6 +1038,14 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                                       ))}
                                     </View>
                                   </View>
+                                  <View style={styles.reportAnalysisBlock}>
+                                    <Text style={styles.reportAnalysisTitle}>🏛️ Références</Text>
+                                    <View style={styles.reportAnalysisList}>
+                                      {photo.aiAnalysis.references.map((rec, i) => (
+                                        <Text key={i} style={styles.reportAnalysisItem}>• {rec}</Text>
+                                      ))}
+                                    </View>
+                                  </View>
                                 </View>
                               )}
 
@@ -1047,12 +1071,12 @@ ${user && `Cordonnateur: ${user.firstName} ${user.lastName}`}
                     )}
                   </View>
 
-                  {selectedReport.aiGenerated && (
+                  {/* {selectedReport.aiGenerated && (
                     <View style={styles.reportDetailAiBadge}>
                       <Sparkles size={16} color="#F59E0B" />
                       <Text style={styles.reportDetailAiText}>Généré par IA</Text>
                     </View>
-                  )}
+                  )} */}
                 </ScrollView>
 
                 {selectedReport && selectedReport.status != 'valide' && selectedReport.status != 'envoye_au_client' && (
@@ -1666,7 +1690,7 @@ const styles = StyleSheet.create({
   },
   reportDetailModal: {
     width: width * 0.95,
-    height: '95%',
+    height: '90%',
     backgroundColor: '#1E293B',
     borderRadius: 24,
     overflow: 'hidden',

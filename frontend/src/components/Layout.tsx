@@ -34,6 +34,8 @@ export default function Layout() {
     { path: '/reports', name: 'Rapports', icon: FileText, show: true },
     { path: '/users', name: 'Utilisateurs', icon: Users, show: isAdmin },
     { path: '/logs', name: 'Logs d\'activité', icon: Activity, show: false },
+    { path: '/cgu-terms', name: 'CGU', icon: FileText, show: true },
+    { path: '/privacy-policy', name: 'Politique de confidentialité', icon: FileText, show: true },
   ];
 
   const handleSignOut = async () => {
@@ -71,10 +73,10 @@ export default function Layout() {
       <aside
         className={`fixed top-0 left-0 h-full w-64 bg-prosps-blue backdrop-blur-md border-r border-prosps-blue-dark transform transition-transform duration-300 z-40 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } lg:translate-x-0`}
-        
+
       >
-        <div className="p-6 border-b border-white/20" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap:'10px' }}>
-          <img src="/logo_admin.png" alt="Report BTP" style={{height: '7rem', borderRadius:'10px'}} />
+        <div className="p-6 border-b border-white/20" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+          <img src="/logo_admin.png" alt="Report BTP" style={{ height: '7rem', borderRadius: '10px' }} />
           <p className="text-m text-white/90 mt-1">Plateforme de gestion SPS</p>
         </div>
 

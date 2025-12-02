@@ -5,7 +5,7 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  StyleSheet,  
+  StyleSheet,
   Dimensions,
   Modal,
   TextInput,
@@ -57,11 +57,11 @@ export default function HomeScreen() {
   const [editSelectedEndDate, setEditSelectedEndDate] = useState();
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
+  const [showEditEndDatePicker, setShowEditEndDatePicker] = useState(false);
 
 
 
   useEffect(() => {
-
     loadUserProfile();
     loadMissions();
   }, []);
@@ -210,46 +210,55 @@ export default function HomeScreen() {
   };
 
   const formatDisplayDate = (date: Date) => {
-    return date.toLocaleDateString('fr-FR', {
+    if (!date) return null;
+    if (date instanceof Date) {
+      return date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    }
+    return new Date(date).toLocaleDateString('fr-FR', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric'
     });
+
   };
 
   const onEditDateChange = (event: any, selected?: Date) => {
-      setShowEditDatePicker(Platform.OS === 'ios');
-      if (selected) {
-        setEditSelectedDate(selected);
-        setEditedMission((prev: any) => ({
-          ...prev,
-          date: formatDateForInput(selected)
-        }));
-      }
-    };
-  
-  
-    const onEditEndDateChange = (event: any, selected?: Date) => {
-      setShowEditDatePicker(Platform.OS === 'ios');
-      if (selected) {
-        setEditSelectedEndDate(selected);
-        setEditedMission((prev: any) => ({
-          ...prev,
-          endDate: formatDateForInput(selected)
-        }));
-      }
-    };
-  
-    const onEditTimeChange = (event: any, selected?: Date) => {
-      setShowEditTimePicker(Platform.OS === 'ios');
-      if (selected) {
-        setEditSelectedTime(selected);
-        setEditedMission((prev: any) => ({
-          ...prev,
-          time: formatTime(selected)
-        }));
-      }
-    };
+    setShowEditDatePicker(Platform.OS === 'ios');
+    if (selected) {
+      setEditSelectedDate(selected);
+      setEditedMission((prev: any) => ({
+        ...prev,
+        date: formatDateForInput(selected)
+      }));
+    }
+  };
+
+
+  const onEditEndDateChange = (event: any, selected?: Date) => {
+    setShowEditEndDatePicker(Platform.OS === 'ios');
+    if (selected) {
+      setEditSelectedEndDate(selected);
+      setEditedMission((prev: any) => ({
+        ...prev,
+        endDate: formatDateForInput(selected)
+      }));
+    }
+  };
+
+  const onEditTimeChange = (event: any, selected?: Date) => {
+    setShowEditTimePicker(Platform.OS === 'ios');
+    if (selected) {
+      setEditSelectedTime(selected);
+      setEditedMission((prev: any) => ({
+        ...prev,
+        time: formatTime(selected)
+      }));
+    }
+  };
 
 
   const getStatusInfo = (status: string) => {
@@ -290,6 +299,12 @@ export default function HomeScreen() {
   // Fonction pour ouvrir la fiche de mission
   const openMissionDetail = async (mission: any) => {
     try {
+      setEditSelectedDate(null);
+      setSelectedDate(null);
+      setEditSelectedTime(null);
+      setSelectedTime(null);
+      setEditSelectedEndDate(null);
+      setSelectedEndDate(null);
       const isBackendMission = typeof mission.id === 'string' && mission.id.length > 10;
 
       if (isBackendMission) {
@@ -344,7 +359,7 @@ export default function HomeScreen() {
           if (fullMission.endDate) {
             const visitEndDate = new Date(fullMission.endDate);
             setEditSelectedEndDate(visitEndDate);
-            setSelectedDate(visitEndDate);
+            setSelectedEndDate(visitEndDate);
           }
           console.log("selectedDate >>>: ", selectedDate)
           console.log("selectedTime >>>: ", selectedTime)
@@ -407,159 +422,159 @@ export default function HomeScreen() {
     router.push(`/rapports?mission=${missionData}`);
   };
 
-    // Fonction pour sauvegarder les modifications
-    const handleSaveMission = async () => {
-      // Validation des champs obligatoires
-      if (!editedMission.title.trim()) {
-        Alert.alert('Erreur', 'Le titre de la mission est obligatoire');
-        return;
+  // Fonction pour sauvegarder les modifications
+  const handleSaveMission = async () => {
+    // Validation des champs obligatoires
+    if (!editedMission.title.trim()) {
+      Alert.alert('Erreur', 'Le titre de la mission est obligatoire');
+      return;
+    }
+    if (!editedMission.client.trim()) {
+      Alert.alert('Erreur', 'Le nom du client est obligatoire');
+      return;
+    }
+    if (!editedMission.location.trim()) {
+      Alert.alert('Erreur', 'L\'adresse est obligatoire');
+      return;
+    }
+    if (!editedMission.date.trim()) {
+      Alert.alert('Erreur', 'La date est obligatoire');
+      return;
+    }
+    // if (!editedMission.time.trim()) {
+    //   Alert.alert('Erreur', 'L\'heure est obligatoire');
+    //   return;
+    // }
+    if (!editedMission.contactEmail.trim()) {
+      Alert.alert('Erreur', 'L\'email du contact est obligatoire');
+      return;
+    }
+
+    // Validation de l'email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(editedMission.contactEmail)) {
+      Alert.alert('Erreur', 'Veuillez saisir un email valide');
+      return;
+    }
+
+    try {
+      const isBackendMission = typeof selectedMission.id === 'string' && selectedMission.id.length > 10;
+
+      // if (isBackendMission) {
+      // Utiliser l'API pour mettre à jour une mission backend
+      const { missionService } = await import('@/services/missionService');
+
+      const updateData = {
+        title: editedMission.title,
+        client: editedMission.client,
+        address: editedMission.location,
+        description: editedMission.description,
+        date: editSelectedDate?.toISOString().slice(0, 10),
+        time: editSelectedTime?.toLocaleTimeString(),
+        type: editedMission.type,
+        status: selectedMission.status === 'aujourdhui' ? 'en_cours' as const :
+          selectedMission.status === 'terminee' ? 'terminee' as const :
+            'planifiee' as const,
+        contactFirstName: editedMission.contactFirstName,
+        contactLastName: editedMission.contactLastName,
+        contactEmail: editedMission.contactEmail,
+        contactPhone: editedMission.contactPhone,
+        endDate: editSelectedEndDate?.toISOString().slice(0, 10),
+        refBusiness: editedMission.refBusiness,
+        refClient: editedMission.refClient,
+      };
+
+      const response = await missionService.updateMission(selectedMission.id, updateData);
+
+      if (response.data) {
+        Alert.alert('Succès', 'La mission a été mise à jour avec succès');
+        setIsEditing(false);
+        loadMissions();
+        setShowMissionDetail(false);
+      } else if (response.error) {
+        Alert.alert('Erreur', response.error);
       }
-      if (!editedMission.client.trim()) {
-        Alert.alert('Erreur', 'Le nom du client est obligatoire');
-        return;
-      }
-      if (!editedMission.location.trim()) {
-        Alert.alert('Erreur', 'L\'adresse est obligatoire');
-        return;
-      }
-      if (!editedMission.date.trim()) {
-        Alert.alert('Erreur', 'La date est obligatoire');
-        return;
-      }
-      // if (!editedMission.time.trim()) {
-      //   Alert.alert('Erreur', 'L\'heure est obligatoire');
-      //   return;
-      // }
-      if (!editedMission.contactEmail.trim()) {
-        Alert.alert('Erreur', 'L\'email du contact est obligatoire');
-        return;
-      }
-  
-      // Validation de l'email
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(editedMission.contactEmail)) {
-        Alert.alert('Erreur', 'Veuillez saisir un email valide');
-        return;
-      }
-  
-      try {
-        const isBackendMission = typeof selectedMission.id === 'string' && selectedMission.id.length > 10;
-  
-        // if (isBackendMission) {
-        // Utiliser l'API pour mettre à jour une mission backend
-        const { missionService } = await import('@/services/missionService');
-  
-        const updateData = {
-          title: editedMission.title,
+      // } else {
+      if (!isBackendMission) {
+        // Mettre à jour localement pour les missions mock
+        const updatedMission = {
+          ...selectedMission,
+          title: editedMission.title.toUpperCase(),
           client: editedMission.client,
-          address: editedMission.location,
+          location: editedMission.location,
           description: editedMission.description,
-          date: editSelectedDate.toISOString().slice(0, 10),
-          time: editSelectedTime.toLocaleTimeString(),
+          nextVisit: `${editedMission.date}T${editedMission.time}:00`,
           type: editedMission.type,
-          status: selectedMission.status === 'aujourdhui' ? 'en_cours' as const :
-            selectedMission.status === 'terminee' ? 'terminee' as const :
-              'planifiee' as const,
-          contactFirstName: editedMission.contactFirstName,
-          contactLastName: editedMission.contactLastName,
-          contactEmail: editedMission.contactEmail,
-          contactPhone: editedMission.contactPhone,
-          endDate: editSelectedEndDate.toISOString().slice(0, 10),
-          refBusiness: editedMission.refBusiness,
-          refClient: editedMission.refClient,
+          contact: {
+            firstName: editedMission.contactFirstName,
+            lastName: editedMission.contactLastName,
+            email: editedMission.contactEmail,
+            phone: editedMission.contactPhone
+          }
         };
-  
-        const response = await missionService.updateMission(selectedMission.id, updateData);
-  
-        if (response.data) {
-          Alert.alert('Succès', 'La mission a été mise à jour avec succès');
-          setIsEditing(false);
-          loadMissions();
-          setShowMissionDetail(false);
-        } else if (response.error) {
-          Alert.alert('Erreur', response.error);
-        }
-        // } else {
-        if (!isBackendMission) {
-          // Mettre à jour localement pour les missions mock
-          const updatedMission = {
-            ...selectedMission,
-            title: editedMission.title.toUpperCase(),
-            client: editedMission.client,
-            location: editedMission.location,
-            description: editedMission.description,
-            nextVisit: `${editedMission.date}T${editedMission.time}:00`,
-            type: editedMission.type,
-            contact: {
-              firstName: editedMission.contactFirstName,
-              lastName: editedMission.contactLastName,
-              email: editedMission.contactEmail,
-              phone: editedMission.contactPhone
-            }
-          };
-  
-          const updatedMissions = missions.map(mission =>
-            mission.id === selectedMission.id ? updatedMission : mission
-          );
-          setTodayMissions(updatedMissions);
-  
-          setSelectedMission(updatedMission);
-          setIsEditing(false);
-          Alert.alert('Succès', 'La mission a été mise à jour avec succès');
-        }
-      } catch (error) {
-        console.log('Erreur lors de la sauvegarde:', error);
-        Alert.alert('Erreur', 'Erreur lors de la sauvegarde de la mission');
+
+        const updatedMissions = missions.map(mission =>
+          mission.id === selectedMission.id ? updatedMission : mission
+        );
+        setTodayMissions(updatedMissions);
+
+        setSelectedMission(updatedMission);
+        setIsEditing(false);
+        Alert.alert('Succès', 'La mission a été mise à jour avec succès');
       }
-    };
-  
-    const handleCancelEdit = () => {
-      setEditedMission({
-        ...selectedMission,
-        // date: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleDateString('fr-FR') : '',
-        // time: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '',
-        contactFirstName: selectedMission.contact?.firstName || '',
-        contactLastName: selectedMission.contact?.lastName || '',
-        contactEmail: selectedMission.contact?.email || '',
-        contactPhone: selectedMission.contact?.phone || ''
-      });
-      setIsEditing(false);      
-    };
-  
-    // Fonction pour supprimer une mission
-    const handleDeleteMission = async () => {
-      Alert.alert(
-        'Supprimer la mission',
-        'Êtes-vous sûr de vouloir supprimer cette mission ? Cette action est irréversible.',
-        [
-          { text: 'Annuler', style: 'cancel' },
-          {
-            text: 'Supprimer',
-            style: 'destructive',
-            onPress: async () => {
-              try {  
-                // Supprimer via l'API
-                const { missionService } = await import('@/services/missionService');
-                const response = await missionService.deleteMission(selectedMission.id);
+    } catch (error) {
+      console.log('Erreur lors de la sauvegarde:', error);
+      Alert.alert('Erreur', 'Erreur lors de la sauvegarde de la mission');
+    }
+  };
 
-                if (response.error) {
-                  Alert.alert('Erreur', response.error);
-                  return;
-                }
+  const handleCancelEdit = () => {
+    setEditedMission({
+      ...selectedMission,
+      // date: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleDateString('fr-FR') : '',
+      // time: selectedMission.nextVisit ? new Date(selectedMission.nextVisit).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '',
+      contactFirstName: selectedMission.contact?.firstName || '',
+      contactLastName: selectedMission.contact?.lastName || '',
+      contactEmail: selectedMission.contact?.email || '',
+      contactPhone: selectedMission.contact?.phone || ''
+    });
+    setIsEditing(false);
+  };
 
-                Alert.alert('Succès', 'La mission a été supprimée avec succès');
-                setShowMissionDetail(false);
-                loadMissions();
-                
-              } catch (error) {
-                console.log('Erreur lors de la suppression:', error);
-                Alert.alert('Erreur', 'Erreur lors de la suppression de la mission');
+  // Fonction pour supprimer une mission
+  const handleDeleteMission = async () => {
+    Alert.alert(
+      'Supprimer la mission',
+      'Êtes-vous sûr de vouloir supprimer cette mission ? Cette action est irréversible.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Supprimer via l'API
+              const { missionService } = await import('@/services/missionService');
+              const response = await missionService.deleteMission(selectedMission.id);
+
+              if (response.error) {
+                Alert.alert('Erreur', response.error);
+                return;
               }
-            },
+
+              Alert.alert('Succès', 'La mission a été supprimée avec succès');
+              setShowMissionDetail(false);
+              loadMissions();
+
+            } catch (error) {
+              console.log('Erreur lors de la suppression:', error);
+              Alert.alert('Erreur', 'Erreur lors de la suppression de la mission');
+            }
           },
-        ]
-      );
-    };
+        },
+      ]
+    );
+  };
 
   const missionTypes = [
     'CSPS',
@@ -567,7 +582,11 @@ export default function HomeScreen() {
     'Divers'
   ];
 
-
+  const getDefaultTime = (): Date => {
+    const now = new Date();
+    const [hours, minutes] = now.toLocaleTimeString().split(":").map(Number);
+    return new Date(now.getFullYear(), now.getMonth(), now.getDay(), hours, minutes, 0);
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -741,7 +760,7 @@ export default function HomeScreen() {
               );
             })
           )}
-        </View>       
+        </View>
 
         {/* Coordinator Info */}
         <View style={styles.coordinatorSection}>
@@ -1110,7 +1129,7 @@ export default function HomeScreen() {
                           </TouchableOpacity>
                           {showEditTimePicker && (
                             <DateTimePicker
-                              value={editSelectedTime}
+                              value={editSelectedTime || getDefaultTime()}
                               mode="time"
                               display="default"
                               onChange={onEditTimeChange}
@@ -1138,16 +1157,16 @@ export default function HomeScreen() {
                         <>
                           <TouchableOpacity
                             style={styles.dateTimeInputContainer}
-                            onPress={() => setShowEditDatePicker(true)}
+                            onPress={() => setShowEditEndDatePicker(true)}
                           >
                             <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
                             <Text style={styles.dateTimeTextInput}>
                               {formatDisplayDate(editSelectedEndDate)}
                             </Text>
                           </TouchableOpacity>
-                          {showEditDatePicker && (
+                          {showEditEndDatePicker && (
                             <DateTimePicker
-                              value={editSelectedEndDate}
+                              value={editSelectedEndDate|| new Date()}
                               mode="date"
                               display="default"
                               onChange={onEditEndDateChange}
@@ -1187,7 +1206,7 @@ export default function HomeScreen() {
                   {/* Description */}
                   <View style={styles.descriptionInputGroup}>
                     <View style={styles.descriptionLabelContainer}>
-                      <Text style={styles.inputLabel}>DESCRIPTION</Text>                      
+                      <Text style={styles.inputLabel}>DESCRIPTION</Text>
                     </View>
                     <View style={styles.descriptionInputContainer}>
                       <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
@@ -1206,7 +1225,7 @@ export default function HomeScreen() {
                         <Text style={[styles.displayText, styles.descriptionDisplayText]}>
                           {selectedMission?.description || 'Aucune description'}
                         </Text>
-                      )}                      
+                      )}
                     </View>
                   </View>
                 </ScrollView>
