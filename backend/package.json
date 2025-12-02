@@ -20,7 +20,7 @@
     "seed:visits": "node dist/scripts/seed-visits.js",
     "seed:reports": "node dist/scripts/seed-reports.js",
     "seed:all": "npm run seed:missions && npm run seed:visits && npm run seed:reports",
-    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/config/typeorm.config.ts",
+    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d dist/config/typeorm.config.ts",
     "migration:run": "typeorm migration:run -d dist/config/typeorm.config.js",
     "migration:revert": "typeorm migration:revert -d dist/config/typeorm.config.js"
   },
