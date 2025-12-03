@@ -1,3 +1,4 @@
+import { Transform } from "class-transformer";
 import { IsNotEmpty, IsString, IsBoolean, IsOptional } from "class-validator";
 
 export class DeleteFileDto {
@@ -17,5 +18,6 @@ export class DownloadFileDto {
 
     @IsBoolean()
     @IsOptional()
+    @Transform(({ value }) => value === null ? undefined : value)
     isBase64?: boolean;
 }
