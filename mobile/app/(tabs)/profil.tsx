@@ -11,7 +11,9 @@ import {
   Modal,
   TextInput,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { User, Bell, Download, LogOut, ChevronRight, Award, MapPin, Phone, Mail, Calendar, Database, Lock, Smartphone, CreditCard as Edit, Save, X } from 'lucide-react-native';
@@ -438,115 +440,120 @@ export default function ProfilScreen() {
 
       {/* Edit Modal */}
       <Modal visible={showEditModal} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.editModal}>
-            <LinearGradient
-              colors={['#1E293B', '#0F172A']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.editModalGradient}
-            >
-              <View style={styles.editModalHeader}>
-                <View style={styles.editModalHeaderContent}>
-                  <LinearGradient
-                    colors={['#3B82F6', '#1D4ED8']}
-                    style={styles.editModalIconContainer}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.editModal}>
+              <LinearGradient
+                colors={['#1E293B', '#0F172A']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.editModalGradient}
+              >
+                <View style={styles.editModalHeader}>
+                  <View style={styles.editModalHeaderContent}>
+                    <LinearGradient
+                      colors={['#3B82F6', '#1D4ED8']}
+                      style={styles.editModalIconContainer}
+                    >
+                      {editingField === 'password' ? (
+                        <Lock size={20} color="#FFFFFF" />
+                      ) : editingField === 'email' ? (
+                        <Mail size={20} color="#FFFFFF" />
+                      ) : editingField === 'phone' ? (
+                        <Phone size={20} color="#FFFFFF" />
+                      ) : editingField === 'company' ? (
+                        <User size={20} color="#FFFFFF" />
+                      ) : editingField === 'experience' ? (
+                        <Award size={20} color="#FFFFFF" />
+                      ) : editingField === 'location' ? (
+                        <MapPin size={20} color="#FFFFFF" />
+                      ) : (
+                        <Edit size={20} color="#FFFFFF" />
+                      )}
+                    </LinearGradient>
+                    <View style={styles.editModalTitleContainer}>
+                      <Text style={styles.editModalTitle}>
+                        {getFieldLabel(editingField || '')}
+                      </Text>
+                      <Text style={styles.editModalSubtitle}>
+                        Modifier votre {getFieldLabel(editingField || '').toLowerCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.editModalCloseButton}
+                    onPress={handleCancelEdit}
                   >
-                    {editingField === 'password' ? (
-                      <Lock size={20} color="#FFFFFF" />
-                    ) : editingField === 'email' ? (
-                      <Mail size={20} color="#FFFFFF" />
-                    ) : editingField === 'phone' ? (
-                      <Phone size={20} color="#FFFFFF" />
-                    ) : editingField === 'company' ? (
-                      <User size={20} color="#FFFFFF" />
-                    ) : editingField === 'experience' ? (
-                      <Award size={20} color="#FFFFFF" />
-                    ) : editingField === 'location' ? (
-                      <MapPin size={20} color="#FFFFFF" />
-                    ) : (
-                      <Edit size={20} color="#FFFFFF" />
-                    )}
-                  </LinearGradient>
-                  <View style={styles.editModalTitleContainer}>
-                    <Text style={styles.editModalTitle}>
+                    <X size={22} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.editModalContent}>
+                  <View style={styles.editInputWrapper}>
+                    <Text style={styles.editInputLabel}>
                       {getFieldLabel(editingField || '')}
                     </Text>
-                    <Text style={styles.editModalSubtitle}>
-                      Modifier votre {getFieldLabel(editingField || '').toLowerCase()}
-                    </Text>
+                    <View style={styles.editInputContainer}>
+                      <TextInput
+                        style={styles.editTextInput}
+                        placeholder={`Saisir ${getFieldLabel(editingField || '').toLowerCase()}`}
+                        placeholderTextColor="#475569"
+                        value={tempValue}
+                        onChangeText={setTempValue}
+                        secureTextEntry={editingField === 'password'}
+                        keyboardType={editingField === 'experience' ? 'numeric' : editingField === 'email' ? 'email-address' : editingField === 'phone' ? 'phone-pad' : 'default'}
+                        autoCapitalize={editingField === 'email' ? 'none' : 'words'}
+                        autoFocus
+                      />
+                    </View>
+                    {editingField === 'password' && (
+                      <Text style={styles.editInputHint}>
+                        Le mot de passe doit contenir au moins 6 caractères
+                      </Text>
+                    )}
+                    {editingField === 'name' && (
+                      <Text style={styles.editInputHint}>
+                        Format: Prénom Nom (ex: Pierre Dupont)
+                      </Text>
+                    )}
+                    {editingField === 'experience' && (
+                      <Text style={styles.editInputHint}>
+                        Nombre d'années entre 0 et 99
+                      </Text>
+                    )}
                   </View>
                 </View>
-                <TouchableOpacity
-                  style={styles.editModalCloseButton}
-                  onPress={handleCancelEdit}
-                >
-                  <X size={22} color="#64748B" />
-                </TouchableOpacity>
-              </View>
 
-              <View style={styles.editModalContent}>
-                <View style={styles.editInputWrapper}>
-                  <Text style={styles.editInputLabel}>
-                    {getFieldLabel(editingField || '')}
-                  </Text>
-                  <View style={styles.editInputContainer}>
-                    <TextInput
-                      style={styles.editTextInput}
-                      placeholder={`Saisir ${getFieldLabel(editingField || '').toLowerCase()}`}
-                      placeholderTextColor="#475569"
-                      value={tempValue}
-                      onChangeText={setTempValue}
-                      secureTextEntry={editingField === 'password'}
-                      keyboardType={editingField === 'experience' ? 'numeric' : editingField === 'email' ? 'email-address' : editingField === 'phone' ? 'phone-pad' : 'default'}
-                      autoCapitalize={editingField === 'email' ? 'none' : 'words'}
-                      autoFocus
-                    />
-                  </View>
-                  {editingField === 'password' && (
-                    <Text style={styles.editInputHint}>
-                      Le mot de passe doit contenir au moins 6 caractères
-                    </Text>
-                  )}
-                  {editingField === 'name' && (
-                    <Text style={styles.editInputHint}>
-                      Format: Prénom Nom (ex: Pierre Dupont)
-                    </Text>
-                  )}
-                  {editingField === 'experience' && (
-                    <Text style={styles.editInputHint}>
-                      Nombre d'années entre 0 et 99
-                    </Text>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.editModalActions}>
-                <TouchableOpacity
-                  style={styles.editCancelButton}
-                  onPress={handleCancelEdit}
-                >
-                  <Text style={styles.editCancelButtonText}>Annuler</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.editSaveButton}
-                  onPress={handleSaveField}
-                >
-                  <LinearGradient
-                    colors={['#10B981', '#059669']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.editSaveButtonGradient}
+                <View style={styles.editModalActions}>
+                  <TouchableOpacity
+                    style={styles.editCancelButton}
+                    onPress={handleCancelEdit}
                   >
-                    <Save size={18} color="#FFFFFF" />
-                    <Text style={styles.editSaveButtonText}>Enregistrer</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
+                    <Text style={styles.editCancelButtonText}>Annuler</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.editSaveButton}
+                    onPress={handleSaveField}
+                  >
+                    <LinearGradient
+                      colors={['#10B981', '#059669']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.editSaveButtonGradient}
+                    >
+                      <Save size={18} color="#FFFFFF" />
+                      <Text style={styles.editSaveButtonText}>Enregistrer</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

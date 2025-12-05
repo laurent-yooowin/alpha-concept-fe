@@ -320,11 +320,12 @@ export default function LoginScreen() {
         transparent={true}
         onRequestClose={() => setShowRegisterModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalContainer}
-          >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalContainer}
+        >
+          <View style={styles.modalOverlay}>
+
             <LinearGradient
               colors={['#0F172A', '#1E293B']}
               style={styles.modalContent}
@@ -468,8 +469,8 @@ export default function LoginScreen() {
                 <Text style={styles.requiredText}>* Champs obligatoires</Text>
               </ScrollView>
             </LinearGradient>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -478,11 +479,11 @@ export default function LoginScreen() {
         transparent={true}
         onRequestClose={() => setShowForgotPasswordModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalContainer}
-          >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalContainer}
+        >
+          <View style={styles.modalOverlay}>
             <LinearGradient
               colors={['#0F172A', '#1E293B']}
               style={styles.modalContent}
@@ -533,8 +534,8 @@ export default function LoginScreen() {
                 </TouchableOpacity>
               </ScrollView>
             </LinearGradient>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -543,11 +544,11 @@ export default function LoginScreen() {
         transparent={true}
         onRequestClose={() => setShowResetPasswordModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.modalContainer}
-          >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalContainer}
+        >
+          <View style={styles.modalOverlay}>
             <LinearGradient
               colors={['#0F172A', '#1E293B']}
               style={styles.modalContent}
@@ -608,8 +609,8 @@ export default function LoginScreen() {
                 </TouchableOpacity>
               </ScrollView>
             </LinearGradient>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

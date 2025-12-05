@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -11,7 +12,8 @@ import {
   Alert,
   Image,
   ActivityIndicator,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -31,6 +33,7 @@ import * as MailComposer from 'expo-mail-composer';
 import { useAuth } from '@/contexts/AuthContext';
 import { missionService } from '@/services/missionService';
 import { MissionStatus } from '@/backend/src/missions/mission.entity';
+import { userService } from '@/services/userService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -42,6 +45,7 @@ interface Photo {
   aiAnalysis?: {
     observations: string[];
     recommendations: string[];
+    references: string[];
     riskLevel: 'low' | 'medium' | 'high';
     confidence: number;
   };
@@ -133,6 +137,7 @@ export default function VisiteScreen() {
       try {
         const missionData = JSON.parse(params.mission as string);
         selectMission(missionData);
+        // setMission(missionData);
       } catch (error) {
         console.error('Erreur parsing mission:', error);
       }
@@ -140,6 +145,22 @@ export default function VisiteScreen() {
 
     loadAvailableMissions();
   }, [params.mission]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (params.mission) {
+        try {
+          const missionData = JSON.parse(params.mission as string);
+          selectMission(missionData);
+          // setMission(missionData);
+        } catch (error) {
+          console.error('Erreur parsing mission:', error);
+        }
+      }
+
+      loadAvailableMissions();
+    }, [])
+  );
 
   const loadUserProfile = async () => {
     try {
@@ -253,9 +274,9 @@ export default function VisiteScreen() {
       setVisitNotes('');
       setReportValidated(false);
       // console.log('selectedMission >>> ', selectedMission)
-      await loadExistingVisitData(selectedMission.id);
     }
-    setMission(selectedMission);
+    await loadExistingVisitData(selectedMission.id);
+    // setMission(selectedMission);
   };
 
   const loadExistingVisitData = async (missionId: number) => {
@@ -265,6 +286,15 @@ export default function VisiteScreen() {
       }
       setLoadingMission(true);
       const response = await visitService.getVisits(missionId);
+      const mission = await missionService.getMission(missionId);
+      setMission({
+        ...mission.data, contact: {
+          firstName: mission.data.contactFirstName || '',
+          lastName: mission.data.contactLastName || '',
+          email: mission.data.contactEmail || '',
+          phone: mission.data.contactPhone || ''
+        }
+      });
       // console.log('getVisits - response.data >>> ', response.data)
 
       if (response.data && response.data.length > 0) {
@@ -298,8 +328,8 @@ export default function VisiteScreen() {
               'high': 'high'
             };
 
-            const observationText = photo.analysis?.observation || '';
-            const recommendationText = photo.analysis?.recommendation || '';
+            // const observationText = photo.analysis?.observation || [];
+            // const recommendationText = photo.analysis?.recommendation || [];
             // 📁 Chemin local prévu pour cette image
             const fileName = photo.uri.split('/').pop();
             const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
@@ -352,7 +382,21 @@ export default function VisiteScreen() {
               Alert.alert("La photo n'a pas pu être telechargé");
             }
 
-            console.log('photo.analysis?.references', photo.analysis?.references);
+            // console.log('photo.analysis?.references', photo.analysis?.references);
+            let refs = photo.analysis?.references;
+            if (refs && !Array.isArray(refs)) {
+              refs = refs.split(', ').filter((s: string) => s.length > 0);
+            }
+
+            let observations = photo.analysis?.observation;
+            if (observations && !Array.isArray(observations)) {
+              observations = observations.split(', ').filter((s: string) => s.length > 0);
+            }
+
+            let recommendations = photo.analysis?.recommendation;
+            if (recommendations && !Array.isArray(recommendations)) {
+              recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+            }
 
             return {
               id: photo.id || `photo-${Date.now()}-${Math.random()}`,
@@ -360,9 +404,9 @@ export default function VisiteScreen() {
               s3Url: photo.s3Url,
               timestamp: new Date(photo.createdAt || Date.now()),
               aiAnalysis: photo.analysis ? {
-                observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
-                recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
-                references: photo.analysis?.references ? (photo.analysis.references.split('. ').filter((s: string) => s.length > 0)) : [],
+                observations: observations ? observations : [],
+                recommendations: recommendations ? recommendations : [],
+                references: refs || [],
                 riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
                 confidence: (photo.analysis.confidence || 0)
               } : undefined,
@@ -411,14 +455,39 @@ export default function VisiteScreen() {
       if (response.data) {
         const nonPhotoConfiormityMsgExists = response.data.nonConformities && response.data.nonConformities.length > 0;
         const conformityMsgExist = response.data.photoConformityMessage && response.data.photoConformityMessage.trim() != "";
+        let refs = response.data.references;
+        if (refs && !Array.isArray(refs)) {
+          refs = refs.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let observations = response.data.observations;
+        if (observations && !Array.isArray(observations)) {
+          observations = observations.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let nonConformities = response.data.nonConformities;
+        if (nonConformities && !Array.isArray(nonConformities)) {
+          nonConformities = nonConformities.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let photoConformityMessage = response.data.photoConformityMessage;
+        if (photoConformityMessage && !Array.isArray(photoConformityMessage)) {
+          photoConformityMessage = photoConformityMessage.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let recommendations = response.data.recommendations;
+        if (recommendations && !Array.isArray(recommendations)) {
+          recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+        }
+        console.log('observations >>> : ', observations);
         return {
-          observations: nonPhotoConfiormityMsgExists ? response.data.nonConformities : [response.data.photoConformityMessage || ""],
-          recommendations: response.data.recommendations,
+          observations: nonPhotoConfiormityMsgExists ? nonConformities : photoConformityMessage || observations,
+          recommendations: recommendations,
           riskLevel: response.data.riskLevel === 'faible' ? 'low' : response.data.riskLevel === 'moyen' ? 'medium' : 'high',
           confidence: parseInt(response.data.confidence || 0),
           photoConformity: conformityMsgExist ? false : response.data.photoConformity || true,
           photoConformityMessage: response.data.photoConformityMessage || "",
-          references: response.data.references || [],
+          references: refs || [],
         };
       }
     } catch (error) {
@@ -474,6 +543,7 @@ export default function VisiteScreen() {
 
     return analyses[Math.floor(Math.random() * analyses.length)];
   };
+
   const analyzePhotoWithDirectives = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
     setHasChanges(true);
     setReportSaved(false);
@@ -487,14 +557,39 @@ export default function VisiteScreen() {
       if (response.data) {
         const nonPhotoConfiormityMsgExists = response.data.nonConformities && response.data.nonConformities.length > 0;
         const conformityMsgExist = response.data.photoConformityMessage && response.data.photoConformityMessage.trim() != "";
+        let refs = response.data.references;
+        if (refs && !Array.isArray(refs)) {
+          refs = refs.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let observations = response.data.observations;
+        if (observations && !Array.isArray(observations)) {
+          observations = observations.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let nonConformities = response.data.nonConformities;
+        if (nonConformities && !Array.isArray(nonConformities)) {
+          nonConformities = nonConformities.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let photoConformityMessage = response.data.photoConformityMessage;
+        if (photoConformityMessage && !Array.isArray(photoConformityMessage)) {
+          photoConformityMessage = photoConformityMessage.split(', ').filter((s: string) => s.length > 0);
+        }
+
+        let recommendations = response.data.recommendations;
+        if (recommendations && !Array.isArray(recommendations)) {
+          recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+        }
+
         return {
-          observations: nonPhotoConfiormityMsgExists ? response.data.nonConformities : [response.data.photoConformityMessage || ""],
-          recommendations: response.data.recommendations,
+          observations: nonPhotoConfiormityMsgExists ? nonConformities : photoConformityMessage || observations,
+          recommendations: recommendations,
           riskLevel: response.data.riskLevel === 'faible' ? 'low' : response.data.riskLevel === 'moyen' ? 'medium' : 'high',
           confidence: parseInt(response.data.confidence || 0),
           photoConformity: conformityMsgExist ? false : response.data.photoConformity || true,
           photoConformityMessage: response.data.photoConformityMessage || "",
-          references: response.data.references || [],
+          references: refs || [],
         };
       }
     } catch (error) {
@@ -802,8 +897,8 @@ export default function VisiteScreen() {
         uri: p.uri,
         s3Url: p.s3Url,
         analysis: {
-          observation: p.aiAnalysis?.observations?.join(', ') || '',
-          recommendation: p.aiAnalysis?.recommendations?.join(', ') || '',
+          observation: p.aiAnalysis?.observations || [],
+          recommendation: p.aiAnalysis?.recommendations || [],
           riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
             p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
               'faible' as const,
@@ -943,6 +1038,7 @@ export default function VisiteScreen() {
 
     setGeneratingReport(true);
     setReportSaved(false);
+    setReportSended(false);
 
     // Simulation de génération de rapport
     await new Promise(resolve => setTimeout(resolve, 3000));
@@ -974,12 +1070,12 @@ Photo ${index + 1} - Niveau de risque: ${photo.aiAnalysis.riskLevel.toUpperCase(
 📸 Photo: ${photo.s3Url}
 
 Observations:
-${photo.aiAnalysis?.observations.map(obs => `• ${obs}`).join('\n')}
+${photo.aiAnalysis?.observations?.map(obs => `• ${obs}`).join('\n')}
 
 Recommandations:
-${(photo.aiAnalysis?.recommendations.map(rec => `• ${rec}`)) || [].join('\n')}
+${(photo.aiAnalysis?.recommendations?.map(rec => `• ${rec}`)) || [].join('\n')}
 
-${photo.aiAnalysis?.references ? `🏛️ Références : ${photo.aiAnalysis.references}` : ''}
+${photo.aiAnalysis?.references ? `🏛️ Références : ${photo.aiAnalysis.references?.map(obs => `• ${obs}`).join('\n')}` : ''}
 
 ${photo.userComments ? `💬 Commentaires du coordonnateur: ${photo.userComments}` : ''}
 
@@ -1019,9 +1115,9 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
       if (photoSection && editingReport) {
         const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-        const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
+        const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
         const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
-        const refsRegex = /🏛️\s*Références :\s*([\s\S]*)/i;
+        const refsRegex = /🏛️\s*Références:\s*([\s\S]*?)(?=\n💬\s*Commentaires du coordonnateur:|$)/i;
 
         const observationsMatch = photoSection.match(obsRegex);
         const recommendationsMatch = photoSection.match(recRegex);
@@ -1040,7 +1136,11 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
         const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
-        const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
+        const references = refsMatch?.[1]
+          ?.split('•')
+          .map(s => s.trim())
+          .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
+        // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
         return {
           ...photo,
@@ -1096,6 +1196,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     }
     setIsSavingReport(true);
     setReportSaved(false);
+    setReportSended(false);
 
     try {
       const conformity = Math.round(
@@ -1108,18 +1209,19 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
       );
 
       // 1. Save visit to backend
+
       const visitPhotos = photos.map(p => ({
         id: p.id,
         uri: p.uri,
         s3Url: p.s3Url,
         analysis: {
-          observation: p.aiAnalysis?.observations?.join(', ') || '',
-          recommendation: p.aiAnalysis?.recommendations?.join(', ') || '',
+          observation: p.aiAnalysis?.observations || [],
+          recommendation: p.aiAnalysis?.recommendations || [],
           riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
             p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
               'faible' as const,
           confidence: p.aiAnalysis?.confidence || 0,
-          references: p.aiAnalysis?.references?.join(', ') || ''
+          references: p.aiAnalysis?.references || []
         },
         comment: p.userComments,
         userDirectives: p.userDirectives,
@@ -1327,6 +1429,8 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
           body: body,
         };
 
+        console.log('mailOptions mission >>> : ', mission);
+
         if (pdfPath) {
           mailOptions.attachments = [pdfPath] // pièce jointe
         }
@@ -1345,16 +1449,20 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
           await missionService.updateMission(mission.id, {
             status: 'terminee' as MissionStatus
           });
+          setSelectedMission(prev => prev ? { ...prev, status: 'terminee' } : null);
           mission.status = 'terminee';
           setReportStatus('envoye_au_client');
+          await loadAvailableMissions();
+          setShowPdfLoadingModal(false);
+          setReportSended(true);
           Alert.alert('Rapport envoyé au client', "Le rapport a été envoyé au client et mis à jours dans le serveur avec succès.");
           // return true;
-          setShowPdfLoadingModal(false);
           setShowReportModal(false);
-          setReportSended(true);
         } catch (error) {
+          console.error('Erreur sauvegarde rapport:', error);
           Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
           setShowReportModal(false);
+          setShowPdfLoadingModal(false);
           // return false;
         }
       }
@@ -1413,69 +1521,79 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
 
         {/* Mission Selector Modal */}
         <Modal visible={showMissionSelector} animationType="slide" transparent>
-          <View style={styles.missionSelectorOverlay}>
-            <View style={styles.missionSelectorModal}>
-              <LinearGradient
-                colors={['#1E293B', '#374151']}
-                style={styles.missionSelectorGradient}
-              >
-                <View style={styles.missionSelectorHeader}>
-                  <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE MISSION</Text>
-                  <TouchableOpacity
-                    style={styles.closeMissionSelectorButton}
-                    onPress={() => setShowMissionSelector(false)}
-                  >
-                    <X size={20} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView style={styles.missionSelectorContent} showsVerticalScrollIndicator={false}>
-                  {availableMissions.map((availableMission) => (
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1, justifyContent: 'flex-end' }}
+          >
+            <View style={styles.missionSelectorOverlay}>
+              <View style={styles.missionSelectorModal}>
+                <LinearGradient
+                  colors={['#1E293B', '#374151']}
+                  style={styles.missionSelectorGradient}
+                >
+                  <View style={styles.missionSelectorHeader}>
+                    <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE MISSION</Text>
                     <TouchableOpacity
-                      key={availableMission.id}
-                      style={styles.missionSelectorItem}
-                      onPress={() => selectMission(availableMission)}
+                      style={styles.closeMissionSelectorButton}
+                      onPress={() => setShowMissionSelector(false)}
                     >
-                      <LinearGradient
-                        colors={['#374151', '#4B5563']}
-                        style={styles.missionSelectorItemGradient}
-                      >
-                        <View style={styles.missionSelectorItemContent}>
-                          <View style={styles.missionSelectorItemLeft}>
-                            <Text style={styles.missionSelectorItemTitle}>{availableMission.title}</Text>
-                            <Text style={styles.missionSelectorItemClient}>{availableMission.client}</Text>
-                            <Text style={styles.missionSelectorItemLocation}>{availableMission.location}</Text>
-                          </View>
-                          <View style={styles.missionSelectorItemRight}>
-                            <Text style={styles.missionSelectorItemType}>{availableMission.type}</Text>
-                            <ArrowRight size={16} color="#94A3B8" />
-                          </View>
-                        </View>
-                      </LinearGradient>
+                      <X size={20} color="#FFFFFF" />
                     </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </LinearGradient>
+                  </View>
+
+                  <ScrollView style={styles.missionSelectorContent} showsVerticalScrollIndicator={false}>
+                    {availableMissions.map((availableMission) => (
+                      <TouchableOpacity
+                        key={availableMission.id}
+                        style={styles.missionSelectorItem}
+                        onPress={() => selectMission(availableMission)}
+                      >
+                        <LinearGradient
+                          colors={['#374151', '#4B5563']}
+                          style={styles.missionSelectorItemGradient}
+                        >
+                          <View style={styles.missionSelectorItemContent}>
+                            <View style={styles.missionSelectorItemLeft}>
+                              <Text style={styles.missionSelectorItemTitle}>{availableMission.title}</Text>
+                              <Text style={styles.missionSelectorItemClient}>{availableMission.client}</Text>
+                              <Text style={styles.missionSelectorItemLocation}>{availableMission.location}</Text>
+                            </View>
+                            <View style={styles.missionSelectorItemRight}>
+                              <Text style={styles.missionSelectorItemType}>{availableMission.type}</Text>
+                              <ArrowRight size={16} color="#94A3B8" />
+                            </View>
+                          </View>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </LinearGradient>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Loading Mission Modal */}
         <Modal visible={loadingMission} animationType="fade" transparent>
-          <View style={styles.pdfLoadingOverlay}>
-            <View style={styles.pdfLoadingModal}>
-              <LinearGradient
-                colors={['#8B5CF6', '#A855F7']}
-                style={styles.analyzingGradient}
-              >
-                <ActivityIndicator size={20} color="#FFFFFF" />
-                <Text style={styles.analyzingTitle}>CHARGEMENT EN COURS</Text>
-                <Text style={styles.analyzingSubtitle}>
-                  Chergement des détails de la mission avec les photos en cours ...
-                </Text>
-              </LinearGradient>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1, justifyContent: 'flex-end' }}
+          >
+            <View style={styles.pdfLoadingOverlay}>
+              <View style={styles.pdfLoadingModal}>
+                <LinearGradient
+                  colors={['#8B5CF6', '#A855F7']}
+                  style={styles.analyzingGradient}
+                >
+                  <ActivityIndicator size={20} color="#FFFFFF" />
+                  <Text style={styles.analyzingTitle}>CHARGEMENT EN COURS</Text>
+                  <Text style={styles.analyzingSubtitle}>
+                    Chergement des détails de la mission avec les photos en cours ...
+                  </Text>
+                </LinearGradient>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         <View style={styles.noMissionContainer}>
@@ -1552,6 +1670,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
             setPhotos([]);
             setReportContent('');
             setReportValidated(false);
+            setLoadingMission(false);
           }}
         >
           <X size={24} color="#FFFFFF" />
@@ -1762,489 +1881,504 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
 
       {/* Camera Modal */}
       <Modal visible={showCamera} animationType="slide">
-        <View style={styles.cameraContainer}>
-          <CameraView
-            ref={cameraRef}
-            style={styles.camera}
-            facing={facing}
-          >
-            <View style={styles.cameraOverlay}>
-              <View style={styles.cameraHeader}>
-                <TouchableOpacity
-                  style={styles.cameraCloseButton}
-                  onPress={() => setShowCamera(false)}
-                >
-                  <X size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-                <Text style={styles.cameraTitle}>PHOTO {photos.length + 1}/10</Text>
-                <TouchableOpacity
-                  style={styles.cameraFlipButton}
-                  onPress={() => setFacing(current => current === 'back' ? 'front' : 'back')}
-                >
-                  <RotateCcw size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.cameraFooter}>
-                <TouchableOpacity
-                  style={styles.captureButton}
-                  onPress={takePhoto}
-                >
-                  <LinearGradient
-                    colors={['#3B82F6', '#1D4ED8']}
-                    style={styles.captureButtonGradient}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.cameraContainer}>
+            <CameraView
+              ref={cameraRef}
+              style={styles.camera}
+              facing={facing}
+            >
+              <View style={styles.cameraOverlay}>
+                <View style={styles.cameraHeader}>
+                  <TouchableOpacity
+                    style={styles.cameraCloseButton}
+                    onPress={() => setShowCamera(false)}
                   >
-                    <Camera size={32} color="#FFFFFF" />
-                  </LinearGradient>
-                </TouchableOpacity>
+                    <X size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <Text style={styles.cameraTitle}>PHOTO {photos.length + 1}/10</Text>
+                  <TouchableOpacity
+                    style={styles.cameraFlipButton}
+                    onPress={() => setFacing(current => current === 'back' ? 'front' : 'back')}
+                  >
+                    <RotateCcw size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.cameraFooter}>
+                  <TouchableOpacity
+                    style={styles.captureButton}
+                    onPress={takePhoto}
+                  >
+                    <LinearGradient
+                      colors={['#3B82F6', '#1D4ED8']}
+                      style={styles.captureButtonGradient}
+                    >
+                      <Camera size={32} color="#FFFFFF" />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          </CameraView>
-        </View>
+            </CameraView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Photo Detail Modal */}
       <Modal visible={showPhotoDetail && !analyzingPhoto} animationType="slide" transparent>
-        <View style={styles.photoDetailOverlay}>
-          <View style={styles.photoDetailModal}>
-            <LinearGradient
-              colors={['#1E293B', '#374151']}
-              style={styles.photoDetailGradient}
-            >
-              {selectedPhoto && (
-                <>
-                  <View style={styles.photoDetailHeader}>
-                    <Text style={styles.photoDetailTitle}>
-                      PHOTO #{photos.findIndex(p => p.id === selectedPhoto.id) + 1}
-                    </Text>
-                    <View style={styles.photoDetailActions}>
-                      {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.photoDetailOverlay}>
+            <View style={styles.photoDetailModal}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.photoDetailGradient}
+              >
+                {selectedPhoto && (
+                  <>
+                    <View style={styles.photoDetailHeader}>
+                      <Text style={styles.photoDetailTitle}>
+                        PHOTO #{photos.findIndex(p => p.id === selectedPhoto.id) + 1}
+                      </Text>
+                      <View style={styles.photoDetailActions}>
+                        {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                          <TouchableOpacity
+                            style={styles.deletePhotoButton}
+                            onPress={() => deletePhoto(selectedPhoto)}
+                          >
+                            <Trash2 size={20} color="#EF4444" />
+                          </TouchableOpacity>
+                        )}
                         <TouchableOpacity
-                          style={styles.deletePhotoButton}
-                          onPress={() => deletePhoto(selectedPhoto)}
+                          style={styles.closePhotoDetailButton}
+                          onPress={() => setShowPhotoDetail(false)}
                         >
-                          <Trash2 size={20} color="#EF4444" />
+                          <X size={20} color="#FFFFFF" />
                         </TouchableOpacity>
-                      )}
-                      <TouchableOpacity
-                        style={styles.closePhotoDetailButton}
-                        onPress={() => setShowPhotoDetail(false)}
-                      >
-                        <X size={20} color="#FFFFFF" />
-                      </TouchableOpacity>
+                      </View>
                     </View>
-                  </View>
 
-                  <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false}>
-                    {/* Photo */}
-                    <Image source={{ uri: selectedPhoto.uri }} style={styles.detailPhotoImage} />
+                    <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false}>
+                      {/* Photo */}
+                      <Image source={{ uri: selectedPhoto.uri }} style={styles.detailPhotoImage} />
 
-                    {/* AI Analysis */}
-                    {selectedPhoto.aiAnalysis ? (
-                      <View style={styles.aiAnalysisSection}>
-                        <View style={styles.aiAnalysisHeader}>
-                          <Sparkles size={20} color="#8B5CF6" />
-                          <Text style={styles.aiAnalysisTitle}>ANALYSE IA</Text>
-                          <View style={[
-                            styles.riskBadgeDetail,
-                            { backgroundColor: getRiskColor(selectedPhoto.aiAnalysis.riskLevel) }
-                          ]}>
-                            <Text style={styles.riskTextDetail}>
-                              {getRiskLabel(selectedPhoto.aiAnalysis.riskLevel)}
-                            </Text>
+                      {/* AI Analysis */}
+                      {selectedPhoto.aiAnalysis ? (
+                        <View style={styles.aiAnalysisSection}>
+                          <View style={styles.aiAnalysisHeader}>
+                            <Sparkles size={20} color="#8B5CF6" />
+                            <Text style={styles.aiAnalysisTitle}>ANALYSE IA</Text>
+                            <View style={[
+                              styles.riskBadgeDetail,
+                              { backgroundColor: getRiskColor(selectedPhoto.aiAnalysis.riskLevel) }
+                            ]}>
+                              <Text style={styles.riskTextDetail}>
+                                {getRiskLabel(selectedPhoto.aiAnalysis.riskLevel)}
+                              </Text>
+                            </View>
                           </View>
+
+                          <Text style={styles.confidenceDetail}>
+                            Confiance: {selectedPhoto.aiAnalysis.confidence}%
+                          </Text>
+
+                          {/* Observations */}
+                          {selectedPhoto.aiAnalysis?.observations && <View style={styles.analysisBlock}>
+                            <Text style={styles.analysisBlockTitle}>OBSERVATIONS</Text>
+                            {selectedPhoto.aiAnalysis?.observations?.map((obs, index) => (
+                              <View key={index} style={styles.analysisItem}>
+                                <Eye size={14} color="#94A3B8" />
+                                <Text style={styles.analysisText}>{obs}</Text>
+                              </View>
+                            ))}
+                          </View>}
+
+                          {/* Recommendations */}
+                          {selectedPhoto.aiAnalysis?.recommendations && <View style={styles.analysisBlock}>
+                            <Text style={styles.analysisBlockTitle}>RECOMMANDATIONS</Text>
+                            {selectedPhoto.aiAnalysis?.recommendations?.map((rec, index) => (
+                              <View key={index} style={styles.analysisItem}>
+                                <AlertTriangle size={14} color="#F59E0B" />
+                                <Text style={styles.analysisText}>{rec}</Text>
+                              </View>
+                            ))}
+                          </View>}
+                          {/* Recommendations */}
+                          {selectedPhoto.aiAnalysis?.references && <View style={styles.analysisBlock}>
+                            <Text style={styles.analysisBlockTitle}>REFERENCES</Text>
+                            {selectedPhoto.aiAnalysis?.references?.map((ref, index) => (
+                              <View key={index} style={styles.analysisItem}>
+                                <NotebookPen size={14} color="#F59E0B" />
+                                <Text style={styles.analysisText}>{ref}</Text>
+                              </View>
+                            ))}
+                          </View>}
+                        </View>
+                      ) : (
+                        <View style={styles.analyzingDetailContainer}>
+                          <ActivityIndicator size={24} color="#8B5CF6" />
+                          <Text style={styles.analyzingDetailText}>Analyse IA en cours...</Text>
+                        </View>
+                      )}
+
+                      {/* User DIRECTIVES */}
+                      <View style={styles.commentsSection}>
+                        <View style={styles.commentsSectionHeader}>
+                          <Text style={styles.commentsSectionTitle}>DIRECTIVES</Text>
+                          {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                            <TouchableOpacity
+                              style={styles.editCommentsButton}
+                              onPress={() => setEditingDirectives(true)}
+                            >
+                              <NotebookPen size={16} color="#3B82F6" />
+                            </TouchableOpacity>
+                          )}
                         </View>
 
-                        <Text style={styles.confidenceDetail}>
-                          Confiance: {selectedPhoto.aiAnalysis.confidence}%
-                        </Text>
+                        {editingDirectives && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
+                          <View style={styles.commentsEditContainer}>
+                            <TextInput
+                              style={styles.commentsInput}
+                              placeholder="Ajoutez vos directives ..."
+                              placeholderTextColor="#64748B"
+                              value={tempDirectives}
+                              onChangeText={setTempDirectives}
+                              multiline
+                              numberOfLines={4}
+                              textAlignVertical="top"
+                            />
+                            <View style={styles.commentsActions}>
+                              <TouchableOpacity
+                                style={styles.cancelCommentsButton}
+                                onPress={() => {
+                                  setEditingDirectives(false);
+                                  setTempDirectives(selectedPhoto.userDirectives);
+                                }}
+                              >
+                                <LinearGradient
+                                  colors={['#1e293be2', '#1E293B']}
+                                  style={styles.saveCommentsGradient}
+                                >
+                                  {/* <Check size={16} color="#FFFFFF" /> */}
+                                  <Text style={styles.cancelCommentsText}>Annuler</Text>
+                                </LinearGradient>
+                              </TouchableOpacity>
 
-                        {/* Observations */}
-                        {selectedPhoto.aiAnalysis?.observations && <View style={styles.analysisBlock}>
-                          <Text style={styles.analysisBlockTitle}>OBSERVATIONS</Text>
-                          {selectedPhoto.aiAnalysis?.observations.map((obs, index) => (
-                            <View key={index} style={styles.analysisItem}>
-                              <Eye size={14} color="#94A3B8" />
-                              <Text style={styles.analysisText}>{obs}</Text>
-                            </View>
-                          ))}
-                        </View>}
+                              <TouchableOpacity
+                                style={styles.saveCommentsButton}
+                                onPress={saveDirectives}
+                              >
+                                <LinearGradient
+                                  colors={['#10B981', '#059669']}
+                                  style={styles.saveCommentsGradient}
+                                >
+                                  {/* <Check size={16} color="#FFFFFF" /> */}
+                                  <Text style={styles.saveCommentsText}>{`Sauvegarder \ndirectives`}</Text>
+                                </LinearGradient>
+                              </TouchableOpacity>
 
-                        {/* Recommendations */}
-                        {selectedPhoto.aiAnalysis?.recommendations && <View style={styles.analysisBlock}>
-                          <Text style={styles.analysisBlockTitle}>RECOMMANDATIONS</Text>
-                          {selectedPhoto.aiAnalysis?.recommendations.map((rec, index) => (
-                            <View key={index} style={styles.analysisItem}>
-                              <AlertTriangle size={14} color="#F59E0B" />
-                              <Text style={styles.analysisText}>{rec}</Text>
+                              {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && <TouchableOpacity
+                                style={styles.saveCommentsButton}
+                                onPress={() => addDirectivesAndAnalyseAI()}
+                              >
+                                <LinearGradient
+                                  colors={['#10B981', '#059669']}
+                                  style={styles.saveCommentsGradient}
+                                >
+                                  {/* <Check size={16} color="#FFFFFF" /> */}
+                                  <Text style={styles.saveCommentsText}>{`Regénérer \n rapport`}</Text>
+                                </LinearGradient>
+                              </TouchableOpacity>}
                             </View>
-                          ))}
-                        </View>}
-                        {/* Recommendations */}
-                        {selectedPhoto.aiAnalysis?.references && <View style={styles.analysisBlock}>
-                          <Text style={styles.analysisBlockTitle}>REFERENCES</Text>
-                          {selectedPhoto.aiAnalysis?.references.map((ref, index) => (
-                            <View key={index} style={styles.analysisItem}>
-                              <NotebookPen size={14} color="#F59E0B" />
-                              <Text style={styles.analysisText}>{ref}</Text>
-                            </View>
-                          ))}
-                        </View>}
+                          </View>
+                        ) : (
+                          <View style={styles.commentsDisplay}>
+                            {selectedPhoto.userDirectives ? (
+                              <Text style={styles.commentsText}>{selectedPhoto.userDirectives}</Text>
+                            ) : (
+                              <Text style={styles.noCommentsText}>Aucun commentaire ajouté</Text>
+                            )}
+                          </View>
+                        )}
                       </View>
-                    ) : (
-                      <View style={styles.analyzingDetailContainer}>
-                        <ActivityIndicator size={24} color="#8B5CF6" />
-                        <Text style={styles.analyzingDetailText}>Analyse IA en cours...</Text>
+
+                      {/* User Comments */}
+                      <View style={styles.commentsSection}>
+                        <View style={styles.commentsSectionHeader}>
+                          <Text style={styles.commentsSectionTitle}>COMMENTAIRES</Text>
+                          {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                            <TouchableOpacity
+                              style={styles.editCommentsButton}
+                              onPress={() => setEditingComments(true)}
+                            >
+                              <Edit3 size={16} color="#3B82F6" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+
+                        {editingComments && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
+                          <View style={styles.commentsEditContainer}>
+                            <TextInput
+                              style={styles.commentsInput}
+                              placeholder="Ajoutez vos commentaires..."
+                              placeholderTextColor="#64748B"
+                              value={tempComments}
+                              onChangeText={setTempComments}
+                              multiline
+                              numberOfLines={4}
+                              textAlignVertical="top"
+                            />
+                            <View style={styles.commentsActions}>
+                              <TouchableOpacity
+                                style={styles.cancelCommentsButton}
+                                onPress={() => {
+                                  setEditingComments(false);
+                                  setTempComments(selectedPhoto.userComments);
+                                  setTempDirectives(selectedPhoto.userDirectives);
+                                }}
+                              >
+                                <LinearGradient
+                                  colors={['#1e293be2', '#1E293B']}
+                                  style={styles.saveCommentsGradient}
+                                >
+                                  {/* <Check size={16} color="#FFFFFF" /> */}
+                                  <Text style={styles.cancelCommentsText}>Annuler</Text>
+                                </LinearGradient>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                style={styles.saveCommentsButton}
+                                onPress={saveComments}
+                              >
+                                <LinearGradient
+                                  colors={['#10B981', '#059669']}
+                                  style={styles.saveCommentsGradient}
+                                >
+                                  {/* <Check size={16} color="#FFFFFF" /> */}
+                                  <Text style={styles.saveCommentsText}>{`Sauvegarder \ncommentaires`}</Text>
+                                </LinearGradient>
+                              </TouchableOpacity>
+
+                              {/* <TouchableOpacity
+                                style={styles.saveCommentsButton}
+                                onPress={() => addDirectivesAndAnalyseAI()}
+                              >
+                                <LinearGradient
+                                  colors={['#10B981', '#059669']}
+                                  style={styles.saveCommentsGradient}
+                                >
+                                  
+                                  <Text style={styles.saveCommentsText}>{`Regénérer \n rapport`}</Text>
+                                </LinearGradient>
+                              </TouchableOpacity> */}
+                            </View>
+                          </View>
+                        ) : (
+                          <View style={styles.commentsDisplay}>
+                            {selectedPhoto.userComments ? (
+                              <Text style={styles.commentsText}>{selectedPhoto.userComments}</Text>
+                            ) : (
+                              <Text style={styles.noCommentsText}>Aucune directives ajouté</Text>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    </ScrollView>
+
+                    {/* Validation Button */}
+                    {selectedPhoto.aiAnalysis && !selectedPhoto.validated && false && (
+                      <View style={styles.photoDetailFooter}>
+                        <TouchableOpacity
+                          style={styles.validatePhotoButton}
+                          onPress={() => validatePhoto(selectedPhoto.id)}
+                        >
+                          <LinearGradient
+                            colors={['#10B981', '#059669']}
+                            style={styles.validatePhotoGradient}
+                          >
+                            <CheckCircle size={20} color="#FFFFFF" />
+                            <Text style={styles.validatePhotoText}>VALIDER L'ANALYSE</Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
                       </View>
                     )}
-
-                    {/* User DIRECTIVES */}
-                    <View style={styles.commentsSection}>
-                      <View style={styles.commentsSectionHeader}>
-                        <Text style={styles.commentsSectionTitle}>DIRECTIVES</Text>
-                        {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
-                          <TouchableOpacity
-                            style={styles.editCommentsButton}
-                            onPress={() => setEditingDirectives(true)}
-                          >
-                            <NotebookPen size={16} color="#3B82F6" />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-
-                      {editingDirectives && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
-                        <View style={styles.commentsEditContainer}>
-                          <TextInput
-                            style={styles.commentsInput}
-                            placeholder="Ajoutez vos directives ..."
-                            placeholderTextColor="#64748B"
-                            value={tempDirectives}
-                            onChangeText={setTempDirectives}
-                            multiline
-                            numberOfLines={4}
-                            textAlignVertical="top"
-                          />
-                          <View style={styles.commentsActions}>
-                            <TouchableOpacity
-                              style={styles.cancelCommentsButton}
-                              onPress={() => {
-                                setEditingDirectives(false);
-                                setTempDirectives(selectedPhoto.userDirectives);
-                              }}
-                            >
-                              <LinearGradient
-                                colors={['#1e293be2', '#1E293B']}
-                                style={styles.saveCommentsGradient}
-                              >
-                                {/* <Check size={16} color="#FFFFFF" /> */}
-                                <Text style={styles.cancelCommentsText}>Annuler</Text>
-                              </LinearGradient>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={styles.saveCommentsButton}
-                              onPress={saveDirectives}
-                            >
-                              <LinearGradient
-                                colors={['#10B981', '#059669']}
-                                style={styles.saveCommentsGradient}
-                              >
-                                {/* <Check size={16} color="#FFFFFF" /> */}
-                                <Text style={styles.saveCommentsText}>{`Sauvegarder \ndirectives`}</Text>
-                              </LinearGradient>
-                            </TouchableOpacity>
-
-                            {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && <TouchableOpacity
-                              style={styles.saveCommentsButton}
-                              onPress={() => addDirectivesAndAnalyseAI()}
-                            >
-                              <LinearGradient
-                                colors={['#10B981', '#059669']}
-                                style={styles.saveCommentsGradient}
-                              >
-                                {/* <Check size={16} color="#FFFFFF" /> */}
-                                <Text style={styles.saveCommentsText}>{`Regénérer \n rapport`}</Text>
-                              </LinearGradient>
-                            </TouchableOpacity>}
-                          </View>
-                        </View>
-                      ) : (
-                        <View style={styles.commentsDisplay}>
-                          {selectedPhoto.userDirectives ? (
-                            <Text style={styles.commentsText}>{selectedPhoto.userDirectives}</Text>
-                          ) : (
-                            <Text style={styles.noCommentsText}>Aucun commentaire ajouté</Text>
-                          )}
-                        </View>
-                      )}
-                    </View>
-
-                    {/* User Comments */}
-                    <View style={styles.commentsSection}>
-                      <View style={styles.commentsSectionHeader}>
-                        <Text style={styles.commentsSectionTitle}>COMMENTAIRES</Text>
-                        {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
-                          <TouchableOpacity
-                            style={styles.editCommentsButton}
-                            onPress={() => setEditingComments(true)}
-                          >
-                            <Edit3 size={16} color="#3B82F6" />
-                          </TouchableOpacity>
-                        )}
-                      </View>
-
-                      {editingComments && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
-                        <View style={styles.commentsEditContainer}>
-                          <TextInput
-                            style={styles.commentsInput}
-                            placeholder="Ajoutez vos commentaires..."
-                            placeholderTextColor="#64748B"
-                            value={tempComments}
-                            onChangeText={setTempComments}
-                            multiline
-                            numberOfLines={4}
-                            textAlignVertical="top"
-                          />
-                          <View style={styles.commentsActions}>
-                            <TouchableOpacity
-                              style={styles.cancelCommentsButton}
-                              onPress={() => {
-                                setEditingComments(false);
-                                setTempComments(selectedPhoto.userComments);
-                                setTempDirectives(selectedPhoto.userDirectives);
-                              }}
-                            >
-                              <LinearGradient
-                                colors={['#1e293be2', '#1E293B']}
-                                style={styles.saveCommentsGradient}
-                              >
-                                {/* <Check size={16} color="#FFFFFF" /> */}
-                                <Text style={styles.cancelCommentsText}>Annuler</Text>
-                              </LinearGradient>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={styles.saveCommentsButton}
-                              onPress={saveComments}
-                            >
-                              <LinearGradient
-                                colors={['#10B981', '#059669']}
-                                style={styles.saveCommentsGradient}
-                              >
-                                {/* <Check size={16} color="#FFFFFF" /> */}
-                                <Text style={styles.saveCommentsText}>{`Sauvegarder \ncommentaires`}</Text>
-                              </LinearGradient>
-                            </TouchableOpacity>
-
-                            {/* <TouchableOpacity
-                              style={styles.saveCommentsButton}
-                              onPress={() => addDirectivesAndAnalyseAI()}
-                            >
-                              <LinearGradient
-                                colors={['#10B981', '#059669']}
-                                style={styles.saveCommentsGradient}
-                              >
-                                
-                                <Text style={styles.saveCommentsText}>{`Regénérer \n rapport`}</Text>
-                              </LinearGradient>
-                            </TouchableOpacity> */}
-                          </View>
-                        </View>
-                      ) : (
-                        <View style={styles.commentsDisplay}>
-                          {selectedPhoto.userComments ? (
-                            <Text style={styles.commentsText}>{selectedPhoto.userComments}</Text>
-                          ) : (
-                            <Text style={styles.noCommentsText}>Aucune directives ajouté</Text>
-                          )}
-                        </View>
-                      )}
-                    </View>
-                  </ScrollView>
-
-                  {/* Validation Button */}
-                  {selectedPhoto.aiAnalysis && !selectedPhoto.validated && false && (
-                    <View style={styles.photoDetailFooter}>
-                      <TouchableOpacity
-                        style={styles.validatePhotoButton}
-                        onPress={() => validatePhoto(selectedPhoto.id)}
-                      >
-                        <LinearGradient
-                          colors={['#10B981', '#059669']}
-                          style={styles.validatePhotoGradient}
-                        >
-                          <CheckCircle size={20} color="#FFFFFF" />
-                          <Text style={styles.validatePhotoText}>VALIDER L'ANALYSE</Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </>
-              )}
-            </LinearGradient>
+                  </>
+                )}
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Report Modal */}
       <Modal visible={showReportModal && !analyzingPhoto} animationType="slide" transparent>
-        <View style={styles.reportModalOverlay}>
-          <View style={styles.reportModal}>
-            <LinearGradient
-              colors={['#1E293B', '#374151']}
-              style={styles.reportModalGradient}
-            >
-              <View style={styles.reportModalHeader}>
-                <Text style={styles.reportModalTitle}>RAPPORT DE VISITE  </Text>
-                <View style={styles.reportModalActions}>
-                  {(!mission || (mission as any).originalStatus !== 'terminee') && (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.reportModalOverlay}>
+            <View style={styles.reportModal}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.reportModalGradient}
+              >
+                <View style={styles.reportModalHeader}>
+                  <Text style={styles.reportModalTitle}>RAPPORT DE VISITE  </Text>
+                  <View style={styles.reportModalActions}>
+                    {(!mission || (mission as any).originalStatus !== 'terminee') && (
+                      <TouchableOpacity
+                        style={styles.editReportButton}
+                        onPress={() => { setReportSaved(false); setEditingReport(!editingReport) }}
+                      >
+                        <Edit3 size={20} color={editingReport ? "#F59E0B" : "#3B82F6"} />
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity
-                      style={styles.editReportButton}
-                      onPress={() => setEditingReport(!editingReport)}
+                      style={styles.closeReportButton}
+                      onPress={() => setShowReportModal(false)}
                     >
-                      <Edit3 size={20} color={editingReport ? "#F59E0B" : "#3B82F6"} />
+                      <X size={20} color="#FFFFFF" />
                     </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    style={styles.closeReportButton}
-                    onPress={() => setShowReportModal(false)}
-                  >
-                    <X size={20} color="#FFFFFF" />
-                  </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
 
-              <ScrollView style={styles.reportContent} showsVerticalScrollIndicator={false}>
-                {editingReport && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
-                  <View>
-                    <Text style={styles.editSectionLabel}>EN-TÊTE</Text>
-                    <TextInput
-                      style={styles.reportTextInput}
-                      value={reportHeader}
-                      onChangeText={setReportHeader}
-                      multiline
-                      numberOfLines={10}
-                      textAlignVertical="top"
-                      placeholder="En-tête du rapport..."
-                      placeholderTextColor="#64748B"
-                    />
-                    <Text style={styles.editSectionLabel}>OBSERVATIONS</Text>
-                    <TextInput
-                      style={styles.reportTextInput}
-                      value={reportContent}
-                      onChangeText={setReportContent}
-                      multiline
-                      numberOfLines={15}
-                      textAlignVertical="top"
-                      placeholder="Observations principales..."
-                      placeholderTextColor="#64748B"
-                    />
-                    <Text style={styles.editSectionLabel}>CONCLUSION</Text>
-                    <TextInput
-                      style={styles.reportTextInput}
-                      value={reportFooter}
-                      onChangeText={setReportFooter}
-                      multiline
-                      numberOfLines={10}
-                      textAlignVertical="top"
-                      placeholder="Conclusion et recommandations..."
-                      placeholderTextColor="#64748B"
-                    />
-                  </View>
-                ) : (
-                  <View>
-                    <Text style={styles.reportText}>{reportHeader}</Text>
-                    <View style={styles.reportPhotoSeparator} />
-                    {photos.map((photo, index) => (
-                      <View key={photo.id} style={styles.reportPhotoSection}>
-                        <Image
-                          source={{ uri: photo.uri }}
-                          style={styles.reportPhotoImage}
-                          resizeMode="cover"
-                        />
-                        <View style={styles.reportPhotoDetails}>
-                          <Text style={styles.reportPhotoTitle}>
-                            Photo {index + 1} - Niveau de risque: {photo.aiAnalysis?.riskLevel?.toUpperCase() || 'N/A'}
-                          </Text>
-                          {photo.aiAnalysis && (
-                            <>
-                              <Text style={styles.reportSectionTitle}>Observations:</Text>
-                              {photo.aiAnalysis?.observations.map((obs, i) => (
-                                <Text key={i} style={styles.reportListItem}>• {obs}</Text>
-                              ))}
-                              <Text style={styles.reportSectionTitle}>Recommandations:</Text>
-                              {photo.aiAnalysis?.recommendations.map((rec, i) => (
-                                <Text key={i} style={styles.reportListItem}>• {rec}</Text>
-                              ))}
-                              <Text style={styles.reportSectionTitle}>Références:</Text>
-                              {photo.aiAnalysis?.references.map((rec, i) => (
-                                <Text key={i} style={styles.reportListItem}>• {rec}</Text>
-                              ))}
-                            </>
-                          )}
-                          {photo.userComments && (
-                            <>
-                              <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
-                              <Text style={styles.reportCommentText}>{photo.userComments}</Text>
-                            </>
-                          )}
-                        </View>
-                        <View style={styles.reportPhotoSeparator} />
-                      </View>
-                    ))}
-                    <Text style={styles.reportText}>{reportFooter}</Text>
-                  </View>
-                )}
-              </ScrollView>
-              {
-                (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') &&
-                <View style={styles.reportModalFooter}>
-                  <TouchableOpacity
-                    style={[
-                      styles.validateReportButton,
-                      reportSaved && styles.validateReportButtonActive
-                    ]}
-                    onPress={saveReportAndVisit}
-                    disabled={isSavingReport || reportSended || reportSaved}
-                  >
-                    <View style={styles.validateReportContent}>
-                      {isSavingReport ? (
-                        <ActivityIndicator size={20} color={reportSaved ? "#ffffffff" : "#3B82F6"} />
-                      ) : reportSaved ? (
-                        <CheckCircle size={20} color="#FFFFFF" />
-                      ) : (
-                        <Save size={20} color="#3B82F6" />
-                      )}
-                      <Text style={[
-                        styles.validateReportText,
-                        reportSaved && styles.validateReportTextActive
-                      ]}>
-                        {isSavingReport ? 'Enregistrement...' : 'Enregistrer le rapport'}
-                      </Text>
+                <ScrollView style={styles.reportContent} showsVerticalScrollIndicator={false}>
+                  {editingReport && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
+                    <View>
+                      <Text style={styles.editSectionLabel}>EN-TÊTE</Text>
+                      <TextInput
+                        style={styles.reportTextInput}
+                        value={reportHeader}
+                        onChangeText={setReportHeader}
+                        multiline
+                        numberOfLines={10}
+                        textAlignVertical="top"
+                        placeholder="En-tête du rapport..."
+                        placeholderTextColor="#64748B"
+                      />
+                      <Text style={styles.editSectionLabel}>OBSERVATIONS</Text>
+                      <TextInput
+                        style={styles.reportTextInput}
+                        value={reportContent}
+                        onChangeText={setReportContent}
+                        multiline
+                        numberOfLines={15}
+                        textAlignVertical="top"
+                        placeholder="Observations principales..."
+                        placeholderTextColor="#64748B"
+                      />
+                      <Text style={styles.editSectionLabel}>CONCLUSION</Text>
+                      <TextInput
+                        style={styles.reportTextInput}
+                        value={reportFooter}
+                        onChangeText={setReportFooter}
+                        multiline
+                        numberOfLines={10}
+                        textAlignVertical="top"
+                        placeholder="Conclusion et recommandations..."
+                        placeholderTextColor="#64748B"
+                      />
                     </View>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.sendReportButton,
-                      !reportSended && styles.sendReportButtonDisabled
-                    ]}
-                    onPress={() => saveSendReport(true)}
-                    disabled={!reportSaved}
-                  >
-                    <LinearGradient
-                      colors={reportSended ? ['#10b981ec', '#10B981'] : ['#64748B', '#475569']}
-                      style={styles.sendReportGradient}
+                  ) : (
+                    <View>
+                      <Text style={styles.reportText}>{reportHeader}</Text>
+                      <View style={styles.reportPhotoSeparator} />
+                      {photos.map((photo, index) => (
+                        <View key={photo.id} style={styles.reportPhotoSection}>
+                          <Image
+                            source={{ uri: photo.uri }}
+                            style={styles.reportPhotoImage}
+                            resizeMode="cover"
+                          />
+                          <View style={styles.reportPhotoDetails}>
+                            <Text style={styles.reportPhotoTitle}>
+                              Photo {index + 1} - Niveau de risque: {photo.aiAnalysis?.riskLevel?.toUpperCase() || 'N/A'}
+                            </Text>
+                            {photo.aiAnalysis && (
+                              <>
+                                <Text style={styles.reportSectionTitle}>Observations:</Text>
+                                {photo.aiAnalysis?.observations?.map((obs, i) => (
+                                  <Text key={i} style={styles.reportListItem}>• {obs}</Text>
+                                ))}
+                                <Text style={styles.reportSectionTitle}>Recommandations:</Text>
+                                {photo.aiAnalysis?.recommendations?.map((rec, i) => (
+                                  <Text key={i} style={styles.reportListItem}>• {rec}</Text>
+                                ))}
+                                <Text style={styles.reportSectionTitle}>Références:</Text>
+                                {photo.aiAnalysis?.references && (Array.isArray(photo.aiAnalysis?.references)) && photo.aiAnalysis?.references.map((rec, i) => (
+                                  <Text key={i} style={styles.reportListItem}>• {rec}</Text>
+                                ))}
+                              </>
+                            )}
+                            {photo.userComments && (
+                              <>
+                                <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
+                                <Text style={styles.reportCommentText}>{photo.userComments}</Text>
+                              </>
+                            )}
+                          </View>
+                          <View style={styles.reportPhotoSeparator} />
+                        </View>
+                      ))}
+                      <Text style={styles.reportText}>{reportFooter}</Text>
+                    </View>
+                  )}
+                </ScrollView>
+                {
+                  (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') &&
+                  <View style={styles.reportModalFooter}>
+                    <TouchableOpacity
+                      style={[
+                        styles.validateReportButton,
+                        reportSaved && styles.validateReportButtonActive
+                      ]}
+                      onPress={saveReportAndVisit}
+                      disabled={isSavingReport || reportSended || reportSaved}
                     >
-                      <Send size={20} color="#FFFFFF" />
-                      <Text style={styles.sendReportText}>Envoyer</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              }
-            </LinearGradient>
+                      <View style={styles.validateReportContent}>
+                        {isSavingReport ? (
+                          <ActivityIndicator size={20} color={reportSaved ? "#ffffffff" : "#3B82F6"} />
+                        ) : reportSaved ? (
+                          <CheckCircle size={20} color="#FFFFFF" />
+                        ) : (
+                          <Save size={20} color="#3B82F6" />
+                        )}
+                        <Text style={[
+                          styles.validateReportText,
+                          reportSaved && styles.validateReportTextActive
+                        ]}>
+                          {isSavingReport ? 'Enregistrement...' : 'Enregistrer le rapport'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.sendReportButton,
+                        !reportSended && styles.sendReportButtonDisabled
+                      ]}
+                      onPress={() => saveSendReport(true)}
+                      disabled={!reportSaved}
+                    >
+                      <LinearGradient
+                        colors={reportSended ? ['#10b981ec', '#10B981'] : ['#64748B', '#475569']}
+                        style={styles.sendReportGradient}
+                      >
+                        <Send size={20} color="#FFFFFF" />
+                        <Text style={styles.sendReportText}>Envoyer</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                }
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Mission Selector Modal */}
@@ -2298,37 +2432,47 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
 
       {/* PDF Loading Modal */}
       <Modal visible={showPdfLoadingModal} animationType="fade" transparent>
-        <View style={styles.pdfLoadingOverlay}>
-          <View style={styles.pdfLoadingModal}>
-            <LinearGradient
-              colors={['#3B82F6', '#2563EB']}
-              style={styles.pdfLoadingGradient}
-            >
-              <FileText size={48} color="#FFFFFF" />
-              <Text style={styles.pdfLoadingTitle}>Génération du PDF</Text>
-              <Text style={styles.pdfLoadingText}>{pdfLoadingProgress}</Text>
-              <ActivityIndicator size="large" color="#FFFFFF" style={styles.pdfLoadingSpinner} />
-            </LinearGradient>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.pdfLoadingOverlay}>
+            <View style={styles.pdfLoadingModal}>
+              <LinearGradient
+                colors={['#3B82F6', '#2563EB']}
+                style={styles.pdfLoadingGradient}
+              >
+                <FileText size={48} color="#FFFFFF" />
+                <Text style={styles.pdfLoadingTitle}>Génération du PDF</Text>
+                <Text style={styles.pdfLoadingText}>{pdfLoadingProgress}</Text>
+                <ActivityIndicator size="large" color="#FFFFFF" style={styles.pdfLoadingSpinner} />
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* AI ANALYSING Loading Modal */}
       <Modal visible={analyzingPhoto} animationType="fade" transparent>
-        <View style={styles.pdfLoadingOverlay}>
-          <View style={styles.pdfLoadingModal}>
-            <LinearGradient
-              colors={['#8B5CF6', '#A855F7']}
-              style={styles.analyzingGradient}
-            >
-              <ActivityIndicator size={20} color="#FFFFFF" />
-              <Text style={styles.analyzingTitle}>ANALYSE IA EN COURS</Text>
-              <Text style={styles.analyzingSubtitle}>
-                L'analyse de la photo pour identifier les risques sécurité en cours ...
-              </Text>
-            </LinearGradient>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.pdfLoadingOverlay}>
+            <View style={styles.pdfLoadingModal}>
+              <LinearGradient
+                colors={['#8B5CF6', '#A855F7']}
+                style={styles.analyzingGradient}
+              >
+                <ActivityIndicator size={20} color="#FFFFFF" />
+                <Text style={styles.analyzingTitle}>ANALYSE IA EN COURS</Text>
+                <Text style={styles.analyzingSubtitle}>
+                  L'analyse de la photo pour identifier les risques sécurité en cours ...
+                </Text>
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

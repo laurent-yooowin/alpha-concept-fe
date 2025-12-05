@@ -13,7 +13,8 @@ import {
   Alert,
   Image,
   ActivityIndicator,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -145,6 +146,7 @@ export default function RapportsScreen() {
               reportHeader: report.header,
               reportFooter: report.footer,
               observations: report.observations,
+              recommendations: report.recommendations,
               reportFileUrl: report.reportFileUrl,
               validatedAt: report.validatedAt,
               sentToClientAt: report.sentToClientAt,
@@ -218,12 +220,14 @@ export default function RapportsScreen() {
 
     try {
       setIsSaving(true);
-      await reportService.updateReport(selectedReport.id, {
+      const report = await reportService.updateReport(selectedReport.id, {
         header: editedHeader,
         content: editedContent,
         footer: editedFooter,
         status: 'brouillon',
       });
+
+      setSelectedReport(prev => prev ? { ...prev, reportHeader: editedHeader, reportContent: editedContent, reportFooter: editedFooter } : null);
 
       if (selectedReport.visitId) {
         try {
@@ -239,31 +243,42 @@ export default function RapportsScreen() {
               // console.log('photoSection >>> :', photoSection);
 
               if (photoSection) {
+                // const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
+                // const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
+                // const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
+                // const refsRegex = /🏛️\s*Références :\s*([\s\S]*)/i;
+
                 const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-                const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
+                const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
                 const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
+                const refsRegex = /🏛️\s*Références:\s*([\s\S]*?)(?=\n💬\s*Commentaires du coordonnateur:|$)/i;
 
                 const observationsMatch = photoSection.match(obsRegex);
                 const recommendationsMatch = photoSection.match(recRegex);
                 const commentsMatch = photoSection.match(comRegex);
+                const refsMatch = photoSection.match(refsRegex);
 
                 const observations = observationsMatch?.[1]
                   ?.split('•')
                   .map(s => s.trim())
-                  .filter(s => s.length > 0)
-                  .join(', ') || photo.analysis?.observation || '';
+                  .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
 
                 const recommendations = recommendationsMatch?.[1]
                   ?.split('•')
                   .map(s => s.trim())
-                  .filter(s => s.length > 0)
-                  .join(', ') || photo.analysis?.recommendation || '';
+                  .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
 
                 const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
+                // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
                 // console.log('observationsMatch >>> :', observations);
                 // console.log('recommendationsMatch >>> :', recommendations);
                 // console.log('commentsMatch >>> :', comments);
+
+                const references = refsMatch?.[1]
+                  ?.split('•')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
 
                 return {
                   ...photo,
@@ -271,6 +286,7 @@ export default function RapportsScreen() {
                     ...photo.analysis,
                     observation: observations,
                     recommendation: recommendations,
+                    references: references,
                   },
                   comment: comments,
                 };
@@ -378,8 +394,20 @@ export default function RapportsScreen() {
                   'high': 'high'
                 };
 
-                const observationText = photo.analysis?.observation || '';
-                const recommendationText = photo.analysis?.recommendation || '';
+                let refs = photo.analysis?.references;
+                if (refs && !Array.isArray(refs)) {
+                  refs = refs.split(', ').filter((s: string) => s.length > 0);
+                }
+
+                let observations = photo.analysis?.observation;
+                if (observations && !Array.isArray(observations)) {
+                  observations = observations.split(', ').filter((s: string) => s.length > 0);
+                }
+
+                let recommendations = photo.analysis?.recommendation;
+                if (recommendations && !Array.isArray(recommendations)) {
+                  recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+                }
 
                 return {
                   id: photo.id || `photo-${Date.now()}-${Math.random()}`,
@@ -387,8 +415,9 @@ export default function RapportsScreen() {
                   s3Url: photo.s3Url,
                   timestamp: new Date(photo.createdAt || Date.now()),
                   aiAnalysis: photo.analysis ? {
-                    observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
-                    recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+                    observations: observations ? observations : [],
+                    recommendations: recommendations ? recommendations : [],
+                    references: refs ? refs : [],
                     riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
                     confidence: (photo.analysis.confidence || 0)
                   } : undefined,
@@ -572,8 +601,8 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                 'high': 'high'
               };
 
-              const observationText = photo.analysis?.observation || '';
-              const recommendationText = photo.analysis?.recommendation || '';
+              // const observationText = photo.analysis?.observation || '';
+              // const recommendationText = photo.analysis?.recommendation || '';
 
               // 📁 Chemin local prévu pour cette image
               const fileName = photo.uri.split('/').pop();
@@ -598,16 +627,33 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                 Alert.alert("La photo n'a pas pu être telechargé");
               }
 
+              let refs = photo.analysis?.references;
+              if (refs && !Array.isArray(refs)) {
+                refs = refs.split(', ').filter((s: string) => s.length > 0);
+              }
+
+              let observations = photo.analysis?.observation;
+              if (observations && !Array.isArray(observations)) {
+                observations = observations.split(', ').filter((s: string) => s.length > 0);
+              }
+
+              let recommendations = photo.analysis?.recommendation;
+              if (recommendations && !Array.isArray(recommendations)) {
+                recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+              }
+
               return {
                 id: photo.id || `photo-${Date.now()}-${Math.random()}`,
                 uri: fileUri || photo.s3Url,
                 s3Url: photo.s3Url,
                 timestamp: new Date(photo.createdAt || Date.now()),
                 aiAnalysis: photo.analysis ? {
-                  observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
-                  recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
-                  references: photo.analysis?.references ? photo.analysis?.references.split(', ').filter((s: string) => s.length > 0) : [],
+                  observations: observations ? observations : [],
+                  recommendations: recommendations ? recommendations : [],
+                  references: refs ? refs : [],
                   riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                  photoConformity: photo.analysis?.photoConformity || true,
+                  photoConformityMessage: photo.analysis?.photoConformityMessage || "",
                   confidence: (photo.analysis.confidence || 0)
                 } : undefined,
                 comment: photo.comment || '',
@@ -813,405 +859,425 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
         animationType="fade"
         onRequestClose={() => setShowFilterMenu(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowFilterMenu(false)}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
         >
-          <View style={styles.filterMenu}>
-            <LinearGradient
-              colors={['#1E293B', '#374151']}
-              style={styles.filterMenuGradient}
-            >
-              <View style={styles.filterMenuHeader}>
-                <Text style={styles.filterMenuTitle}>FILTRER LES RAPPORTS</Text>
-                <TouchableOpacity
-                  style={styles.closeButton}
-                  onPress={() => setShowFilterMenu(false)}
-                >
-                  <X size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.filterMenuDescription}>
-                <Text style={styles.filterMenuDescriptionText}>
-                  Sélectionnez un statut pour filtrer vos rapports
-                </Text>
-              </View>
-
-              {updatedFilters.map((filter) => {
-                const FilterIcon = filter.icon;
-                const isActive = activeFilter === filter.id;
-
-                return (
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowFilterMenu(false)}
+          >
+            <View style={styles.filterMenu}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.filterMenuGradient}
+              >
+                <View style={styles.filterMenuHeader}>
+                  <Text style={styles.filterMenuTitle}>FILTRER LES RAPPORTS</Text>
                   <TouchableOpacity
-                    key={filter.id}
-                    style={[
-                      styles.filterMenuItem,
-                      isActive && styles.filterMenuItemActive
-                    ]}
-                    onPress={() => handleFilterSelect(filter.id)}
+                    style={styles.closeButton}
+                    onPress={() => setShowFilterMenu(false)}
                   >
-                    {isActive ? (
-                      <LinearGradient
-                        colors={filter.gradient}
-                        style={styles.filterMenuItemGradient}
-                      >
+                    <X size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.filterMenuDescription}>
+                  <Text style={styles.filterMenuDescriptionText}>
+                    Sélectionnez un statut pour filtrer vos rapports
+                  </Text>
+                </View>
+
+                {updatedFilters.map((filter) => {
+                  const FilterIcon = filter.icon;
+                  const isActive = activeFilter === filter.id;
+
+                  return (
+                    <TouchableOpacity
+                      key={filter.id}
+                      style={[
+                        styles.filterMenuItem,
+                        isActive && styles.filterMenuItemActive
+                      ]}
+                      onPress={() => handleFilterSelect(filter.id)}
+                    >
+                      {isActive ? (
+                        <LinearGradient
+                          colors={filter.gradient}
+                          style={styles.filterMenuItemGradient}
+                        >
+                          <View style={styles.filterMenuItemContent}>
+                            <View style={styles.filterMenuItemLeft}>
+                              <View style={styles.filterMenuIconActive}>
+                                <FilterIcon size={20} color="#FFFFFF" />
+                              </View>
+                              <View style={styles.filterMenuTextContainer}>
+                                <Text style={styles.filterMenuItemTextActive}>{filter.label}</Text>
+                                <Text style={styles.filterMenuItemSubtextActive}>
+                                  {filter.count} rapport{filter.count !== 1 ? 's' : ''}
+                                </Text>
+                              </View>
+                            </View>
+                            <View style={styles.filterMenuBadgeActive}>
+                              <Text style={styles.filterMenuBadgeTextActive}>{filter.count}</Text>
+                            </View>
+                          </View>
+                        </LinearGradient>
+                      ) : (
                         <View style={styles.filterMenuItemContent}>
                           <View style={styles.filterMenuItemLeft}>
-                            <View style={styles.filterMenuIconActive}>
-                              <FilterIcon size={20} color="#FFFFFF" />
+                            <View style={[styles.filterMenuIcon, { backgroundColor: filter.color + '20' }]}>
+                              <FilterIcon size={20} color={filter.color} />
                             </View>
                             <View style={styles.filterMenuTextContainer}>
-                              <Text style={styles.filterMenuItemTextActive}>{filter.label}</Text>
-                              <Text style={styles.filterMenuItemSubtextActive}>
+                              <Text style={styles.filterMenuItemText}>{filter.label}</Text>
+                              <Text style={styles.filterMenuItemSubtext}>
                                 {filter.count} rapport{filter.count !== 1 ? 's' : ''}
                               </Text>
                             </View>
                           </View>
-                          <View style={styles.filterMenuBadgeActive}>
-                            <Text style={styles.filterMenuBadgeTextActive}>{filter.count}</Text>
+                          <View style={[styles.filterMenuBadge, { backgroundColor: filter.color + '30' }]}>
+                            <Text style={[styles.filterMenuBadgeText, { color: filter.color }]}>{filter.count}</Text>
                           </View>
                         </View>
-                      </LinearGradient>
-                    ) : (
-                      <View style={styles.filterMenuItemContent}>
-                        <View style={styles.filterMenuItemLeft}>
-                          <View style={[styles.filterMenuIcon, { backgroundColor: filter.color + '20' }]}>
-                            <FilterIcon size={20} color={filter.color} />
-                          </View>
-                          <View style={styles.filterMenuTextContainer}>
-                            <Text style={styles.filterMenuItemText}>{filter.label}</Text>
-                            <Text style={styles.filterMenuItemSubtext}>
-                              {filter.count} rapport{filter.count !== 1 ? 's' : ''}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={[styles.filterMenuBadge, { backgroundColor: filter.color + '30' }]}>
-                          <Text style={[styles.filterMenuBadgeText, { color: filter.color }]}>{filter.count}</Text>
-                        </View>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </LinearGradient>
-          </View>
-        </TouchableOpacity>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </LinearGradient>
+            </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Report Detail Modal */}
       <Modal visible={showReportModal} animationType="slide" transparent>
-        <View style={styles.reportDetailModalOverlay}>
-          <View style={styles.reportDetailModal}>
-            {selectedReport && (
-              <>
-                <LinearGradient
-                  colors={selectedReport.gradient}
-                  style={styles.reportDetailHeader}
-                >
-                  <View style={styles.reportDetailHeaderContent}>
-                    <View style={styles.reportDetailHeaderLeft}>
-                      <FileText size={24} color="#FFFFFF" />
-                      <View style={styles.reportDetailHeaderText}>
-                        <Text style={styles.reportDetailTitle}>{selectedReport.title}</Text>
-                        <Text style={styles.reportDetailSubtitle}>{selectedReport.mission}</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.reportDetailModalOverlay}>
+            <View style={styles.reportDetailModal}>
+              {selectedReport && (
+                <>
+                  <LinearGradient
+                    colors={selectedReport.gradient}
+                    style={styles.reportDetailHeader}
+                  >
+                    <View style={styles.reportDetailHeaderContent}>
+                      <View style={styles.reportDetailHeaderLeft}>
+                        <FileText size={24} color="#FFFFFF" />
+                        <View style={styles.reportDetailHeaderText}>
+                          <Text style={styles.reportDetailTitle}>{selectedReport.title}</Text>
+                          <Text style={styles.reportDetailSubtitle}>{selectedReport.mission}</Text>
+                        </View>
                       </View>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.closeReportDetailButton}
-                      onPress={() => setShowReportModal(false)}
-                    >
-                      <X size={24} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-                </LinearGradient>
-
-                <ScrollView style={styles.reportDetailContent} showsVerticalScrollIndicator={false}>
-                  <View style={styles.reportDetailSection}>
-                    <View style={styles.reportDetailInfoRow}>
-                      <View style={styles.reportDetailInfoItem}>
-                        <Building size={16} color="#64748B" />
-                        <Text style={styles.reportDetailInfoLabel}>Client</Text>
-                        <Text style={styles.reportDetailInfoValue}>{selectedReport.client}</Text>
-                      </View>
-                      <View style={styles.reportDetailInfoItem}>
-                        <Calendar size={16} color="#64748B" />
-                        <Text style={styles.reportDetailInfoLabel}>Date</Text>
-                        <Text style={styles.reportDetailInfoValue}>{selectedReport.date}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.reportDetailInfoRow}>
-                      <View style={styles.reportDetailInfoItem}>
-                        <FileText size={16} color="#64748B" />
-                        <Text style={styles.reportDetailInfoLabel}>Pages</Text>
-                        <Text style={styles.reportDetailInfoValue}>{selectedReport.pages}</Text>
-                      </View>
-                      <View style={styles.reportDetailInfoItem}>
-                        <Eye size={16} color="#64748B" />
-                        <Text style={styles.reportDetailInfoLabel}>Conformité</Text>
-                        <Text style={styles.reportDetailInfoValue}>{selectedReport.conformity}%</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.reportDetailDivider} />
-
-                  <View style={styles.reportDetailSection}>
-                    <Text style={styles.reportDetailSectionTitle}>CONTENU DU RAPPORT</Text>
-
-                    {selectedReport.reportHeader && (
-                      <View style={styles.reportDetailContentBox}>
-                        {/* <Text style={styles.reportDetailSubtitle}>EN-TÊTE</Text> */}
-                        <Text style={styles.reportDetailContentText}>
-                          {selectedReport.reportHeader}
-                        </Text>
-                      </View>
-                    )}
-
-                    {(!selectedReportPhotos || selectedReportPhotos?.length == 0) &&
-                      <View style={styles.reportDetailContentBox}>
-                        <Text style={styles.reportDetailSubtitle}>OBSERVATIONS</Text>
-                        <Text style={styles.reportDetailContentText}>
-                          {selectedReport.reportContent || 'Aucun contenu disponible pour ce rapport.'}
-                        </Text>
-                      </View>
-                    }
-
-                    {(selectedReportPhotos?.length > 0) &&
-                      <View style={styles.reportPhotoContainer}>
-                        {selectedReportPhotos.map((photo: any, index) => {
-                          const getRiskColor = (risk: string) => {
-                            const level = risk?.toLowerCase();
-                            if (level === 'high' || level === 'eleve') return '#EF4444';
-                            if (level === 'medium' || level === 'moyen') return '#F59E0B';
-                            if (level === 'low' || level === 'faible') return '#10B981';
-                            return '#64748B';
-                          };
-
-                          const getRiskLabel = (risk: string) => {
-                            const level = risk?.toLowerCase();
-                            if (level === 'high' || level === 'eleve') return 'ÉLEVÉ';
-                            if (level === 'medium' || level === 'moyen') return 'MOYEN';
-                            if (level === 'low' || level === 'faible') return 'FAIBLE';
-                            return 'N/A';
-                          };
-
-                          const riskLevel = photo.aiAnalysis?.riskLevel || 'moyen';
-                          const riskColor = getRiskColor(riskLevel);
-                          const riskLabel = getRiskLabel(riskLevel);
-
-                          return (
-                            <View key={photo.id} style={styles.reportPhotoCard}>
-                              <View style={styles.reportPhotoHeader}>
-                                <Text style={styles.reportPhotoNumber}>📸 Photo {index + 1}</Text>
-                                <View style={[styles.reportRiskBadge, { backgroundColor: riskColor }]}>
-                                  <Text style={styles.reportRiskBadgeText}>{riskLabel}</Text>
-                                </View>
-                              </View>
-
-                              <View style={styles.reportPhotoImageContainer}>
-                                <Image
-                                  source={{ uri: photo.uri }}
-                                  style={styles.reportPhotoImage}
-                                  resizeMode="cover"
-                                />
-                              </View>
-
-                              {photo.aiAnalysis && (
-                                <View style={styles.reportAnalysisSection}>
-                                  <View style={styles.reportAnalysisBlock}>
-                                    <Text style={styles.reportAnalysisTitle}>🔍 Observations</Text>
-                                    <View style={styles.reportAnalysisList}>
-                                      {photo.aiAnalysis.observations.map((obs, i) => (
-                                        <Text key={i} style={styles.reportAnalysisItem}>• {obs}</Text>
-                                      ))}
-                                    </View>
-                                  </View>
-
-                                  <View style={styles.reportAnalysisBlock}>
-                                    <Text style={styles.reportAnalysisTitle}>⚠️ Recommandations</Text>
-                                    <View style={styles.reportAnalysisList}>
-                                      {photo.aiAnalysis.recommendations.map((rec, i) => (
-                                        <Text key={i} style={styles.reportAnalysisItem}>• {rec}</Text>
-                                      ))}
-                                    </View>
-                                  </View>
-                                  <View style={styles.reportAnalysisBlock}>
-                                    <Text style={styles.reportAnalysisTitle}>🏛️ Références</Text>
-                                    <View style={styles.reportAnalysisList}>
-                                      {photo.aiAnalysis.references.map((rec, i) => (
-                                        <Text key={i} style={styles.reportAnalysisItem}>• {rec}</Text>
-                                      ))}
-                                    </View>
-                                  </View>
-                                </View>
-                              )}
-
-                              {photo.userComments && (
-                                <View style={styles.reportCommentSection}>
-                                  <Text style={styles.reportCommentTitle}>💬 Commentaires du coordonnateur</Text>
-                                  <Text style={styles.reportCommentText}>{photo.userComments}</Text>
-                                </View>
-                              )}
-                            </View>
-                          );
-                        })}
-                      </View>
-                    }
-
-                    {selectedReport.reportFooter && (
-                      <View style={styles.reportDetailContentBox}>
-                        <Text style={styles.reportDetailSubtitle}>CONCLUSION</Text>
-                        <Text style={styles.reportDetailContentText}>
-                          {selectedReport.reportFooter}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* {selectedReport.aiGenerated && (
-                    <View style={styles.reportDetailAiBadge}>
-                      <Sparkles size={16} color="#F59E0B" />
-                      <Text style={styles.reportDetailAiText}>Généré par IA</Text>
-                    </View>
-                  )} */}
-                </ScrollView>
-
-                {selectedReport && selectedReport.status != 'valide' && selectedReport.status != 'envoye_au_client' && (
-                  <View style={styles.reportDetailActions}>
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={handleModifyReport}
-                    >
-                      <LinearGradient
-                        colors={['#F59E0B', '#D97706']}
-                        style={styles.actionButtonGradient}
+                      <TouchableOpacity
+                        style={styles.closeReportDetailButton}
+                        onPress={() => setShowReportModal(false)}
                       >
-                        <Edit size={20} color="#FFFFFF" />
-                        <Text style={styles.actionButtonText}>Modifier</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
+                        <X size={24} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  </LinearGradient>
 
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={handleSendReport}
-                    >
-                      <LinearGradient
-                        colors={['#3B82F6', '#1D4ED8']}
-                        style={styles.actionButtonGradient}
+                  <ScrollView style={styles.reportDetailContent} showsVerticalScrollIndicator={false}>
+                    <View style={styles.reportDetailSection}>
+                      <View style={styles.reportDetailInfoRow}>
+                        <View style={styles.reportDetailInfoItem}>
+                          <Building size={16} color="#64748B" />
+                          <Text style={styles.reportDetailInfoLabel}>Client</Text>
+                          <Text style={styles.reportDetailInfoValue}>{selectedReport.client}</Text>
+                        </View>
+                        <View style={styles.reportDetailInfoItem}>
+                          <Calendar size={16} color="#64748B" />
+                          <Text style={styles.reportDetailInfoLabel}>Date</Text>
+                          <Text style={styles.reportDetailInfoValue}>{selectedReport.date}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.reportDetailInfoRow}>
+                        <View style={styles.reportDetailInfoItem}>
+                          <FileText size={16} color="#64748B" />
+                          <Text style={styles.reportDetailInfoLabel}>Pages</Text>
+                          <Text style={styles.reportDetailInfoValue}>{selectedReport.pages}</Text>
+                        </View>
+                        <View style={styles.reportDetailInfoItem}>
+                          <Eye size={16} color="#64748B" />
+                          <Text style={styles.reportDetailInfoLabel}>Conformité</Text>
+                          <Text style={styles.reportDetailInfoValue}>{selectedReport.conformity}%</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={styles.reportDetailDivider} />
+
+                    <View style={styles.reportDetailSection}>
+                      <Text style={styles.reportDetailSectionTitle}>CONTENU DU RAPPORT</Text>
+
+                      {selectedReport.reportHeader && (
+                        <View style={styles.reportDetailContentBox}>
+                          {/* <Text style={styles.reportDetailSubtitle}>EN-TÊTE</Text> */}
+                          <Text style={styles.reportDetailContentText}>
+                            {selectedReport.reportHeader}
+                          </Text>
+                        </View>
+                      )}
+
+                      {(!selectedReportPhotos || selectedReportPhotos?.length == 0) &&
+                        <View style={styles.reportDetailContentBox}>
+                          <Text style={styles.reportDetailSubtitle}>OBSERVATIONS</Text>
+                          <Text style={styles.reportDetailContentText}>
+                            {selectedReport.reportContent || 'Aucun contenu disponible pour ce rapport.'}
+                          </Text>
+                        </View>
+                      }
+
+                      {(selectedReportPhotos?.length > 0) &&
+                        <View style={styles.reportPhotoContainer}>
+                          {selectedReportPhotos.map((photo: any, index) => {
+                            const getRiskColor = (risk: string) => {
+                              const level = risk?.toLowerCase();
+                              if (level === 'high' || level === 'eleve') return '#EF4444';
+                              if (level === 'medium' || level === 'moyen') return '#F59E0B';
+                              if (level === 'low' || level === 'faible') return '#10B981';
+                              return '#64748B';
+                            };
+
+                            const getRiskLabel = (risk: string) => {
+                              const level = risk?.toLowerCase();
+                              if (level === 'high' || level === 'eleve') return 'ÉLEVÉ';
+                              if (level === 'medium' || level === 'moyen') return 'MOYEN';
+                              if (level === 'low' || level === 'faible') return 'FAIBLE';
+                              return 'N/A';
+                            };
+
+                            const riskLevel = photo.aiAnalysis?.riskLevel || 'moyen';
+                            const riskColor = getRiskColor(riskLevel);
+                            const riskLabel = getRiskLabel(riskLevel);
+
+                            return (
+                              <View key={photo.id} style={styles.reportPhotoCard}>
+                                <View style={styles.reportPhotoHeader}>
+                                  <Text style={styles.reportPhotoNumber}>📸 Photo {index + 1}</Text>
+                                  <View style={[styles.reportRiskBadge, { backgroundColor: riskColor }]}>
+                                    <Text style={styles.reportRiskBadgeText}>{riskLabel}</Text>
+                                  </View>
+                                </View>
+
+                                <View style={styles.reportPhotoImageContainer}>
+                                  <Image
+                                    source={{ uri: photo.uri }}
+                                    style={styles.reportPhotoImage}
+                                    resizeMode="cover"
+                                  />
+                                </View>
+
+                                {photo.aiAnalysis && (
+                                  <View style={styles.reportAnalysisSection}>
+                                    <View style={styles.reportAnalysisBlock}>
+                                      <Text style={styles.reportAnalysisTitle}>🔍 Observations</Text>
+                                      <View style={styles.reportAnalysisList}>
+                                        {photo.aiAnalysis?.observations?.map((obs, i) => (
+                                          <Text key={i} style={styles.reportAnalysisItem}>• {obs}</Text>
+                                        ))}
+                                      </View>
+                                    </View>
+
+                                    <View style={styles.reportAnalysisBlock}>
+                                      <Text style={styles.reportAnalysisTitle}>⚠️ Recommandations</Text>
+                                      <View style={styles.reportAnalysisList}>
+                                        {photo.aiAnalysis?.recommendations?.map((rec, i) => (
+                                          <Text key={i} style={styles.reportAnalysisItem}>• {rec}</Text>
+                                        ))}
+                                      </View>
+                                    </View>
+                                    <View style={styles.reportAnalysisBlock}>
+                                      <Text style={styles.reportAnalysisTitle}>🏛️ Références</Text>
+                                      <View style={styles.reportAnalysisList}>
+                                        {photo.aiAnalysis?.references?.map((rec, i) => (
+                                          <Text key={i} style={styles.reportAnalysisItem}>• {rec}</Text>
+                                        ))}
+                                      </View>
+                                    </View>
+                                  </View>
+                                )}
+
+                                {photo.userComments && (
+                                  <View style={styles.reportCommentSection}>
+                                    <Text style={styles.reportCommentTitle}>💬 Commentaires du coordonnateur</Text>
+                                    <Text style={styles.reportCommentText}>{photo.userComments}</Text>
+                                  </View>
+                                )}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      }
+
+                      {selectedReport.reportFooter && (
+                        <View style={styles.reportDetailContentBox}>
+                          <Text style={styles.reportDetailSubtitle}>CONCLUSION</Text>
+                          <Text style={styles.reportDetailContentText}>
+                            {selectedReport.reportFooter}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* {selectedReport.aiGenerated && (
+                      <View style={styles.reportDetailAiBadge}>
+                        <Sparkles size={16} color="#F59E0B" />
+                        <Text style={styles.reportDetailAiText}>Généré par IA</Text>
+                      </View>
+                    )} */}
+                  </ScrollView>
+
+                  {selectedReport && selectedReport.status != 'valide' && selectedReport.status != 'envoye_au_client' && (
+                    <View style={styles.reportDetailActions}>
+                      <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={handleModifyReport}
                       >
-                        <Send size={20} color="#FFFFFF" />
-                        <Text style={styles.actionButtonText}>Envoyer</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </>
-            )}
+                        <LinearGradient
+                          colors={['#F59E0B', '#D97706']}
+                          style={styles.actionButtonGradient}
+                        >
+                          <Edit size={20} color="#FFFFFF" />
+                          <Text style={styles.actionButtonText}>Modifier</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={handleSendReport}
+                      >
+                        <LinearGradient
+                          colors={['#3B82F6', '#1D4ED8']}
+                          style={styles.actionButtonGradient}
+                        >
+                          <Send size={20} color="#FFFFFF" />
+                          <Text style={styles.actionButtonText}>Envoyer</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Report Modal */}
       <Modal visible={showEditModal} animationType="slide" transparent>
-        <View style={styles.reportDetailModalOverlay}>
-          <View style={styles.reportDetailModal}>
-            <LinearGradient
-              colors={['#F59E0B', '#D97706']}
-              style={styles.reportDetailHeader}
-            >
-              <View style={styles.reportDetailHeaderContent}>
-                <View style={styles.reportDetailHeaderLeft}>
-                  <Edit size={24} color="#FFFFFF" />
-                  <View style={styles.reportDetailHeaderText}>
-                    <Text style={styles.reportDetailTitle}>Modifier le rapport</Text>
-                    <Text style={styles.reportDetailSubtitle}>{selectedReport?.title}</Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={styles.closeReportDetailButton}
-                  onPress={() => setShowEditModal(false)}
-                >
-                  <X size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
-
-            <ScrollView style={styles.editModalContent}>
-              <Text style={styles.editModalLabel}>En-tête du rapport</Text>
-              <TextInput
-                style={styles.editModalTextInput}
-                value={editedHeader}
-                onChangeText={setEditedHeader}
-                multiline
-                numberOfLines={10}
-                placeholder="Saisissez l'en-tête du rapport..."
-                placeholderTextColor="#64748B"
-              />
-
-              <Text style={styles.editModalLabel}>Observations (Contenu principal)</Text>
-              <TextInput
-                style={styles.editModalTextInput}
-                value={editedContent}
-                onChangeText={setEditedContent}
-                multiline
-                numberOfLines={15}
-                placeholder="Saisissez les observations du rapport..."
-                placeholderTextColor="#64748B"
-              />
-
-              <Text style={styles.editModalLabel}>Conclusion</Text>
-              <TextInput
-                style={styles.editModalTextInput}
-                value={editedFooter}
-                onChangeText={setEditedFooter}
-                multiline
-                numberOfLines={10}
-                placeholder="Saisissez la conclusion du rapport..."
-                placeholderTextColor="#64748B"
-              />
-
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleSaveModifications}
-                disabled={isSaving}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.reportDetailModalOverlay}>
+            <View style={styles.reportDetailModal}>
+              <LinearGradient
+                colors={['#F59E0B', '#D97706']}
+                style={styles.reportDetailHeader}
               >
-                <LinearGradient
-                  colors={['#10B981', '#059669']}
-                  style={styles.saveButtonGradient}
+                <View style={styles.reportDetailHeaderContent}>
+                  <View style={styles.reportDetailHeaderLeft}>
+                    <Edit size={24} color="#FFFFFF" />
+                    <View style={styles.reportDetailHeaderText}>
+                      <Text style={styles.reportDetailTitle}>Modifier le rapport</Text>
+                      <Text style={styles.reportDetailSubtitle}>{selectedReport?.title}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.closeReportDetailButton}
+                    onPress={() => setShowEditModal(false)}
+                  >
+                    <X size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
+
+              <ScrollView style={styles.editModalContent}>
+                <Text style={styles.editModalLabel}>En-tête du rapport</Text>
+                <TextInput
+                  style={styles.editModalTextInput}
+                  value={editedHeader}
+                  onChangeText={setEditedHeader}
+                  multiline
+                  numberOfLines={10}
+                  placeholder="Saisissez l'en-tête du rapport..."
+                  placeholderTextColor="#64748B"
+                />
+
+                <Text style={styles.editModalLabel}>Observations (Contenu principal)</Text>
+                <TextInput
+                  style={styles.editModalTextInput}
+                  value={editedContent}
+                  onChangeText={setEditedContent}
+                  multiline
+                  numberOfLines={15}
+                  placeholder="Saisissez les observations du rapport..."
+                  placeholderTextColor="#64748B"
+                />
+
+                <Text style={styles.editModalLabel}>Conclusion</Text>
+                <TextInput
+                  style={styles.editModalTextInput}
+                  value={editedFooter}
+                  onChangeText={setEditedFooter}
+                  multiline
+                  numberOfLines={10}
+                  placeholder="Saisissez la conclusion du rapport..."
+                  placeholderTextColor="#64748B"
+                />
+
+                <TouchableOpacity
+                  style={styles.saveButton}
+                  onPress={handleSaveModifications}
+                  disabled={isSaving}
                 >
-                  {isSaving ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <CheckCircle size={20} color="#FFFFFF" />
-                      <Text style={styles.saveButtonText}>Enregistrer</Text>
-                    </>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            </ScrollView>
+                  <LinearGradient
+                    colors={['#10B981', '#059669']}
+                    style={styles.saveButtonGradient}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <CheckCircle size={20} color="#FFFFFF" />
+                        <Text style={styles.saveButtonText}>Enregistrer</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* PDF Loading Modal */}
       <Modal visible={showPdfLoadingModal} animationType="fade" transparent>
-        <View style={styles.pdfLoadingOverlay}>
-          <View style={styles.pdfLoadingModal}>
-            <LinearGradient
-              colors={['#3B82F6', '#2563EB']}
-              style={styles.pdfLoadingGradient}
-            >
-              <FileText size={48} color="#FFFFFF" />
-              <Text style={styles.pdfLoadingTitle}>Génération du PDF</Text>
-              <Text style={styles.pdfLoadingText}>{pdfLoadingProgress}</Text>
-              <ActivityIndicator size="large" color="#FFFFFF" style={styles.pdfLoadingSpinner} />
-            </LinearGradient>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.pdfLoadingOverlay}>
+            <View style={styles.pdfLoadingModal}>
+              <LinearGradient
+                colors={['#3B82F6', '#2563EB']}
+                style={styles.pdfLoadingGradient}
+              >
+                <FileText size={48} color="#FFFFFF" />
+                <Text style={styles.pdfLoadingTitle}>Génération du PDF</Text>
+                <Text style={styles.pdfLoadingText}>{pdfLoadingProgress}</Text>
+                <ActivityIndicator size="large" color="#FFFFFF" style={styles.pdfLoadingSpinner} />
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

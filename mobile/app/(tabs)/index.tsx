@@ -11,7 +11,8 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Platform
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -59,8 +60,6 @@ export default function HomeScreen() {
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
   const [showEditEndDatePicker, setShowEditEndDatePicker] = useState(false);
 
-
-
   useEffect(() => {
     loadUserProfile();
     loadMissions();
@@ -69,6 +68,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       loadUserProfile();
+      loadMissions();
     }, [])
   );
 
@@ -138,9 +138,9 @@ export default function HomeScreen() {
           };
         });
 
-        const todayMissions = backendMissions.filter(m => (new Date(m.date).toLocaleDateString('fr-FR') >= new Date().toLocaleDateString('fr-FR') || !m.date || m.status == 'en_cours'));
+        const todayMissionsArray = backendMissions.filter(m => (new Date(m.date).toLocaleDateString('fr-FR') >= new Date().toLocaleDateString('fr-FR') || !m.date || m.status == 'en_cours'));
 
-        setTodayMissions(todayMissions);
+        setTodayMissions(prev => todayMissionsArray);
       } else {
         setTodayMissions([]);
       }
@@ -196,6 +196,7 @@ export default function HomeScreen() {
   };
 
   const formatTime = (date: Date) => {
+    if (!date) return null;
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
     return `${hours}:${minutes}`;
@@ -282,15 +283,16 @@ export default function HomeScreen() {
   // Fonction pour démarrer une visite avec les données de la mission
   const startVisitForMission = (mission: any) => {
     // Encoder les données de la mission pour les passer en paramètres
+    console.log('startVisitForMission >>>: ', mission);
     const missionData = encodeURIComponent(JSON.stringify({
+      ...mission,
       id: mission.id,
       title: mission.title,
       client: mission.client,
       location: mission.location,
       description: mission.description,
       nextVisit: mission.nextVisit,
-      type: mission.status === 'en_retard' ? 'Visite de rattrapage' :
-        mission.status === 'aujourdhui' ? 'Visite programmée' : 'Visite anticipée'
+      type: mission.status
     }));
 
     router.push(`/visite?mission=${missionData}`);
@@ -408,15 +410,16 @@ export default function HomeScreen() {
 
   const openReportDetails = (mission: any) => {
     // Encoder les données de la mission pour les passer en paramètres
+    console.log('openReportDetails >>>: ', mission);
     const missionData = encodeURIComponent(JSON.stringify({
+      ...mission,
       id: mission.id,
       title: mission.title,
       client: mission.client,
       location: mission.location,
       description: mission.description,
       nextVisit: mission.nextVisit,
-      type: mission.status === 'en_retard' ? 'Visite de rattrapage' :
-        mission.status === 'aujourdhui' ? 'Visite programmée' : 'Visite anticipée'
+      type: mission.status
     }));
 
     router.push(`/rapports?mission=${missionData}`);
@@ -831,432 +834,437 @@ export default function HomeScreen() {
 
         {/* Mission Detail Modal */}
         <Modal visible={showMissionDetail} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.missionDetailModal}>
-              <LinearGradient
-                colors={['#1E293B', '#374151']}
-                style={styles.missionDetailModalGradient}
-              >
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>
-                    {isEditing ? 'MODIFIER LA MISSION' : 'FICHE DE MISSION'}
-                  </Text>
-                  <View style={styles.modalHeaderButtons}>
-                    {!isEditing ? (
-                      <>
-                        <TouchableOpacity
-                          style={styles.editButton}
-                          onPress={() => setIsEditing(true)}
-                        >
-                          <Edit3 size={18} color="#FFFFFF" />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => handleDeleteMission()}
-                        >
-                          <Trash2 size={18} color="#FFFFFF" />
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.saveButton}
-                        onPress={handleSaveMission}
-                      >
-                        <Save size={18} color="#FFFFFF" />
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity
-                      style={styles.modalCloseButton}
-                      onPress={() => {
-                        if (isEditing) {
-                          handleCancelEdit();
-                        } else {
-                          setShowMissionDetail(false);
-                        }
-                      }}
-                    >
-                      <X size={20} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <ScrollView
-                  style={styles.modalContent}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.modalScrollContent}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1, justifyContent: 'flex-end' }}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.missionDetailModal}>
+                <LinearGradient
+                  colors={['#1E293B', '#374151']}
+                  style={styles.missionDetailModalGradient}
                 >
-                  {/* Titre de la mission */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
-                    <View style={styles.inputContainer}>
-                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                      {isEditing ? (
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="Ex: Résidence Les Jardins"
-                          placeholderTextColor="#64748B"
-                          value={editedMission?.title || ''}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, title: text }))}
-                        />
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>
+                      {isEditing ? 'MODIFIER LA MISSION' : 'FICHE DE MISSION'}
+                    </Text>
+                    <View style={styles.modalHeaderButtons}>
+                      {selectedMission?.status != 'terminee' && (!isEditing ? (
+                        <>
+                          <TouchableOpacity
+                            style={styles.editButton}
+                            onPress={() => setIsEditing(true)}
+                          >
+                            <Edit3 size={18} color="#FFFFFF" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.deleteButton}
+                            onPress={() => handleDeleteMission()}
+                          >
+                            <Trash2 size={18} color="#FFFFFF" />
+                          </TouchableOpacity>
+                        </>
                       ) : (
-                        <Text style={styles.displayText}>{selectedMission?.title}</Text>
-                      )}
+                        <TouchableOpacity
+                          style={styles.saveButton}
+                          onPress={handleSaveMission}
+                        >
+                          <Save size={18} color="#FFFFFF" />
+                        </TouchableOpacity>
+                      ))}
+                      <TouchableOpacity
+                        style={styles.modalCloseButton}
+                        onPress={() => {
+                          if (isEditing) {
+                            handleCancelEdit();
+                          } else {
+                            setShowMissionDetail(false);
+                          }
+                        }}
+                      >
+                        <X size={20} color="#FFFFFF" />
+                      </TouchableOpacity>
                     </View>
                   </View>
 
-                  {/* Client */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>CLIENT / ENTREPRISE *</Text>
-                    <View style={styles.inputContainer}>
-                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                      {isEditing ? (
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="Ex: Bouygues Construction"
-                          placeholderTextColor="#64748B"
-                          value={editedMission?.client || ''}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, client: text }))}
-                        />
-                      ) : (
-                        <Text style={styles.displayText}>{selectedMission?.client}</Text>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Contact du client */}
-                  <View style={styles.contactSection}>
-                    <Text style={styles.contactSectionTitle}>CONTACT CLIENT</Text>
-
-                    {/* Prénom et Nom */}
-                    <View style={styles.nameRow}>
-                      <View style={styles.nameFieldContainer}>
-                        <Text style={styles.inputLabel}>PRÉNOM</Text>
-                        <View style={styles.nameInputContainer}>
-                          <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
-                          {isEditing ? (
-                            <TextInput
-                              style={styles.nameTextInput}
-                              placeholder="Prénom"
-                              placeholderTextColor="#64748B"
-                              value={editedMission?.contactFirstName || ''}
-                              onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactFirstName: text }))}
-                            />
-                          ) : (
-                            <Text style={styles.nameDisplayText}>{selectedMission?.contact?.firstName || 'Non renseigné'}</Text>
-                          )}
-                        </View>
-                      </View>
-
-                      <View style={styles.nameFieldContainer}>
-                        <Text style={styles.inputLabel}>NOM</Text>
-                        <View style={styles.nameInputContainer}>
-                          <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
-                          {isEditing ? (
-                            <TextInput
-                              style={styles.nameTextInput}
-                              placeholder="Nom"
-                              placeholderTextColor="#64748B"
-                              value={editedMission?.contactLastName || ''}
-                              onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactLastName: text }))}
-                            />
-                          ) : (
-                            <Text style={styles.nameDisplayText}>{selectedMission?.contact?.lastName || 'Non renseigné'}</Text>
-                          )}
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* Email */}
+                  <ScrollView
+                    style={styles.modalContent}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.modalScrollContent}
+                  >
+                    {/* Titre de la mission */}
                     <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>EMAIL *</Text>
-                      <View style={styles.inputContainer}>
-                        <Mail size={16} color="#94A3B8" style={styles.inputIcon} />
-                        {isEditing ? (
-                          <TextInput
-                            style={styles.textInput}
-                            placeholder="contact@entreprise.com"
-                            placeholderTextColor="#64748B"
-                            value={editedMission?.contactEmail || ''}
-                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactEmail: text }))}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                          />
-                        ) : (
-                          <Text style={styles.displayText}>{selectedMission?.contact?.email || 'Non renseigné'}</Text>
-                        )}
-                      </View>
-                    </View>
-
-                    {/* Téléphone */}
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>TÉLÉPHONE</Text>
-                      <View style={styles.inputContainer}>
-                        <Phone size={16} color="#94A3B8" style={styles.inputIcon} />
-                        {isEditing ? (
-                          <TextInput
-                            style={styles.textInput}
-                            placeholder="06 12 34 56 78"
-                            placeholderTextColor="#64748B"
-                            value={editedMission?.contactPhone || ''}
-                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactPhone: text }))}
-                            keyboardType="phone-pad"
-                          />
-                        ) : (
-                          <Text style={styles.displayText}>{selectedMission?.contact?.phone || 'Non renseigné'}</Text>
-                        )}
-                      </View>
-                    </View>
-
-                    {/* Référence client */}
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>Référence client</Text>
+                      <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
                       <View style={styles.inputContainer}>
                         <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                         {isEditing ? (
                           <TextInput
                             style={styles.textInput}
-                            placeholder="Ex: B-2079854"
+                            placeholder="Ex: Résidence Les Jardins"
                             placeholderTextColor="#64748B"
-                            value={editedMission.refClient}
-                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, refClient: text }))}
+                            value={editedMission?.title || ''}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, title: text }))}
                           />
                         ) : (
-                          <Text style={styles.displayText}>{selectedMission?.refClient || 'Non renseigné'}</Text>
+                          <Text style={styles.displayText}>{selectedMission?.title}</Text>
                         )}
                       </View>
                     </View>
-                  </View>
 
-                  {/* Adresse */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>ADRESSE DU CHANTIER *</Text>
-                    <View style={styles.inputContainer}>
-                      <MapPin size={16} color="#94A3B8" style={styles.inputIcon} />
-                      {isEditing ? (
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="Ex: 123 Rue de la République, Lyon 69003"
-                          placeholderTextColor="#64748B"
-                          value={editedMission?.location || ''}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, location: text }))}
-                        />
-                      ) : (
-                        <Text style={styles.displayText}>{selectedMission?.location}</Text>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Type de mission */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
-                    {isEditing ? (
-                      <View style={styles.typeSelector}>
-                        {missionTypes.map((type, index) => (
-                          <TouchableOpacity
-                            key={index}
-                            style={[
-                              styles.typeOption,
-                              editedMission?.type === type && styles.typeOptionSelected
-                            ]}
-                            onPress={() => setEditedMission(prev => ({ ...prev, type }))}
-                          >
-                            <Text style={[
-                              styles.typeOptionText,
-                              editedMission?.type === type && styles.typeOptionTextSelected
-                            ]}>
-                              {type}
-                            </Text>
-                            {editedMission?.type === type && (
-                              <Check size={14} color="#FFFFFF" />
-                            )}
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    ) : (
+                    {/* Client */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>CLIENT / ENTREPRISE *</Text>
                       <View style={styles.inputContainer}>
-                        <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
-                        <Text style={styles.displayText}>{selectedMission?.type || 'Non défini'}</Text>
+                        <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                        {isEditing ? (
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="Ex: Bouygues Construction"
+                            placeholderTextColor="#64748B"
+                            value={editedMission?.client || ''}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, client: text }))}
+                          />
+                        ) : (
+                          <Text style={styles.displayText}>{selectedMission?.client}</Text>
+                        )}
                       </View>
-                    )}
-                  </View>
+                    </View>
 
-                  {/* Date et heure */}
-                  <View style={styles.dateTimeRow}>
-                    <View style={styles.dateTimeFieldContainer}>
-                      <Text style={styles.inputLabel}>Date de début *</Text>
-                      {isEditing ? (
-                        <>
-                          <TouchableOpacity
-                            style={styles.dateTimeInputContainer}
-                            onPress={() => setShowEditDatePicker(true)}
-                          >
-                            <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                            <Text style={styles.dateTimeTextInput}>
-                              {formatDisplayDate(editSelectedDate)}
-                            </Text>
-                          </TouchableOpacity>
-                          {showEditDatePicker && (
-                            <DateTimePicker
-                              value={editSelectedDate}
-                              mode="date"
-                              display="default"
-                              onChange={onEditDateChange}
+                    {/* Contact du client */}
+                    <View style={styles.contactSection}>
+                      <Text style={styles.contactSectionTitle}>CONTACT CLIENT</Text>
+
+                      {/* Prénom et Nom */}
+                      <View style={styles.nameRow}>
+                        <View style={styles.nameFieldContainer}>
+                          <Text style={styles.inputLabel}>PRÉNOM</Text>
+                          <View style={styles.nameInputContainer}>
+                            <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
+                            {isEditing ? (
+                              <TextInput
+                                style={styles.nameTextInput}
+                                placeholder="Prénom"
+                                placeholderTextColor="#64748B"
+                                value={editedMission?.contactFirstName || ''}
+                                onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactFirstName: text }))}
+                              />
+                            ) : (
+                              <Text style={styles.nameDisplayText}>{selectedMission?.contact?.firstName || 'Non renseigné'}</Text>
+                            )}
+                          </View>
+                        </View>
+
+                        <View style={styles.nameFieldContainer}>
+                          <Text style={styles.inputLabel}>NOM</Text>
+                          <View style={styles.nameInputContainer}>
+                            <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
+                            {isEditing ? (
+                              <TextInput
+                                style={styles.nameTextInput}
+                                placeholder="Nom"
+                                placeholderTextColor="#64748B"
+                                value={editedMission?.contactLastName || ''}
+                                onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactLastName: text }))}
+                              />
+                            ) : (
+                              <Text style={styles.nameDisplayText}>{selectedMission?.contact?.lastName || 'Non renseigné'}</Text>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Email */}
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>EMAIL *</Text>
+                        <View style={styles.inputContainer}>
+                          <Mail size={16} color="#94A3B8" style={styles.inputIcon} />
+                          {isEditing ? (
+                            <TextInput
+                              style={styles.textInput}
+                              placeholder="contact@entreprise.com"
+                              placeholderTextColor="#64748B"
+                              value={editedMission?.contactEmail || ''}
+                              onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactEmail: text }))}
+                              keyboardType="email-address"
+                              autoCapitalize="none"
                             />
+                          ) : (
+                            <Text style={styles.displayText}>{selectedMission?.contact?.email || 'Non renseigné'}</Text>
                           )}
-                        </>
+                        </View>
+                      </View>
+
+                      {/* Téléphone */}
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>TÉLÉPHONE</Text>
+                        <View style={styles.inputContainer}>
+                          <Phone size={16} color="#94A3B8" style={styles.inputIcon} />
+                          {isEditing ? (
+                            <TextInput
+                              style={styles.textInput}
+                              placeholder="06 12 34 56 78"
+                              placeholderTextColor="#64748B"
+                              value={editedMission?.contactPhone || ''}
+                              onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactPhone: text }))}
+                              keyboardType="phone-pad"
+                            />
+                          ) : (
+                            <Text style={styles.displayText}>{selectedMission?.contact?.phone || 'Non renseigné'}</Text>
+                          )}
+                        </View>
+                      </View>
+
+                      {/* Référence client */}
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Référence client</Text>
+                        <View style={styles.inputContainer}>
+                          <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                          {isEditing ? (
+                            <TextInput
+                              style={styles.textInput}
+                              placeholder="Ex: B-2079854"
+                              placeholderTextColor="#64748B"
+                              value={editedMission.refClient}
+                              onChangeText={(text) => setEditedMission(prev => ({ ...prev, refClient: text }))}
+                            />
+                          ) : (
+                            <Text style={styles.displayText}>{selectedMission?.refClient || 'Non renseigné'}</Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Adresse */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>ADRESSE DU CHANTIER *</Text>
+                      <View style={styles.inputContainer}>
+                        <MapPin size={16} color="#94A3B8" style={styles.inputIcon} />
+                        {isEditing ? (
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="Ex: 123 Rue de la République, Lyon 69003"
+                            placeholderTextColor="#64748B"
+                            value={editedMission?.location || ''}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, location: text }))}
+                          />
+                        ) : (
+                          <Text style={styles.displayText}>{selectedMission?.location}</Text>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Type de mission */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
+                      {isEditing ? (
+                        <View style={styles.typeSelector}>
+                          {missionTypes.map((type, index) => (
+                            <TouchableOpacity
+                              key={index}
+                              style={[
+                                styles.typeOption,
+                                editedMission?.type === type && styles.typeOptionSelected
+                              ]}
+                              onPress={() => setEditedMission(prev => ({ ...prev, type }))}
+                            >
+                              <Text style={[
+                                styles.typeOptionText,
+                                editedMission?.type === type && styles.typeOptionTextSelected
+                              ]}>
+                                {type}
+                              </Text>
+                              {editedMission?.type === type && (
+                                <Check size={14} color="#FFFFFF" />
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
                       ) : (
-                        <View style={styles.dateTimeInputContainer}>
-                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeDisplayText}>
-                            {selectedMission?.nextVisit ? selectedMission.date : 'Non définie'}
-                          </Text>
+                        <View style={styles.inputContainer}>
+                          <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
+                          <Text style={styles.displayText}>{selectedMission?.type || 'Non défini'}</Text>
                         </View>
                       )}
                     </View>
 
-                    <View style={styles.dateTimeFieldContainer}>
-                      <Text style={styles.inputLabel}>Heure de début</Text>
-                      {isEditing ? (
-                        <>
-                          <TouchableOpacity
-                            style={styles.dateTimeInputContainer}
-                            onPress={() => setShowEditTimePicker(true)}
-                          >
+                    {/* Date et heure */}
+                    <View style={styles.dateTimeRow}>
+                      <View style={styles.dateTimeFieldContainer}>
+                        <Text style={styles.inputLabel}>Date de début *</Text>
+                        {isEditing ? (
+                          <>
+                            <TouchableOpacity
+                              style={styles.dateTimeInputContainer}
+                              onPress={() => setShowEditDatePicker(true)}
+                            >
+                              <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                              <Text style={styles.dateTimeTextInput}>
+                                {formatDisplayDate(editSelectedDate)}
+                              </Text>
+                            </TouchableOpacity>
+                            {showEditDatePicker && (
+                              <DateTimePicker
+                                value={editSelectedDate}
+                                mode="date"
+                                display="default"
+                                onChange={onEditDateChange}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <View style={styles.dateTimeInputContainer}>
+                            <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                            <Text style={styles.dateTimeDisplayText}>
+                              {selectedMission?.nextVisit ? selectedMission.date : 'Non définie'}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <View style={styles.dateTimeFieldContainer}>
+                        <Text style={styles.inputLabel}>Heure de début</Text>
+                        {isEditing ? (
+                          <>
+                            <TouchableOpacity
+                              style={styles.dateTimeInputContainer}
+                              onPress={() => setShowEditTimePicker(true)}
+                            >
+                              <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                              <Text style={styles.dateTimeTextInput}>
+                                {formatTime(editSelectedTime)}
+                              </Text>
+                            </TouchableOpacity>
+                            {showEditTimePicker && (
+                              <DateTimePicker
+                                value={editSelectedTime || getDefaultTime()}
+                                mode="time"
+                                display="default"
+                                onChange={onEditTimeChange}
+                                is24Hour={true}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <View style={styles.dateTimeInputContainer}>
                             <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                            <Text style={styles.dateTimeTextInput}>
-                              {formatTime(editSelectedTime)}
+                            <Text style={styles.dateTimeDisplayText}>
+                              {selectedMission?.time ? selectedMission.time : 'Non définie'}
                             </Text>
-                          </TouchableOpacity>
-                          {showEditTimePicker && (
-                            <DateTimePicker
-                              value={editSelectedTime || getDefaultTime()}
-                              mode="time"
-                              display="default"
-                              onChange={onEditTimeChange}
-                              is24Hour={true}
-                            />
-                          )}
-                        </>
-                      ) : (
-                        <View style={styles.dateTimeInputContainer}>
-                          <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeDisplayText}>
-                            {selectedMission?.time ? selectedMission.time : 'Non définie'}
-                          </Text>
-                        </View>
-                      )}
+                          </View>
+                        )}
+                      </View>
+
                     </View>
 
-                  </View>
-
-                  {/* Date de fin et ref business */}
-                  <View style={styles.dateTimeRow}>
-                    <View style={styles.dateTimeFieldContainer}>
-                      <Text style={styles.inputLabel}>Date de fin</Text>
-                      {isEditing ? (
-                        <>
-                          <TouchableOpacity
-                            style={styles.dateTimeInputContainer}
-                            onPress={() => setShowEditEndDatePicker(true)}
-                          >
+                    {/* Date de fin et ref business */}
+                    <View style={styles.dateTimeRow}>
+                      <View style={styles.dateTimeFieldContainer}>
+                        <Text style={styles.inputLabel}>Date de fin</Text>
+                        {isEditing ? (
+                          <>
+                            <TouchableOpacity
+                              style={styles.dateTimeInputContainer}
+                              onPress={() => setShowEditEndDatePicker(true)}
+                            >
+                              <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                              <Text style={styles.dateTimeTextInput}>
+                                {formatDisplayDate(editSelectedEndDate)}
+                              </Text>
+                            </TouchableOpacity>
+                            {showEditEndDatePicker && (
+                              <DateTimePicker
+                                value={editSelectedEndDate || new Date()}
+                                mode="date"
+                                display="default"
+                                onChange={onEditEndDateChange}
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <View style={styles.dateTimeInputContainer}>
                             <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                            <Text style={styles.dateTimeTextInput}>
-                              {formatDisplayDate(editSelectedEndDate)}
+                            <Text style={styles.dateTimeDisplayText}>
+                              {selectedMission?.endDate ? selectedMission.endDate : 'Non définie'}
                             </Text>
-                          </TouchableOpacity>
-                          {showEditEndDatePicker && (
-                            <DateTimePicker
-                              value={editSelectedEndDate|| new Date()}
-                              mode="date"
-                              display="default"
-                              onChange={onEditEndDateChange}
-                            />
-                          )}
-                        </>
-                      ) : (
-                        <View style={styles.dateTimeInputContainer}>
-                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeDisplayText}>
-                            {selectedMission?.endDate ? selectedMission.endDate : 'Non définie'}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Référence affaire */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Référence affaire</Text>
+                      <View style={styles.inputRefContainer}>
+                        <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                        {isEditing ? (
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="Ex: 2078569"
+                            placeholderTextColor="#64748B"
+                            value={editedMission?.refBusiness || ''}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, refBusiness: text }))}
+                          />
+                        ) : (
+                          <Text style={styles.displayText}>{selectedMission?.refBusiness}</Text>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Description */}
+                    <View style={styles.descriptionInputGroup}>
+                      <View style={styles.descriptionLabelContainer}>
+                        <Text style={styles.inputLabel}>DESCRIPTION</Text>
+                      </View>
+                      <View style={styles.descriptionInputContainer}>
+                        <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
+                        {isEditing ? (
+                          <TextInput
+                            style={[styles.textInput, styles.textArea]}
+                            placeholder="Détails sur la mission, points particuliers à vérifier..."
+                            placeholderTextColor="#64748B"
+                            value={editedMission?.description || ''}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, description: text }))}
+                            multiline
+                            numberOfLines={3}
+                            textAlignVertical="top"
+                          />
+                        ) : (
+                          <Text style={[styles.displayText, styles.descriptionDisplayText]}>
+                            {selectedMission?.description || 'Aucune description'}
                           </Text>
-                        </View>
-                      )}
+                        )}
+                      </View>
                     </View>
-                  </View>
+                  </ScrollView>
 
-                  {/* Référence affaire */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Référence affaire</Text>
-                    <View style={styles.inputRefContainer}>
-                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                      {isEditing ? (
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="Ex: 2078569"
-                          placeholderTextColor="#64748B"
-                          value={editedMission?.refBusiness || ''}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, refBusiness: text }))}
-                        />
-                      ) : (
-                        <Text style={styles.displayText}>{selectedMission?.refBusiness}</Text>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Description */}
-                  <View style={styles.descriptionInputGroup}>
-                    <View style={styles.descriptionLabelContainer}>
-                      <Text style={styles.inputLabel}>DESCRIPTION</Text>
-                    </View>
-                    <View style={styles.descriptionInputContainer}>
-                      <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
-                      {isEditing ? (
-                        <TextInput
-                          style={[styles.textInput, styles.textArea]}
-                          placeholder="Détails sur la mission, points particuliers à vérifier..."
-                          placeholderTextColor="#64748B"
-                          value={editedMission?.description || ''}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, description: text }))}
-                          multiline
-                          numberOfLines={3}
-                          textAlignVertical="top"
-                        />
-                      ) : (
-                        <Text style={[styles.displayText, styles.descriptionDisplayText]}>
-                          {selectedMission?.description || 'Aucune description'}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                </ScrollView>
-
-                {/* Actions */}
-                {isEditing && (
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={handleCancelEdit}
-                    >
-                      <Text style={styles.cancelButtonText}>ANNULER</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.saveButtonAction}
-                      onPress={handleSaveMission}
-                    >
-                      <LinearGradient
-                        colors={['#10B981', '#059669']}
-                        style={styles.saveButtonGradient}
+                  {/* Actions */}
+                  {isEditing && (
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        style={styles.cancelButton}
+                        onPress={handleCancelEdit}
                       >
-                        <Save size={16} color="#FFFFFF" />
-                        <Text style={styles.saveButtonText}>SAUVEGARDER</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </LinearGradient>
+                        <Text style={styles.cancelButtonText}>ANNULER</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.saveButtonAction}
+                        onPress={handleSaveMission}
+                      >
+                        <LinearGradient
+                          colors={['#10B981', '#059669']}
+                          style={styles.saveButtonGradient}
+                        >
+                          <Save size={16} color="#FFFFFF" />
+                          <Text style={styles.saveButtonText}>SAUVEGARDER</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </LinearGradient>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </ScrollView>
     </SafeAreaView>

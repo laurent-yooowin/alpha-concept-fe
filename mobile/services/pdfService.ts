@@ -142,14 +142,14 @@ export const pdfService = {
                     <div class="analysis-block">
                       <h4 class="analysis-heading">🔍 Observations</h4>
                       <ul class="analysis-list">
-                        ${photo.aiAnalysis.observations.map(obs => `<li>${obs}</li>`).join('')}
+                        ${photo.aiAnalysis?.observations?.map(obs => `<li>${obs}</li>`).join('')}
                       </ul>
                     </div>
 
                     <div class="analysis-block">
                       <h4 class="analysis-heading">⚠️ Recommandations</h4>
                       <ul class="analysis-list">
-                        ${photo.aiAnalysis.recommendations.map(rec => `<li>${rec}</li>`).join('')}
+                        ${photo.aiAnalysis?.recommendations?.map(rec => `<li>${rec}</li>`).join('')}
                       </ul>
                     </div>
                   </div>
@@ -158,7 +158,7 @@ export const pdfService = {
                 ${photo.aiAnalysis.references ? `
                   <div class="comment-section">
                     <h4 class="comment-heading">🏛️ Références</h4>
-                    <p class="comment-text">${photo.aiAnalysis.references}</p>
+                    <p class="comment-text">${photo.aiAnalysis.references?.map(rec => `<li>${rec}</li>`).join('') }</p>
                   </div>
                 ` : ''}
                 

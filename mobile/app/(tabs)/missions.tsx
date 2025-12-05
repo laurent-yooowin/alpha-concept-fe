@@ -12,7 +12,8 @@ import {
   Image,
   Alert,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Search, Filter, Plus, MapPin, Calendar, Clock, Building, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, ArrowRight, Camera, FileText, Download, ChevronDown, X, User, Mail, Phone, Mic, MicOff, Check, CreditCard as Edit3, Save, Trash2, MapPin as Location, FileText as Description, Eye, Image as ImageIcon } from 'lucide-react-native';
@@ -28,7 +29,7 @@ import { userService } from '@/services/userService';
 
 const { width } = Dimensions.get('window');
 
-export default function MissionsScreen() {  
+export default function MissionsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('toutes');
   const [userMissions, setUserMissions] = useState < any[] > ([]);
@@ -256,9 +257,9 @@ export default function MissionsScreen() {
             nextVisit: nextVisit,
             date: mission.date,
             time: mission.time,
-            endDate: response.data.endDate || (response.data.endDate ? new Date(response.data.endDate).toLocaleDateString('fr-FR') : ''),
-            refBusiness: response.data.refBusiness || '',
-            refClient: response.data.refClient || '',
+            endDate: mission.endDate || (mission.endDate ? new Date(mission.endDate).toLocaleDateString('fr-FR') : ''),
+            refBusiness: mission.refBusiness || '',
+            refClient: mission.refClient || '',
             location: mission.address || 'Localisation non renseignée',
             description: mission.description || '',
             alerts: mission.status === 'rejetee_replanifiee' ? 1 : 0,
@@ -281,7 +282,7 @@ export default function MissionsScreen() {
 
         setMissions(backendMissions);
         setUserMissions(backendMissions);
-        filtermissions(backendMissions);
+        filtermissions(backendMissions, 'toutes');
       } else {
         setMissions([]);
       }
@@ -384,32 +385,40 @@ export default function MissionsScreen() {
 
   // Fonction pour démarrer une visite avec les données de la mission
   const startVisitForMission = (mission: any) => {
+    console.log('startVisitForMission >>>: ', mission);
     // Encoder les données de la mission pour les passer en paramètres
     const missionData = encodeURIComponent(JSON.stringify({
+      ...mission,
       id: mission.id,
       title: mission.title,
       client: mission.client,
       location: mission.location,
       description: mission.description,
       nextVisit: mission.nextVisit,
-      type: mission.status === 'en_retard' ? 'Visite de rattrapage' :
-        mission.status === 'aujourdhui' ? 'Visite programmée' : 'Visite anticipée'
+      type: mission.status,
+      contact: {
+        firstName: mission.contactFirstName || '',
+        lastName: mission.contactLastName || '',
+        email: mission.contactEmail || '',
+        phone: mission.contactPhone || ''
+      }
     }));
 
     router.push(`/visite?mission=${missionData}`);
   };
 
   const openReportDetails = (mission: any) => {
+    console.log('openReportDetails >>>: ', mission);
     // Encoder les données de la mission pour les passer en paramètres
     const missionData = encodeURIComponent(JSON.stringify({
+      ...mission,
       id: mission.id,
       title: mission.title,
       client: mission.client,
       location: mission.location,
       description: mission.description,
       nextVisit: mission.nextVisit,
-      type: mission.status === 'en_retard' ? 'Visite de rattrapage' :
-        mission.status === 'aujourdhui' ? 'Visite programmée' : 'Visite anticipée'
+      type: mission.status
     }));
 
     router.push(`/rapports?mission=${missionData}`);
@@ -1265,458 +1274,463 @@ export default function MissionsScreen() {
 
       {/* Mission Detail Modal */}
       <Modal visible={showMissionDetail} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.missionDetailModal}>
-            <LinearGradient
-              colors={['#1E293B', '#374151']}
-              style={styles.missionDetailModalGradient}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>
-                  {isEditing ? 'MODIFIER LA MISSION' : 'FICHE DE MISSION'}
-                </Text>
-                <View style={styles.modalHeaderButtons}>
-                  {!isEditing ? (
-                    <>
-                      <TouchableOpacity
-                        style={styles.editButton}
-                        onPress={() => setIsEditing(true)}
-                      >
-                        <Edit3 size={18} color="#FFFFFF" />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.deleteButton}
-                        onPress={() => handleDeleteMission()}
-                      >
-                        <Trash2 size={18} color="#FFFFFF" />
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.saveButton}
-                      onPress={handleSaveMission}
-                    >
-                      <Save size={18} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  )}
-                  <TouchableOpacity
-                    style={styles.modalCloseButton}
-                    onPress={() => {
-                      if (isEditing) {
-                        handleCancelEdit();
-                      } else {
-                        setShowMissionDetail(false);
-                      }
-                    }}
-                  >
-                    <X size={20} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <ScrollView
-                style={styles.modalContent}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.modalScrollContent}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.missionDetailModal}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.missionDetailModalGradient}
               >
-                {/* Titre de la mission */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
-                  <View style={styles.inputContainer}>
-                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="Ex: Résidence Les Jardins"
-                        placeholderTextColor="#64748B"
-                        value={editedMission?.title || ''}
-                        onChangeText={(text) => setEditedMission(prev => ({ ...prev, title: text }))}
-                      />
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    {isEditing ? 'MODIFIER LA MISSION' : 'FICHE DE MISSION'}
+                  </Text>
+                  <View style={styles.modalHeaderButtons}>
+                    {selectedMission?.status != 'terminee' && (!isEditing ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.editButton}
+                          onPress={() => setIsEditing(true)}
+                        >
+                          <Edit3 size={18} color="#FFFFFF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => handleDeleteMission()}
+                        >
+                          <Trash2 size={18} color="#FFFFFF" />
+                        </TouchableOpacity>
+                      </>
                     ) : (
-                      <Text style={styles.displayText}>{selectedMission?.title}</Text>
-                    )}
+                      <TouchableOpacity
+                        style={styles.saveButton}
+                        onPress={handleSaveMission}
+                      >
+                        <Save size={18} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity
+                      style={styles.modalCloseButton}
+                      onPress={() => {
+                        if (isEditing) {
+                          handleCancelEdit();
+                        } else {
+                          setShowMissionDetail(false);
+                        }
+                      }}
+                    >
+                      <X size={20} color="#FFFFFF" />
+                    </TouchableOpacity>
                   </View>
                 </View>
 
-                {/* Client */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>CLIENT / ENTREPRISE *</Text>
-                  <View style={styles.inputContainer}>
-                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="Ex: Bouygues Construction"
-                        placeholderTextColor="#64748B"
-                        value={editedMission?.client || ''}
-                        onChangeText={(text) => setEditedMission(prev => ({ ...prev, client: text }))}
-                      />
-                    ) : (
-                      <Text style={styles.displayText}>{selectedMission?.client}</Text>
-                    )}
-                  </View>
-                </View>
-
-                {/* Contact du client */}
-                <View style={styles.contactSection}>
-                  <Text style={styles.contactSectionTitle}>CONTACT CLIENT</Text>
-
-                  {/* Prénom et Nom */}
-                  <View style={styles.nameRow}>
-                    <View style={styles.nameFieldContainer}>
-                      <Text style={styles.inputLabel}>PRÉNOM</Text>
-                      <View style={styles.nameInputContainer}>
-                        <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
-                        {isEditing ? (
-                          <TextInput
-                            style={styles.nameTextInput}
-                            placeholder="Prénom"
-                            placeholderTextColor="#64748B"
-                            value={editedMission?.contactFirstName || ''}
-                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactFirstName: text }))}
-                          />
-                        ) : (
-                          <Text style={styles.nameDisplayText}>{selectedMission?.contact?.firstName || 'Non renseigné'}</Text>
-                        )}
-                      </View>
-                    </View>
-
-                    <View style={styles.nameFieldContainer}>
-                      <Text style={styles.inputLabel}>NOM</Text>
-                      <View style={styles.nameInputContainer}>
-                        <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
-                        {isEditing ? (
-                          <TextInput
-                            style={styles.nameTextInput}
-                            placeholder="Nom"
-                            placeholderTextColor="#64748B"
-                            value={editedMission?.contactLastName || ''}
-                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactLastName: text }))}
-                          />
-                        ) : (
-                          <Text style={styles.nameDisplayText}>{selectedMission?.contact?.lastName || 'Non renseigné'}</Text>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Email */}
+                <ScrollView
+                  style={styles.modalContent}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.modalScrollContent}
+                >
+                  {/* Titre de la mission */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>EMAIL *</Text>
-                    <View style={styles.inputContainer}>
-                      <Mail size={16} color="#94A3B8" style={styles.inputIcon} />
-                      {isEditing ? (
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="contact@entreprise.com"
-                          placeholderTextColor="#64748B"
-                          value={editedMission?.contactEmail || ''}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactEmail: text }))}
-                          keyboardType="email-address"
-                          autoCapitalize="none"
-                        />
-                      ) : (
-                        <Text style={styles.displayText}>{selectedMission?.contact?.email || 'Non renseigné'}</Text>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Téléphone */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TÉLÉPHONE</Text>
-                    <View style={styles.inputContainer}>
-                      <Phone size={16} color="#94A3B8" style={styles.inputIcon} />
-                      {isEditing ? (
-                        <TextInput
-                          style={styles.textInput}
-                          placeholder="06 12 34 56 78"
-                          placeholderTextColor="#64748B"
-                          value={editedMission?.contactPhone || ''}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactPhone: text }))}
-                          keyboardType="phone-pad"
-                        />
-                      ) : (
-                        <Text style={styles.displayText}>{selectedMission?.contact?.phone || 'Non renseigné'}</Text>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Référence client */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Référence client</Text>
+                    <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
                     <View style={styles.inputContainer}>
                       <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                       {isEditing ? (
                         <TextInput
                           style={styles.textInput}
-                          placeholder="Ex: B-2079854"
+                          placeholder="Ex: Résidence Les Jardins"
                           placeholderTextColor="#64748B"
-                          value={editedMission.refClient}
-                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, refClient: text }))}
+                          value={editedMission?.title || ''}
+                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, title: text }))}
                         />
                       ) : (
-                        <Text style={styles.displayText}>{selectedMission?.refClient || 'Non renseigné'}</Text>
+                        <Text style={styles.displayText}>{selectedMission?.title}</Text>
                       )}
                     </View>
                   </View>
-                </View>
 
-                {/* Adresse */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>ADRESSE DU CHANTIER *</Text>
-                  <View style={styles.inputContainer}>
-                    <MapPin size={16} color="#94A3B8" style={styles.inputIcon} />
+                  {/* Client */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>CLIENT / ENTREPRISE *</Text>
+                    <View style={styles.inputContainer}>
+                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                      {isEditing ? (
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Ex: Bouygues Construction"
+                          placeholderTextColor="#64748B"
+                          value={editedMission?.client || ''}
+                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, client: text }))}
+                        />
+                      ) : (
+                        <Text style={styles.displayText}>{selectedMission?.client}</Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Contact du client */}
+                  <View style={styles.contactSection}>
+                    <Text style={styles.contactSectionTitle}>CONTACT CLIENT</Text>
+
+                    {/* Prénom et Nom */}
+                    <View style={styles.nameRow}>
+                      <View style={styles.nameFieldContainer}>
+                        <Text style={styles.inputLabel}>PRÉNOM</Text>
+                        <View style={styles.nameInputContainer}>
+                          <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
+                          {isEditing ? (
+                            <TextInput
+                              style={styles.nameTextInput}
+                              placeholder="Prénom"
+                              placeholderTextColor="#64748B"
+                              value={editedMission?.contactFirstName || ''}
+                              onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactFirstName: text }))}
+                            />
+                          ) : (
+                            <Text style={styles.nameDisplayText}>{selectedMission?.contact?.firstName || 'Non renseigné'}</Text>
+                          )}
+                        </View>
+                      </View>
+
+                      <View style={styles.nameFieldContainer}>
+                        <Text style={styles.inputLabel}>NOM</Text>
+                        <View style={styles.nameInputContainer}>
+                          <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
+                          {isEditing ? (
+                            <TextInput
+                              style={styles.nameTextInput}
+                              placeholder="Nom"
+                              placeholderTextColor="#64748B"
+                              value={editedMission?.contactLastName || ''}
+                              onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactLastName: text }))}
+                            />
+                          ) : (
+                            <Text style={styles.nameDisplayText}>{selectedMission?.contact?.lastName || 'Non renseigné'}</Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Email */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>EMAIL *</Text>
+                      <View style={styles.inputContainer}>
+                        <Mail size={16} color="#94A3B8" style={styles.inputIcon} />
+                        {isEditing ? (
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="contact@entreprise.com"
+                            placeholderTextColor="#64748B"
+                            value={editedMission?.contactEmail || ''}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactEmail: text }))}
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                          />
+                        ) : (
+                          <Text style={styles.displayText}>{selectedMission?.contact?.email || 'Non renseigné'}</Text>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Téléphone */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>TÉLÉPHONE</Text>
+                      <View style={styles.inputContainer}>
+                        <Phone size={16} color="#94A3B8" style={styles.inputIcon} />
+                        {isEditing ? (
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="06 12 34 56 78"
+                            placeholderTextColor="#64748B"
+                            value={editedMission?.contactPhone || ''}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, contactPhone: text }))}
+                            keyboardType="phone-pad"
+                          />
+                        ) : (
+                          <Text style={styles.displayText}>{selectedMission?.contact?.phone || 'Non renseigné'}</Text>
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Référence client */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Référence client</Text>
+                      <View style={styles.inputContainer}>
+                        <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                        {isEditing ? (
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="Ex: B-2079854"
+                            placeholderTextColor="#64748B"
+                            value={editedMission.refClient}
+                            onChangeText={(text) => setEditedMission(prev => ({ ...prev, refClient: text }))}
+                          />
+                        ) : (
+                          <Text style={styles.displayText}>{selectedMission?.refClient || 'Non renseigné'}</Text>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Adresse */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>ADRESSE DU CHANTIER *</Text>
+                    <View style={styles.inputContainer}>
+                      <MapPin size={16} color="#94A3B8" style={styles.inputIcon} />
+                      {isEditing ? (
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Ex: 123 Rue de la République, Lyon 69003"
+                          placeholderTextColor="#64748B"
+                          value={editedMission?.location || ''}
+                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, location: text }))}
+                        />
+                      ) : (
+                        <Text style={styles.displayText}>{selectedMission?.location}</Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Type de mission */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
                     {isEditing ? (
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="Ex: 123 Rue de la République, Lyon 69003"
-                        placeholderTextColor="#64748B"
-                        value={editedMission?.location || ''}
-                        onChangeText={(text) => setEditedMission(prev => ({ ...prev, location: text }))}
-                      />
+                      <View style={styles.typeSelector}>
+                        {missionTypes.map((type, index) => (
+                          <TouchableOpacity
+                            key={index}
+                            style={[
+                              styles.typeOption,
+                              editedMission?.type === type && styles.typeOptionSelected
+                            ]}
+                            onPress={() => setEditedMission(prev => ({ ...prev, type }))}
+                          >
+                            <Text style={[
+                              styles.typeOptionText,
+                              editedMission?.type === type && styles.typeOptionTextSelected
+                            ]}>
+                              {type}
+                            </Text>
+                            {editedMission?.type === type && (
+                              <Check size={14} color="#FFFFFF" />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
                     ) : (
-                      <Text style={styles.displayText}>{selectedMission?.location}</Text>
+                      <View style={styles.inputContainer}>
+                        <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
+                        <Text style={styles.displayText}>{selectedMission?.type || 'Non défini'}</Text>
+                      </View>
                     )}
                   </View>
-                </View>
 
-                {/* Type de mission */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
-                  {isEditing ? (
-                    <View style={styles.typeSelector}>
-                      {missionTypes.map((type, index) => (
-                        <TouchableOpacity
-                          key={index}
-                          style={[
-                            styles.typeOption,
-                            editedMission?.type === type && styles.typeOptionSelected
-                          ]}
-                          onPress={() => setEditedMission(prev => ({ ...prev, type }))}
-                        >
-                          <Text style={[
-                            styles.typeOptionText,
-                            editedMission?.type === type && styles.typeOptionTextSelected
-                          ]}>
-                            {type}
+                  {/* Date et heure */}
+                  <View style={styles.dateTimeRow}>
+                    <View style={styles.dateTimeFieldContainer}>
+                      <Text style={styles.inputLabel}>Date de début *</Text>
+                      {isEditing ? (
+                        <>
+                          <TouchableOpacity
+                            style={styles.dateTimeInputContainer}
+                            onPress={() => setShowEditDatePicker(true)}
+                          >
+                            <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                            <Text style={styles.dateTimeTextInput}>
+                              {formatDisplayDate(editSelectedDate)}
+                            </Text>
+                          </TouchableOpacity>
+                          {showEditDatePicker && (
+                            <DateTimePicker
+                              value={editSelectedDate || new Date()}
+                              mode="date"
+                              display="default"
+                              onChange={onEditDateChange}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <View style={styles.dateTimeInputContainer}>
+                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <Text style={styles.dateTimeDisplayText}>
+                            {selectedMission?.date ? selectedMission.date : 'Non définie'}
                           </Text>
-                          {editedMission?.type === type && (
-                            <Check size={14} color="#FFFFFF" />
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.dateTimeFieldContainer}>
+                      <Text style={styles.inputLabel}>Heure de début</Text>
+                      {isEditing ? (
+                        <>
+                          <TouchableOpacity
+                            style={styles.dateTimeInputContainer}
+                            onPress={() => setShowEditTimePicker(true)}
+                          >
+                            <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                            <Text style={styles.dateTimeTextInput}>
+                              {formatTime(editSelectedTime)}
+                            </Text>
+                          </TouchableOpacity>
+                          {showEditTimePicker && (
+                            <DateTimePicker
+                              value={editSelectedTime || getDefaultTime()}
+                              mode="time"
+                              display="default"
+                              onChange={onEditTimeChange}
+                              is24Hour={true}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <View style={styles.dateTimeInputContainer}>
+                          <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <Text style={styles.dateTimeDisplayText}>
+                            {selectedMission?.time ? selectedMission.time : 'Non définie'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                  </View>
+
+                  {/* Date de fin et ref business */}
+                  <View style={styles.dateTimeRow}>
+                    <View style={styles.dateTimeFieldContainer}>
+                      <Text style={styles.inputLabel}>Date de fin</Text>
+                      {isEditing ? (
+                        <>
+                          <TouchableOpacity
+                            style={styles.dateTimeInputContainer}
+                            onPress={() => setShowEditEndDatePicker(true)}
+                          >
+                            <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                            <Text style={styles.dateTimeTextInput}>
+                              {formatDisplayDate(editSelectedEndDate)}
+                            </Text>
+                          </TouchableOpacity>
+                          {showEditEndDatePicker && (
+                            <DateTimePicker
+                              value={editSelectedEndDate || new Date()}
+                              mode="date"
+                              display="default"
+                              onChange={onEditEndDateChange}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <View style={styles.dateTimeInputContainer}>
+                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <Text style={styles.dateTimeDisplayText}>
+                            {selectedMission?.endDate ? selectedMission.endDate : 'Non définie'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Référence affaire */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Référence affaire</Text>
+                    <View style={styles.inputRefContainer}>
+                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                      {isEditing ? (
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Ex: 2078569"
+                          placeholderTextColor="#64748B"
+                          value={editedMission?.refBusiness || ''}
+                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, refBusiness: text }))}
+                        />
+                      ) : (
+                        <Text style={styles.displayText}>{selectedMission?.refBusiness}</Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Description */}
+                  <View style={styles.descriptionInputGroup}>
+                    <View style={styles.descriptionLabelContainer}>
+                      <Text style={styles.inputLabel}>DESCRIPTION</Text>
+                      {isEditing && isRecordingDescription && (
+                        <View style={styles.recordingIndicator}>
+                          <View style={styles.recordingDot} />
+                          <Text style={styles.recordingText}>Enregistrement...</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.descriptionInputContainer}>
+                      <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
+                      {isEditing ? (
+                        <TextInput
+                          style={[styles.textInput, styles.textArea]}
+                          placeholder="Détails sur la mission, points particuliers à vérifier..."
+                          placeholderTextColor="#64748B"
+                          value={editedMission?.description || ''}
+                          onChangeText={(text) => setEditedMission(prev => ({ ...prev, description: text }))}
+                          multiline
+                          numberOfLines={3}
+                          textAlignVertical="top"
+                        />
+                      ) : (
+                        <Text style={[styles.displayText, styles.descriptionDisplayText]}>
+                          {selectedMission?.description || 'Aucune description'}
+                        </Text>
+                      )}
+                      {/* {isEditing && (
+                        <TouchableOpacity
+                          style={[
+                            styles.micButton,
+                            isRecordingDescription && styles.micButtonActive
+                          ]}
+                          onPress={toggleRecording}
+                        >
+                          {isRecordingDescription ? (
+                            <MicOff size={18} color="#FFFFFF" />
+                          ) : (
+                            <Mic size={18} color="#FFFFFF" />
                           )}
                         </TouchableOpacity>
-                      ))}
+                      )} */}
                     </View>
-                  ) : (
-                    <View style={styles.inputContainer}>
-                      <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
-                      <Text style={styles.displayText}>{selectedMission?.type || 'Non défini'}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Date et heure */}
-                <View style={styles.dateTimeRow}>
-                  <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>Date de début *</Text>
-                    {isEditing ? (
-                      <>
-                        <TouchableOpacity
-                          style={styles.dateTimeInputContainer}
-                          onPress={() => setShowEditDatePicker(true)}
-                        >
-                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeTextInput}>
-                            {formatDisplayDate(editSelectedDate)}
-                          </Text>
-                        </TouchableOpacity>
-                        {showEditDatePicker && (
-                          <DateTimePicker
-                            value={editSelectedDate || new Date()}
-                            mode="date"
-                            display="default"
-                            onChange={onEditDateChange}
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <View style={styles.dateTimeInputContainer}>
-                        <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                        <Text style={styles.dateTimeDisplayText}>
-                          {selectedMission?.date ? selectedMission.date : 'Non définie'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>Heure de début</Text>
-                    {isEditing ? (
-                      <>
-                        <TouchableOpacity
-                          style={styles.dateTimeInputContainer}
-                          onPress={() => setShowEditTimePicker(true)}
-                        >
-                          <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeTextInput}>
-                            {formatTime(editSelectedTime)}
-                          </Text>
-                        </TouchableOpacity>
-                        {showEditTimePicker && (
-                          <DateTimePicker
-                            value={editSelectedTime || getDefaultTime()}
-                            mode="time"
-                            display="default"
-                            onChange={onEditTimeChange}
-                            is24Hour={true}
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <View style={styles.dateTimeInputContainer}>
-                        <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                        <Text style={styles.dateTimeDisplayText}>
-                          {selectedMission?.time ? selectedMission.time : 'Non définie'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                </View>
-
-                {/* Date de fin et ref business */}
-                <View style={styles.dateTimeRow}>
-                  <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>Date de fin</Text>
-                    {isEditing ? (
-                      <>
-                        <TouchableOpacity
-                          style={styles.dateTimeInputContainer}
-                          onPress={() => setShowEditEndDatePicker(true)}
-                        >
-                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeTextInput}>
-                            {formatDisplayDate(editSelectedEndDate)}
-                          </Text>
-                        </TouchableOpacity>
-                        {showEditEndDatePicker && (
-                          <DateTimePicker
-                            value={editSelectedEndDate || new Date()}
-                            mode="date"
-                            display="default"
-                            onChange={onEditEndDateChange}
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <View style={styles.dateTimeInputContainer}>
-                        <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                        <Text style={styles.dateTimeDisplayText}>
-                          {selectedMission?.endDate ? selectedMission.endDate : 'Non définie'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-
-                {/* Référence affaire */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Référence affaire</Text>
-                  <View style={styles.inputRefContainer}>
-                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                    {isEditing ? (
-                      <TextInput
-                        style={styles.textInput}
-                        placeholder="Ex: 2078569"
-                        placeholderTextColor="#64748B"
-                        value={editedMission?.refBusiness || ''}
-                        onChangeText={(text) => setEditedMission(prev => ({ ...prev, refBusiness: text }))}
-                      />
-                    ) : (
-                      <Text style={styles.displayText}>{selectedMission?.refBusiness}</Text>
-                    )}
-                  </View>
-                </View>
-
-                {/* Description */}
-                <View style={styles.descriptionInputGroup}>
-                  <View style={styles.descriptionLabelContainer}>
-                    <Text style={styles.inputLabel}>DESCRIPTION</Text>
-                    {isEditing && isRecordingDescription && (
-                      <View style={styles.recordingIndicator}>
-                        <View style={styles.recordingDot} />
-                        <Text style={styles.recordingText}>Enregistrement...</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.descriptionInputContainer}>
-                    <FileText size={16} color="#94A3B8" style={styles.inputIcon} />
-                    {isEditing ? (
-                      <TextInput
-                        style={[styles.textInput, styles.textArea]}
-                        placeholder="Détails sur la mission, points particuliers à vérifier..."
-                        placeholderTextColor="#64748B"
-                        value={editedMission?.description || ''}
-                        onChangeText={(text) => setEditedMission(prev => ({ ...prev, description: text }))}
-                        multiline
-                        numberOfLines={3}
-                        textAlignVertical="top"
-                      />
-                    ) : (
-                      <Text style={[styles.displayText, styles.descriptionDisplayText]}>
-                        {selectedMission?.description || 'Aucune description'}
+                    {/* {isEditing && isRecordingDescription && (
+                      <Text style={styles.speechHint}>
+                        Parlez maintenant... Appuyez à nouveau sur le micro pour arrêter.
                       </Text>
-                    )}
-                    {isEditing && (
-                      <TouchableOpacity
-                        style={[
-                          styles.micButton,
-                          isRecordingDescription && styles.micButtonActive
-                        ]}
-                        onPress={toggleRecording}
-                      >
-                        {isRecordingDescription ? (
-                          <MicOff size={18} color="#FFFFFF" />
-                        ) : (
-                          <Mic size={18} color="#FFFFFF" />
-                        )}
-                      </TouchableOpacity>
-                    )}
+                    )} */}
                   </View>
-                  {isEditing && isRecordingDescription && (
-                    <Text style={styles.speechHint}>
-                      Parlez maintenant... Appuyez à nouveau sur le micro pour arrêter.
-                    </Text>
-                  )}
-                </View>
-              </ScrollView>
+                </ScrollView>
 
-              {/* Actions */}
-              {isEditing && (
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={handleCancelEdit}
-                  >
-                    <Text style={styles.cancelButtonText}>ANNULER</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.saveButtonAction}
-                    onPress={handleSaveMission}
-                  >
-                    <LinearGradient
-                      colors={['#10B981', '#059669']}
-                      style={styles.saveButtonGradient}
+                {/* Actions */}
+                {isEditing && (
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={styles.cancelButton}
+                      onPress={handleCancelEdit}
                     >
-                      <Save size={16} color="#FFFFFF" />
-                      <Text style={styles.saveButtonText}>SAUVEGARDER</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </LinearGradient>
+                      <Text style={styles.cancelButtonText}>ANNULER</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.saveButtonAction}
+                      onPress={handleSaveMission}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        style={styles.saveButtonGradient}
+                      >
+                        <Save size={16} color="#FFFFFF" />
+                        <Text style={styles.saveButtonText}>SAUVEGARDER</Text>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Filter Menu Modal */}
@@ -1726,81 +1740,86 @@ export default function MissionsScreen() {
         animationType="fade"
         onRequestClose={() => setShowFilterMenu(false)}
       >
-        <TouchableOpacity
-          style={styles.filterModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowFilterMenu(false)}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
         >
-          <View style={styles.filterMenu}>
-            <LinearGradient
-              colors={['#1E293B', '#374151']}
-              style={styles.filterMenuGradient}
-            >
-              <View style={styles.filterMenuHeader}>
-                <Text style={styles.filterMenuTitle}>FILTRER LES MISSIONS</Text>
-                <TouchableOpacity
-                  style={styles.closeButton}
-                  onPress={() => setShowFilterMenu(false)}
-                >
-                  <X size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-
-              {updatedFilters.map((filter) => {
-                const FilterIcon = filter.icon;
-                const isActive = activeFilter === filter.id;
-
-                return (
+          <TouchableOpacity
+            style={styles.filterModalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowFilterMenu(false)}
+          >
+            <View style={styles.filterMenu}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.filterMenuGradient}
+              >
+                <View style={styles.filterMenuHeader}>
+                  <Text style={styles.filterMenuTitle}>FILTRER LES MISSIONS</Text>
                   <TouchableOpacity
-                    key={filter.id}
-                    style={[
-                      styles.filterMenuItem,
-                      isActive && styles.filterMenuItemActive
-                    ]}
-                    onPress={() => handleFilterSelect(filter.id)}
+                    style={styles.closeButton}
+                    onPress={() => setShowFilterMenu(false)}
                   >
-                    {isActive ? (
-                      <LinearGradient
-                        colors={[filter.color, filter.color + 'CC']}
-                        style={styles.filterMenuItemGradient}
-                      >
+                    <X size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                {updatedFilters.map((filter) => {
+                  const FilterIcon = filter.icon;
+                  const isActive = activeFilter === filter.id;
+
+                  return (
+                    <TouchableOpacity
+                      key={filter.id}
+                      style={[
+                        styles.filterMenuItem,
+                        isActive && styles.filterMenuItemActive
+                      ]}
+                      onPress={() => handleFilterSelect(filter.id)}
+                    >
+                      {isActive ? (
+                        <LinearGradient
+                          colors={[filter.color, filter.color + 'CC']}
+                          style={styles.filterMenuItemGradient}
+                        >
+                          <View style={styles.filterMenuItemContent}>
+                            <View style={styles.filterMenuItemLeft}>
+                              <View style={styles.filterMenuIcon}>
+                                <FilterIcon size={18} color="#FFFFFF" />
+                              </View>
+                              <View style={styles.filterMenuTextContainer}>
+                                <Text style={styles.filterMenuItemTextActive} numberOfLines={1}>{filter.label}</Text>
+                                <Text style={styles.filterMenuItemSubtextActive}>{filter.count} mission{filter.count > 1 ? 's' : ''}</Text>
+                              </View>
+                            </View>
+                            <View style={styles.filterMenuBadgeActive}>
+                              <Text style={styles.filterMenuBadgeTextActive}>{filter.count}</Text>
+                            </View>
+                          </View>
+                        </LinearGradient>
+                      ) : (
                         <View style={styles.filterMenuItemContent}>
                           <View style={styles.filterMenuItemLeft}>
-                            <View style={styles.filterMenuIcon}>
-                              <FilterIcon size={18} color="#FFFFFF" />
+                            <View style={[styles.filterMenuIcon, { backgroundColor: '#374151' }]}>
+                              <FilterIcon size={18} color="#94A3B8" />
                             </View>
                             <View style={styles.filterMenuTextContainer}>
-                              <Text style={styles.filterMenuItemTextActive} numberOfLines={1}>{filter.label}</Text>
-                              <Text style={styles.filterMenuItemSubtextActive}>{filter.count} mission{filter.count > 1 ? 's' : ''}</Text>
+                              <Text style={styles.filterMenuItemText} numberOfLines={1}>{filter.label}</Text>
+                              <Text style={styles.filterMenuItemSubtext}>{filter.count} mission{filter.count > 1 ? 's' : ''}</Text>
                             </View>
                           </View>
-                          <View style={styles.filterMenuBadgeActive}>
-                            <Text style={styles.filterMenuBadgeTextActive}>{filter.count}</Text>
+                          <View style={styles.filterMenuBadge}>
+                            <Text style={styles.filterMenuBadgeText}>{filter.count}</Text>
                           </View>
                         </View>
-                      </LinearGradient>
-                    ) : (
-                      <View style={styles.filterMenuItemContent}>
-                        <View style={styles.filterMenuItemLeft}>
-                          <View style={[styles.filterMenuIcon, { backgroundColor: '#374151' }]}>
-                            <FilterIcon size={18} color="#94A3B8" />
-                          </View>
-                          <View style={styles.filterMenuTextContainer}>
-                            <Text style={styles.filterMenuItemText} numberOfLines={1}>{filter.label}</Text>
-                            <Text style={styles.filterMenuItemSubtext}>{filter.count} mission{filter.count > 1 ? 's' : ''}</Text>
-                          </View>
-                        </View>
-                        <View style={styles.filterMenuBadge}>
-                          <Text style={styles.filterMenuBadgeText}>{filter.count}</Text>
-                        </View>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </LinearGradient>
-          </View>
-        </TouchableOpacity>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </LinearGradient>
+            </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* FAB Button */}
@@ -1824,603 +1843,618 @@ export default function MissionsScreen() {
 
       {/* Create Mission Modal */}
       <Modal visible={showCreateModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.missionDetailModal}>
-            <LinearGradient
-              colors={['#1E293B', '#374151']}
-              style={styles.missionDetailModalGradient}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>NOUVELLE MISSION</Text>
-                <TouchableOpacity
-                  style={styles.modalCloseButton}
-                  onPress={handleCancelButton}
-                >
-                  <X size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView
-                style={styles.modalContent}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.modalScrollContent}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.missionDetailModal}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.missionDetailModalGradient}
               >
-                {/* Titre de la mission */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
-                  <View style={styles.inputContainer}>
-                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Ex: Résidence Les Jardins"
-                      placeholderTextColor="#64748B"
-                      value={newMission.title}
-                      onChangeText={(text) => setNewMission(prev => ({ ...prev, title: text }))}
-                    />
-                  </View>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>NOUVELLE MISSION</Text>
+                  <TouchableOpacity
+                    style={styles.modalCloseButton}
+                    onPress={handleCancelButton}
+                  >
+                    <X size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
                 </View>
 
-                {/* Client */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>CLIENT / ENTREPRISE *</Text>
-                  <View style={styles.inputContainer}>
-                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Ex: Bouygues Construction"
-                      placeholderTextColor="#64748B"
-                      value={newMission.client}
-                      onChangeText={(text) => setNewMission(prev => ({ ...prev, client: text }))}
-                    />
-                  </View>
-                </View>
-
-                {/* Contact du client */}
-                <View style={styles.contactSection}>
-                  <Text style={styles.contactSectionTitle}>CONTACT CLIENT</Text>
-
-                  {/* Prénom et Nom */}
-                  <View style={styles.nameRow}>
-                    <View style={styles.nameFieldContainer}>
-                      <Text style={styles.inputLabel}>PRÉNOM</Text>
-                      <View style={styles.nameInputContainer}>
-                        <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
-                        <TextInput
-                          style={styles.nameTextInput}
-                          placeholder="Prénom"
-                          placeholderTextColor="#64748B"
-                          value={newMission.contactFirstName}
-                          onChangeText={(text) => setNewMission(prev => ({ ...prev, contactFirstName: text }))}
-                        />
-                      </View>
-                    </View>
-
-                    <View style={styles.nameFieldContainer}>
-                      <Text style={styles.inputLabel}>NOM</Text>
-                      <View style={styles.nameInputContainer}>
-                        <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
-                        <TextInput
-                          style={styles.nameTextInput}
-                          placeholder="Nom"
-                          placeholderTextColor="#64748B"
-                          value={newMission.contactLastName}
-                          onChangeText={(text) => setNewMission(prev => ({ ...prev, contactLastName: text }))}
-                        />
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Email */}
+                <ScrollView
+                  style={styles.modalContent}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.modalScrollContent}
+                >
+                  {/* Titre de la mission */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>EMAIL *</Text>
+                    <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
                     <View style={styles.inputContainer}>
-                      <Mail size={16} color="#94A3B8" style={styles.inputIcon} />
+                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
                         style={styles.textInput}
-                        placeholder="contact@entreprise.com"
+                        placeholder="Ex: Résidence Les Jardins"
                         placeholderTextColor="#64748B"
-                        value={newMission.contactEmail}
-                        onChangeText={(text) => setNewMission(prev => ({ ...prev, contactEmail: text }))}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
+                        value={newMission.title}
+                        onChangeText={(text) => setNewMission(prev => ({ ...prev, title: text }))}
                       />
                     </View>
                   </View>
 
-                  {/* Téléphone */}
+                  {/* Client */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TÉLÉPHONE</Text>
+                    <Text style={styles.inputLabel}>CLIENT / ENTREPRISE *</Text>
                     <View style={styles.inputContainer}>
-                      <Phone size={16} color="#94A3B8" style={styles.inputIcon} />
+                      <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
                         style={styles.textInput}
-                        placeholder="06 12 34 56 78"
+                        placeholder="Ex: Bouygues Construction"
                         placeholderTextColor="#64748B"
-                        value={newMission.contactPhone}
-                        onChangeText={(text) => setNewMission(prev => ({ ...prev, contactPhone: text }))}
-                        keyboardType="phone-pad"
+                        value={newMission.client}
+                        onChangeText={(text) => setNewMission(prev => ({ ...prev, client: text }))}
                       />
                     </View>
                   </View>
 
-                  {/* Référence client */}
+                  {/* Contact du client */}
+                  <View style={styles.contactSection}>
+                    <Text style={styles.contactSectionTitle}>CONTACT CLIENT</Text>
+
+                    {/* Prénom et Nom */}
+                    <View style={styles.nameRow}>
+                      <View style={styles.nameFieldContainer}>
+                        <Text style={styles.inputLabel}>PRÉNOM</Text>
+                        <View style={styles.nameInputContainer}>
+                          <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
+                          <TextInput
+                            style={styles.nameTextInput}
+                            placeholder="Prénom"
+                            placeholderTextColor="#64748B"
+                            value={newMission.contactFirstName}
+                            onChangeText={(text) => setNewMission(prev => ({ ...prev, contactFirstName: text }))}
+                          />
+                        </View>
+                      </View>
+
+                      <View style={styles.nameFieldContainer}>
+                        <Text style={styles.inputLabel}>NOM</Text>
+                        <View style={styles.nameInputContainer}>
+                          <User size={14} color="#94A3B8" style={styles.nameInputIcon} />
+                          <TextInput
+                            style={styles.nameTextInput}
+                            placeholder="Nom"
+                            placeholderTextColor="#64748B"
+                            value={newMission.contactLastName}
+                            onChangeText={(text) => setNewMission(prev => ({ ...prev, contactLastName: text }))}
+                          />
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Email */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>EMAIL *</Text>
+                      <View style={styles.inputContainer}>
+                        <Mail size={16} color="#94A3B8" style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="contact@entreprise.com"
+                          placeholderTextColor="#64748B"
+                          value={newMission.contactEmail}
+                          onChangeText={(text) => setNewMission(prev => ({ ...prev, contactEmail: text }))}
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                        />
+                      </View>
+                    </View>
+
+                    {/* Téléphone */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>TÉLÉPHONE</Text>
+                      <View style={styles.inputContainer}>
+                        <Phone size={16} color="#94A3B8" style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="06 12 34 56 78"
+                          placeholderTextColor="#64748B"
+                          value={newMission.contactPhone}
+                          onChangeText={(text) => setNewMission(prev => ({ ...prev, contactPhone: text }))}
+                          keyboardType="phone-pad"
+                        />
+                      </View>
+                    </View>
+
+                    {/* Référence client */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Référence client</Text>
+                      <View style={styles.inputContainer}>
+                        <Building size={16} color="#94A3B8" style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Ex: 2079854"
+                          placeholderTextColor="#64748B"
+                          value={newMission.refClient}
+                          onChangeText={(text) => setNewMission(prev => ({ ...prev, refClient: text }))}
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Adresse */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Référence client</Text>
+                    <Text style={styles.inputLabel}>ADRESSE DU CHANTIER *</Text>
                     <View style={styles.inputContainer}>
+                      <Location size={16} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Ex: 123 Rue de la République, Lyon 69003"
+                        placeholderTextColor="#64748B"
+                        value={newMission.location}
+                        onChangeText={(text) => setNewMission(prev => ({ ...prev, location: text }))}
+                      />
+                    </View>
+                  </View>
+
+                  {/* Type de mission */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
+                    <View style={styles.typeSelector}>
+                      {missionTypes.map((type, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={[
+                            styles.typeOption,
+                            newMission.type === type && styles.typeOptionSelected
+                          ]}
+                          onPress={() => setNewMission(prev => ({ ...prev, type }))}
+                        >
+                          <Text style={[
+                            styles.typeOptionText,
+                            newMission.type === type && styles.typeOptionTextSelected
+                          ]}>
+                            {type}
+                          </Text>
+                          {newMission.type === type && (
+                            <Check size={14} color="#FFFFFF" />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Date et heure */}
+                  <View style={styles.dateTimeRow}>
+                    <View style={styles.dateTimeFieldContainer}>
+                      <Text style={styles.inputLabel}>Date de début *</Text>
+                      {Platform.OS === 'web' ? (
+                        <View style={styles.dateTimeInputContainer}>
+                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <TextInput
+                            style={[styles.dateTimeTextInput, styles.webDateInput]}
+                            type="date"
+                            value={newMission.date}
+                            onChange={(e: any) => {
+                              const dateValue = e.target.value || e.nativeEvent.text;
+                              const newDate = new Date(dateValue);
+                              setSelectedDate(newDate);
+                              setNewMission(prev => ({ ...prev, date: dateValue }));
+                            }}
+                            placeholderTextColor="#94A3B8"
+                          />
+                        </View>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={styles.dateTimeInputContainer}
+                            onPress={() => setShowDatePicker(true)}
+                          >
+                            <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                            <Text style={styles.dateTimeTextInput}>
+                              {formatDisplayDate(selectedDate)}
+                            </Text>
+                          </TouchableOpacity>
+                          {showDatePicker && (
+                            <DateTimePicker
+                              value={selectedDate}
+                              mode="date"
+                              display="default"
+                              onChange={onDateChange}
+                            />
+                          )}
+                        </>
+                      )}
+                    </View>
+
+                    <View style={styles.dateTimeFieldContainer}>
+                      <Text style={styles.inputLabel}>Heure de début</Text>
+                      {Platform.OS === 'web' ? (
+                        <View style={styles.dateTimeInputContainer}>
+                          <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <TextInput
+                            style={[styles.dateTimeTextInput, styles.webDateInput]}
+                            type="time"
+                            value={newMission.time}
+                            onChange={(e: any) => {
+                              const timeValue = e.target.value || e.nativeEvent.text;
+                              setNewMission(prev => ({ ...prev, time: timeValue }));
+                            }}
+                            placeholderTextColor="#94A3B8"
+                          />
+                        </View>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={styles.dateTimeInputContainer}
+                            onPress={() => setShowTimePicker(true)}
+                          >
+                            <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                            <Text style={styles.dateTimeTextInput}>
+                              {formatTime(selectedTime)}
+                            </Text>
+                          </TouchableOpacity>
+                          {showTimePicker && (
+                            <DateTimePicker
+                              value={selectedTime}
+                              mode="time"
+                              display="default"
+                              onChange={onTimeChange}
+                              is24Hour={true}
+                            />
+                          )}
+                        </>
+                      )}
+                    </View>
+                  </View>
+
+
+                  {/* Date de fin et ref affaire */}
+                  <View style={styles.dateTimeFieldContainer}>
+                    <View style={styles.dateTimeFieldContainer}>
+                      <Text style={styles.inputLabel}>Date de fin</Text>
+                      {Platform.OS === 'web' ? (
+                        <View style={styles.dateTimeInputContainer}>
+                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                          <TextInput
+                            style={[styles.dateTimeTextInput, styles.webDateInput]}
+                            type="date"
+                            value={newMission.endDate}
+                            onChange={(e: any) => {
+                              const dateValue = e.target.value || e.nativeEvent.text;
+                              const newDate = new Date(dateValue);
+                              setSelectedEndDate(newDate);
+                              setNewMission(prev => ({ ...prev, endDate: dateValue }));
+                            }}
+                            placeholderTextColor="#94A3B8"
+                          />
+                        </View>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={styles.dateTimeInputContainer}
+                            onPress={() => setShowEndDatePicker(true)}
+                          >
+                            <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
+                            <Text style={styles.dateTimeTextInput}>
+                              {formatDisplayDate(selectedEndDate)}
+                            </Text>
+                          </TouchableOpacity>
+                          {showEndDatePicker && (
+                            <DateTimePicker
+                              value={selectedEndDate}
+                              mode="date"
+                              display="default"
+                              onChange={onEndDateChange}
+                            />
+                          )}
+                        </>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Référence affaire    */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Référence affaire</Text>
+                    <View style={styles.inputRefContainer}>
                       <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
                         style={styles.textInput}
                         placeholder="Ex: 2079854"
                         placeholderTextColor="#64748B"
-                        value={newMission.refClient}
-                        onChangeText={(text) => setNewMission(prev => ({ ...prev, refClient: text }))}
+                        value={newMission.refBusiness}
+                        onChangeText={(text) => setNewMission(prev => ({ ...prev, refBusiness: text }))}
                       />
                     </View>
                   </View>
-                </View>
-
-                {/* Adresse */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>ADRESSE DU CHANTIER *</Text>
-                  <View style={styles.inputContainer}>
-                    <Location size={16} color="#94A3B8" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Ex: 123 Rue de la République, Lyon 69003"
-                      placeholderTextColor="#64748B"
-                      value={newMission.location}
-                      onChangeText={(text) => setNewMission(prev => ({ ...prev, location: text }))}
-                    />
-                  </View>
-                </View>
-
-                {/* Type de mission */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
-                  <View style={styles.typeSelector}>
-                    {missionTypes.map((type, index) => (
-                      <TouchableOpacity
-                        key={index}
-                        style={[
-                          styles.typeOption,
-                          newMission.type === type && styles.typeOptionSelected
-                        ]}
-                        onPress={() => setNewMission(prev => ({ ...prev, type }))}
-                      >
-                        <Text style={[
-                          styles.typeOptionText,
-                          newMission.type === type && styles.typeOptionTextSelected
-                        ]}>
-                          {type}
-                        </Text>
-                        {newMission.type === type && (
-                          <Check size={14} color="#FFFFFF" />
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                {/* Date et heure */}
-                <View style={styles.dateTimeRow}>
-                  <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>Date de début *</Text>
-                    {Platform.OS === 'web' ? (
-                      <View style={styles.dateTimeInputContainer}>
-                        <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                        <TextInput
-                          style={[styles.dateTimeTextInput, styles.webDateInput]}
-                          type="date"
-                          value={newMission.date}
-                          onChange={(e: any) => {
-                            const dateValue = e.target.value || e.nativeEvent.text;
-                            const newDate = new Date(dateValue);
-                            setSelectedDate(newDate);
-                            setNewMission(prev => ({ ...prev, date: dateValue }));
-                          }}
-                          placeholderTextColor="#94A3B8"
-                        />
-                      </View>
-                    ) : (
-                      <>
-                        <TouchableOpacity
-                          style={styles.dateTimeInputContainer}
-                          onPress={() => setShowDatePicker(true)}
-                        >
-                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeTextInput}>
-                            {formatDisplayDate(selectedDate)}
-                          </Text>
-                        </TouchableOpacity>
-                        {showDatePicker && (
-                          <DateTimePicker
-                            value={selectedDate}
-                            mode="date"
-                            display="default"
-                            onChange={onDateChange}
-                          />
-                        )}
-                      </>
-                    )}
-                  </View>
-
-                  <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>Heure de début</Text>
-                    {Platform.OS === 'web' ? (
-                      <View style={styles.dateTimeInputContainer}>
-                        <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                        <TextInput
-                          style={[styles.dateTimeTextInput, styles.webDateInput]}
-                          type="time"
-                          value={newMission.time}
-                          onChange={(e: any) => {
-                            const timeValue = e.target.value || e.nativeEvent.text;
-                            setNewMission(prev => ({ ...prev, time: timeValue }));
-                          }}
-                          placeholderTextColor="#94A3B8"
-                        />
-                      </View>
-                    ) : (
-                      <>
-                        <TouchableOpacity
-                          style={styles.dateTimeInputContainer}
-                          onPress={() => setShowTimePicker(true)}
-                        >
-                          <Clock size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeTextInput}>
-                            {formatTime(selectedTime)}
-                          </Text>
-                        </TouchableOpacity>
-                        {showTimePicker && (
-                          <DateTimePicker
-                            value={selectedTime}
-                            mode="time"
-                            display="default"
-                            onChange={onTimeChange}
-                            is24Hour={true}
-                          />
-                        )}
-                      </>
-                    )}
-                  </View>
-                </View>
 
 
-                {/* Date de fin et ref affaire */}
-                <View style={styles.dateTimeFieldContainer}>
-                  <View style={styles.dateTimeFieldContainer}>
-                    <Text style={styles.inputLabel}>Date de fin</Text>
-                    {Platform.OS === 'web' ? (
-                      <View style={styles.dateTimeInputContainer}>
-                        <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                        <TextInput
-                          style={[styles.dateTimeTextInput, styles.webDateInput]}
-                          type="date"
-                          value={newMission.endDate}
-                          onChange={(e: any) => {
-                            const dateValue = e.target.value || e.nativeEvent.text;
-                            const newDate = new Date(dateValue);
-                            setSelectedEndDate(newDate);
-                            setNewMission(prev => ({ ...prev, endDate: dateValue }));
-                          }}
-                          placeholderTextColor="#94A3B8"
-                        />
-                      </View>
-                    ) : (
-                      <>
-                        <TouchableOpacity
-                          style={styles.dateTimeInputContainer}
-                          onPress={() => setShowEndDatePicker(true)}
-                        >
-                          <Calendar size={14} color="#94A3B8" style={styles.dateTimeInputIcon} />
-                          <Text style={styles.dateTimeTextInput}>
-                            {formatDisplayDate(selectedEndDate)}
-                          </Text>
-                        </TouchableOpacity>
-                        {showEndDatePicker && (
-                          <DateTimePicker
-                            value={selectedEndDate}
-                            mode="date"
-                            display="default"
-                            onChange={onEndDateChange}
-                          />
-                        )}
-                      </>
-                    )}
-                  </View>
-                </View>
-
-                {/* Référence affaire    */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Référence affaire</Text>
-                  <View style={styles.inputRefContainer}>
-                    <Building size={16} color="#94A3B8" style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Ex: 2079854"
-                      placeholderTextColor="#64748B"
-                      value={newMission.refBusiness}
-                      onChangeText={(text) => setNewMission(prev => ({ ...prev, refBusiness: text }))}
-                    />
-                  </View>
-                </View>
-
-
-                {/* Description */}
-                <View style={styles.descriptionInputGroup}>
-                  <View style={styles.descriptionLabelContainer}>
-                    <Text style={styles.inputLabel}>DESCRIPTION (OPTIONNEL)</Text>
-                    {isRecordingDescription && (
-                      <View style={styles.recordingIndicator}>
-                        <View style={styles.recordingDot} />
-                        <Text style={styles.recordingText}>Enregistrement...</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.descriptionInputContainer}>
-                    <Description size={16} color="#94A3B8" style={styles.inputIcon} />
-                    <TextInput
-                      style={[styles.textInput, styles.textArea]}
-                      placeholder="Détails sur la mission, points particuliers à vérifier..."
-                      placeholderTextColor="#64748B"
-                      value={newMission.description}
-                      onChangeText={(text) => setNewMission(prev => ({ ...prev, description: text }))}
-                      multiline
-                      numberOfLines={3}
-                      textAlignVertical="top"
-                    />
-                    <TouchableOpacity
-                      style={[
-                        styles.micButton,
-                        isRecordingDescription && styles.micButtonActive
-                      ]}
-                      onPress={toggleRecording}
-                    >
-                      {isRecordingDescription ? (
-                        <MicOff size={18} color="#FFFFFF" />
-                      ) : (
-                        <Mic size={18} color="#FFFFFF" />
+                  {/* Description */}
+                  <View style={styles.descriptionInputGroup}>
+                    <View style={styles.descriptionLabelContainer}>
+                      <Text style={styles.inputLabel}>DESCRIPTION (OPTIONNEL)</Text>
+                      {isRecordingDescription && (
+                        <View style={styles.recordingIndicator}>
+                          <View style={styles.recordingDot} />
+                          <Text style={styles.recordingText}>Enregistrement...</Text>
+                        </View>
                       )}
-                    </TouchableOpacity>
-                  </View>
-                  {isRecordingDescription && (
-                    <Text style={styles.speechHint}>
-                      Parlez maintenant... Appuyez à nouveau sur le micro pour arrêter.
-                    </Text>
-                  )}
-                </View>
-              </ScrollView>
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={handleCancelButton}
-                >
-                  <Text style={styles.cancelButtonText}>ANNULER</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.saveButtonAction}
-                  onPress={handleCreateMission}
-                  disabled={isCreatingMission}
-                >
-                  <LinearGradient
-                    colors={['#10B981', '#059669']}
-                    style={styles.saveButtonGradient}
-                  >
-                    {isCreatingMission ? (
-                      <ActivityIndicator color="#FFFFFF" size="small" />
-                    ) : (
-                      <>
-                        <Plus size={16} color="#FFFFFF" />
-                        <Text style={styles.saveButtonText}>CRÉER LA MISSION</Text>
-                      </>
+                    </View>
+                    <View style={styles.descriptionInputContainer}>
+                      <Description size={16} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={[styles.textInput, styles.textArea]}
+                        placeholder="Détails sur la mission, points particuliers à vérifier..."
+                        placeholderTextColor="#64748B"
+                        value={newMission.description}
+                        onChangeText={(text) => setNewMission(prev => ({ ...prev, description: text }))}
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                      {/* <TouchableOpacity
+                        style={[
+                          styles.micButton,
+                          isRecordingDescription && styles.micButtonActive
+                        ]}
+                        onPress={toggleRecording}
+                      >
+                        {isRecordingDescription ? (
+                          <MicOff size={18} color="#FFFFFF" />
+                        ) : (
+                          <Mic size={18} color="#FFFFFF" />
+                        )}
+                      </TouchableOpacity> */}
+                    </View>
+                    {isRecordingDescription && false && (
+                      <Text style={styles.speechHint}>
+                        Parlez maintenant... Appuyez à nouveau sur le micro pour arrêter.
+                      </Text>
                     )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
+                  </View>
+                </ScrollView>
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={handleCancelButton}
+                  >
+                    <Text style={styles.cancelButtonText}>ANNULER</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.saveButtonAction}
+                    onPress={handleCreateMission}
+                    disabled={isCreatingMission}
+                  >
+                    <LinearGradient
+                      colors={['#10B981', '#059669']}
+                      style={styles.saveButtonGradient}
+                    >
+                      {isCreatingMission ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Plus size={16} color="#FFFFFF" />
+                          <Text style={styles.saveButtonText}>CRÉER LA MISSION</Text>
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Visit Detail Modal */}
       <Modal visible={showVisitDetailModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.visitDetailModal}>
-            {selectedVisit && selectedReport && (
-              <>
-                <LinearGradient
-                  colors={['#10B981', '#059669']}
-                  style={styles.visitDetailHeader}
-                >
-                  <View style={styles.visitDetailHeaderContent}>
-                    <View style={styles.visitDetailHeaderLeft}>
-                      <FileText size={24} color="#FFFFFF" />
-                      <View>
-                        <Text style={styles.visitDetailTitle}>Détails du Rapport</Text>
-                        <Text style={styles.visitDetailSubtitle}>
-                          {new Date(selectedVisit.visitDate).toLocaleDateString('fr-FR')}
-                        </Text>
-                      </View>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.closeButton}
-                      onPress={() => {
-                        setShowVisitDetailModal(false);
-                        setSelectedVisit(null);
-                        setPhotos(null);
-                        setSelectedReport(null);
-                      }}
-                    >
-                      <X size={24} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-                </LinearGradient>
-
-                <ScrollView style={styles.visitDetailContent} showsVerticalScrollIndicator={false}>
-                  <View style={styles.visitDetailSection}>
-                    <Text style={styles.visitDetailSectionTitle}>CONTENU DU RAPPORT</Text>
-                    <View style={styles.visitDetailContentBox}>
-                      <Text style={styles.visitDetailContentText}>
-                        {selectedReport.header || 'Aucun contenu disponible'}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {photos && photos.length > 0 && (
-                    <View style={styles.visitDetailSection}>
-                      <View style={styles.reportPhotoSeparator} />
-                      {photos.map((photo: any, index: number) => (
-                        <View key={index} style={styles.photoItem}>
-                          <View style={styles.photoPlaceholder}>
-                            <Image
-                              source={{ uri: photo.s3Url }}
-                              style={styles.detailPhotoImage}
-                              resizeMode="cover"
-                            />
-                            <Text style={styles.photoIndexText}>Photo {index + 1}</Text>
-                          </View>
-                          {photo.aiAnalysis && (
-                            <>
-                              <Text style={styles.reportSectionTitle}>Observations:</Text>
-                              {photo.aiAnalysis.observations.map((obs, i) => (
-                                <Text key={i} style={styles.reportListItem}>• {obs}</Text>
-                              ))}
-                              <Text style={styles.reportSectionTitle}>Recommandations:</Text>
-                              {photo.aiAnalysis.recommendations.map((rec, i) => (
-                                <Text key={i} style={styles.reportListItem}>• {rec}</Text>
-                              ))}
-                            </>
-                          )}
-                          {photo.userComments && (
-                            <>
-                              <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
-                              <Text style={styles.reportCommentText}>{photo.userComments}</Text>
-                            </>
-                          )}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.visitDetailModal}>
+              {selectedVisit && selectedReport && (
+                <>
+                  <LinearGradient
+                    colors={['#10B981', '#059669']}
+                    style={styles.visitDetailHeader}
+                  >
+                    <View style={styles.visitDetailHeaderContent}>
+                      <View style={styles.visitDetailHeaderLeft}>
+                        <FileText size={24} color="#FFFFFF" />
+                        <View>
+                          <Text style={styles.visitDetailTitle}>Détails du Rapport</Text>
+                          <Text style={styles.visitDetailSubtitle}>
+                            {new Date(selectedVisit.visitDate).toLocaleDateString('fr-FR')}
+                          </Text>
                         </View>
-                      ))}
+                      </View>
+                      <TouchableOpacity
+                        style={styles.closeButton}
+                        onPress={() => {
+                          setShowVisitDetailModal(false);
+                          setSelectedVisit(null);
+                          setPhotos(null);
+                          setSelectedReport(null);
+                        }}
+                      >
+                        <X size={24} color="#FFFFFF" />
+                      </TouchableOpacity>
                     </View>
-                  )}
+                  </LinearGradient>
 
-                  {selectedVisit.notes && (
+                  <ScrollView style={styles.visitDetailContent} showsVerticalScrollIndicator={false}>
                     <View style={styles.visitDetailSection}>
-                      <Text style={styles.visitDetailSectionTitle}>NOTES</Text>
+                      <Text style={styles.visitDetailSectionTitle}>CONTENU DU RAPPORT</Text>
                       <View style={styles.visitDetailContentBox}>
                         <Text style={styles.visitDetailContentText}>
-                          {selectedVisit.notes}
+                          {selectedReport.header || 'Aucun contenu disponible'}
                         </Text>
                       </View>
                     </View>
-                  )}
-                </ScrollView>
 
-                {selectedReport.status !== 'valide' && (
-                  <View style={styles.visitDetailActions}>
-                    <TouchableOpacity
-                      style={styles.modifyReportButton}
-                      onPress={handleModifyReport}
-                    >
-                      <LinearGradient
-                        colors={['#F59E0B', '#D97706']}
-                        style={styles.modifyReportGradient}
+                    {photos && photos.length > 0 && (
+                      <View style={styles.visitDetailSection}>
+                        <View style={styles.reportPhotoSeparator} />
+                        {photos.map((photo: any, index: number) => (
+                          <View key={index} style={styles.photoItem}>
+                            <View style={styles.photoPlaceholder}>
+                              <Image
+                                source={{ uri: photo.s3Url }}
+                                style={styles.detailPhotoImage}
+                                resizeMode="cover"
+                              />
+                              <Text style={styles.photoIndexText}>Photo {index + 1}</Text>
+                            </View>
+                            {photo.aiAnalysis && (
+                              <>
+                                <Text style={styles.reportSectionTitle}>Observations:</Text>
+                                {photo.aiAnalysis.observations.map((obs, i) => (
+                                  <Text key={i} style={styles.reportListItem}>• {obs}</Text>
+                                ))}
+                                <Text style={styles.reportSectionTitle}>Recommandations:</Text>
+                                {photo.aiAnalysis.recommendations.map((rec, i) => (
+                                  <Text key={i} style={styles.reportListItem}>• {rec}</Text>
+                                ))}
+                              </>
+                            )}
+                            {photo.userComments && (
+                              <>
+                                <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
+                                <Text style={styles.reportCommentText}>{photo.userComments}</Text>
+                              </>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {selectedVisit.notes && (
+                      <View style={styles.visitDetailSection}>
+                        <Text style={styles.visitDetailSectionTitle}>NOTES</Text>
+                        <View style={styles.visitDetailContentBox}>
+                          <Text style={styles.visitDetailContentText}>
+                            {selectedVisit.notes}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+                  </ScrollView>
+
+                  {selectedReport.status !== 'valide' && (
+                    <View style={styles.visitDetailActions}>
+                      <TouchableOpacity
+                        style={styles.modifyReportButton}
+                        onPress={handleModifyReport}
                       >
-                        <Edit3 size={20} color="#FFFFFF" />
-                        <Text style={styles.modifyReportText}>Modifier le rapport</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </>
-            )}
+                        <LinearGradient
+                          colors={['#F59E0B', '#D97706']}
+                          style={styles.modifyReportGradient}
+                        >
+                          <Edit3 size={20} color="#FFFFFF" />
+                          <Text style={styles.modifyReportText}>Modifier le rapport</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Report Modal */}
       <Modal visible={showEditReportModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.visitDetailModal}>
-            <LinearGradient
-              colors={['#F59E0B', '#D97706']}
-              style={styles.visitDetailHeader}
-            >
-              <View style={styles.visitDetailHeaderContent}>
-                <View style={styles.visitDetailHeaderLeft}>
-                  <Edit3 size={24} color="#FFFFFF" />
-                  <View>
-                    <Text style={styles.visitDetailTitle}>Modifier le Rapport</Text>
-                    <Text style={styles.visitDetailSubtitle}>
-                      {selectedReport?.title || 'Rapport'}
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={styles.closeButton}
-                  onPress={() => setShowEditReportModal(false)}
-                >
-                  <X size={24} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
-
-            <ScrollView style={styles.editReportContent}>
-              <Text style={styles.editReportLabel}>En-tête du rapport</Text>
-              <TextInput
-                style={styles.editReportTextInput}
-                value={editedReportHeader}
-                onChangeText={setEditedReportHeader}
-                multiline
-                numberOfLines={5}
-                placeholder="Saisissez l'en-tête du rapport..."
-                placeholderTextColor="#64748B"
-              />
-
-              <Text style={styles.editReportLabel}>Observations (Contenu principal)</Text>
-              <TextInput
-                style={styles.editReportTextInput}
-                value={editedReportContent}
-                onChangeText={setEditedReportContent}
-                multiline
-                numberOfLines={10}
-                placeholder="Saisissez les observations du rapport..."
-                placeholderTextColor="#64748B"
-              />
-
-              <Text style={styles.editReportLabel}>Conclusion</Text>
-              <TextInput
-                style={styles.editReportTextInput}
-                value={editedReportFooter}
-                onChangeText={setEditedReportFooter}
-                multiline
-                numberOfLines={5}
-                placeholder="Saisissez la conclusion du rapport..."
-                placeholderTextColor="#64748B"
-              />
-
-              <TouchableOpacity
-                style={styles.saveReportButton}
-                onPress={handleSaveReportModifications}
-                disabled={isSavingReport}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.visitDetailModal}>
+              <LinearGradient
+                colors={['#F59E0B', '#D97706']}
+                style={styles.visitDetailHeader}
               >
-                <LinearGradient
-                  colors={['#10B981', '#059669']}
-                  style={styles.saveReportGradient}
+                <View style={styles.visitDetailHeaderContent}>
+                  <View style={styles.visitDetailHeaderLeft}>
+                    <Edit3 size={24} color="#FFFFFF" />
+                    <View>
+                      <Text style={styles.visitDetailTitle}>Modifier le Rapport</Text>
+                      <Text style={styles.visitDetailSubtitle}>
+                        {selectedReport?.title || 'Rapport'}
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.closeButton}
+                    onPress={() => setShowEditReportModal(false)}
+                  >
+                    <X size={24} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
+
+              <ScrollView style={styles.editReportContent}>
+                <Text style={styles.editReportLabel}>En-tête du rapport</Text>
+                <TextInput
+                  style={styles.editReportTextInput}
+                  value={editedReportHeader}
+                  onChangeText={setEditedReportHeader}
+                  multiline
+                  numberOfLines={5}
+                  placeholder="Saisissez l'en-tête du rapport..."
+                  placeholderTextColor="#64748B"
+                />
+
+                <Text style={styles.editReportLabel}>Observations (Contenu principal)</Text>
+                <TextInput
+                  style={styles.editReportTextInput}
+                  value={editedReportContent}
+                  onChangeText={setEditedReportContent}
+                  multiline
+                  numberOfLines={10}
+                  placeholder="Saisissez les observations du rapport..."
+                  placeholderTextColor="#64748B"
+                />
+
+                <Text style={styles.editReportLabel}>Conclusion</Text>
+                <TextInput
+                  style={styles.editReportTextInput}
+                  value={editedReportFooter}
+                  onChangeText={setEditedReportFooter}
+                  multiline
+                  numberOfLines={5}
+                  placeholder="Saisissez la conclusion du rapport..."
+                  placeholderTextColor="#64748B"
+                />
+
+                <TouchableOpacity
+                  style={styles.saveReportButton}
+                  onPress={handleSaveReportModifications}
+                  disabled={isSavingReport}
                 >
-                  {isSavingReport ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Save size={20} color="#FFFFFF" />
-                      <Text style={styles.saveReportText}>Enregistrer</Text>
-                    </>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            </ScrollView>
+                  <LinearGradient
+                    colors={['#10B981', '#059669']}
+                    style={styles.saveReportGradient}
+                  >
+                    {isSavingReport ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Save size={20} color="#FFFFFF" />
+                        <Text style={styles.saveReportText}>Enregistrer</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
