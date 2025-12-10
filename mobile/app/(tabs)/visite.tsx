@@ -281,6 +281,7 @@ export default function VisiteScreen() {
 
   const loadExistingVisitData = async (missionId: number) => {
     try {
+      setExistingReportId(null);
       if (!userProfile) {
         await loadUserProfile();
       }
@@ -1449,7 +1450,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
           await missionService.updateMission(mission.id, {
             status: 'terminee' as MissionStatus
           });
-          setSelectedMission(prev => prev ? { ...prev, status: 'terminee' } : null);
+          setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
           mission.status = 'terminee';
           setReportStatus('envoye_au_client');
           await loadAvailableMissions();

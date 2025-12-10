@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { missionsAPI, reportsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download } from 'lucide-react';
+import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText } from 'lucide-react';
 import { generatePdfService } from '../services/generatePdfService';
 import { visitService } from '../services/visitService';
+import { filesService } from '../services/filesService';
 import Swal from 'sweetalert2';
+import { Response } from 'express';
 
 interface Report {
   id: string;
@@ -16,6 +18,7 @@ interface Report {
   client: string;
   content: string;
   observations: string | null;
+  reportFileUrl?: string | null;
   remarquesAdmin: string | null;
   status: string;
   createdAt: string;
@@ -193,7 +196,7 @@ export default function ReportManagement() {
   };
 
   const handleValidateReport = async () => {
-    if (!selectedReport ) return;
+    if (!selectedReport) return;
 
     try {
       await reportsAPI.update(selectedReport.id, {
@@ -415,7 +418,7 @@ export default function ReportManagement() {
   const handleSaveEdits = async () => {
     if (!selectedReport) return;
     let photos = [];
-    
+
     try {
       const visitResponse = await visitService.getVisit(selectedReport.visitId);
       // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
@@ -494,6 +497,36 @@ export default function ReportManagement() {
     }
   };
 
+  const downloadReportFile = async (fileUrl: string) => {
+    const link = document.createElement('a');
+    const response = await filesService.downloadFile(fileUrl, 'reports', true);
+    console.log('response for download >>> : ', response);
+    // const blob = await response.data.data.blob();
+    // const url = window.URL.createObjectURL(blob);
+    const { base64, contentType, fileName } = response.data;
+
+    // convertir base64 en Uint8Array
+    const byteCharacters = atob(base64); // decode base64
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+
+    // créer le blob
+    const blob = new Blob([byteArray], { type: contentType });
+
+    // créer le lien et déclencher le téléchargement
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName || `document.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
   if (loading) {
     return <div className="text-center py-12">Chargement...</div>;
   }
@@ -552,6 +585,7 @@ export default function ReportManagement() {
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Client</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Date</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Statut</th>
+                <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Fichier PDF</th>
                 <th className="text-right px-6 py-3 text-sm font-semibold text-slate-900">Actions</th>
               </tr>
             </thead>
@@ -580,6 +614,11 @@ export default function ReportManagement() {
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(report.status)}`}>
                       {getStatusLabel(report.status)}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 items-center" style={{ display: 'flex', justifyContent: 'center' }}>
+                    {report.reportFileUrl && report.reportFileUrl.trim() != '' && <button onClick={() => downloadReportFile(report.reportFileUrl)}>
+                      <FileText className="w-6 h-6 text-red-600 hover:scale-110 transition cursor-pointer" />
+                    </button>}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
@@ -751,7 +790,7 @@ export default function ReportManagement() {
                     </>
                   ) : (
                     <>
-                        {selectedReport && selectedReport.status !== 'envoye_au_client' && (
+                      {selectedReport && selectedReport.status !== 'envoye_au_client' && (
                         <button
                           onClick={() => setIsEditing(true)}
                           className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition-colors font-medium"
@@ -771,7 +810,7 @@ export default function ReportManagement() {
                         </button>
                       )} */}
 
-                        {selectedReport && !isAdmin && selectedReport.status !== 'envoye_au_client' && (
+                      {selectedReport && !isAdmin && selectedReport.status !== 'envoye_au_client' && (
                         <button
                           onClick={handleSendToClient}
                           className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"

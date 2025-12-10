@@ -103,7 +103,10 @@ export default function RapportsScreen() {
 
   const loadReports = async (missionData?: Mission | null) => {
     try {
-      await loadUserProfile();
+      // await loadUserProfile();
+      if (!userProfile) {
+        await loadUserProfile();
+      }
       setLoading(true);
       const response = await reportService.getReports();
       let missionExists = false;

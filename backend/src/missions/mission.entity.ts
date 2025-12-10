@@ -1,6 +1,8 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 import { User } from '../user/user.entity';
 import { MissionStatus, MissionType } from './mission.dto';
+import { Visit } from '../visits/visit.entity';
+import { Report } from '../reports/report.entity';
 
 
 @Entity('missions')
@@ -61,12 +63,28 @@ export class Mission {
   @Column({ length: 50, nullable: true })
   contactPhone: string;
 
+  // =========================
+  // ✅ RELATION AVEC USER
+  // =========================
+
   @Column('uuid', { nullable: true })
   userId: string;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, user => user.missions, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'userId' })
   user: User;
+
+  // =========================
+  // ✅ RELATIONS CORRIGÉES ManyToOne → OneToMany
+  // =========================
+
+  @OneToMany(() => Visit, visit => visit.mission)
+  visits: Visit[];
+
+  @OneToMany(() => Report, report => report.mission)
+  reports: Report[];
+
+  // =========================
 
   @Column({ default: false })
   imported: boolean;

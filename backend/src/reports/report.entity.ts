@@ -17,26 +17,49 @@ export class Report {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  // =========================
+  // ✅ RELATION AVEC MISSION (ManyToOne)
+  // =========================
+
   @Column('uuid')
   missionId: string;
 
-  @OneToOne(() => Mission)
+  @ManyToOne(() => Mission, mission => mission.reports, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'missionId' })
   mission: Mission;
+
+  // =========================
+  // ✅ RELATION AVEC VISIT (ManyToOne ✅ AU LIEU DE OneToOne ❌)
+  // =========================
 
   @Column('uuid', { nullable: true })
   visitId: string;
 
-  @OneToOne(() => Visit, { nullable: true })
+  @ManyToOne(() => Visit, visit => visit.reports, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'visitId' })
   visit: Visit;
+
+  // =========================
+  // ✅ RELATION AVEC USER
+  // =========================
 
   @Column('uuid')
   userId: string;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, user => user.reports, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'userId' })
   user: User;
+
+  // =========================
+  // ✅ DONNÉES MÉTIER
+  // =========================
 
   @Column()
   title: string;
@@ -80,6 +103,10 @@ export class Report {
 
   @Column({ nullable: true })
   sentToClientAt: Date;
+
+  // =========================
+  // ✅ DATES AUTO
+  // =========================
 
   @CreateDateColumn()
   createdAt: Date;

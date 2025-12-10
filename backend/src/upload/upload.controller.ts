@@ -24,7 +24,7 @@ import { DeleteFileDto, DownloadFileDto } from './upload.dto';
 export class UploadController {
   constructor(private readonly uploadService: UploadService) { }
 
-  public logger = new Logger('UploadController');
+  public logger = new Logger(UploadController.name);
 
   @Post('delete')
   async deleteFileByUrl(

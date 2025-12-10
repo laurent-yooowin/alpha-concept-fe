@@ -1,4 +1,7 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Mission } from '../missions/mission.entity';
+import { Visit } from '../visits/visit.entity';
+import { Report } from '../reports/report.entity';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
 
 export enum UserRole {
   USER = 'ROLE_USER',
@@ -43,6 +46,23 @@ export class User {
 
   @Column({ default: true })
   isActive: boolean;
+
+  // =========================
+  // ✅ RELATIONS INVERSÉES
+  // =========================
+
+  @OneToMany(() => Mission, mission => mission.user)
+  missions: Mission[];
+
+  @OneToMany(() => Visit, visit => visit.user)
+  visits: Visit[];
+
+  @OneToMany(() => Report, report => report.user)
+  reports: Report[];
+
+  // =========================
+  // ✅ DATES AUTO
+  // =========================
 
   @CreateDateColumn()
   createdAt: Date;
