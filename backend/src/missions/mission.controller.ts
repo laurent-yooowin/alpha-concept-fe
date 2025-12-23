@@ -66,7 +66,7 @@ export class MissionController {
     @Param('id') id: string,
     @Body() updateMissionDto: UpdateMissionDto,
   ) {
-    return this.missionService.update(id, user.id, updateMissionDto);
+    return this.missionService.update(id, user, updateMissionDto);
   }
 
   @Delete(':id')

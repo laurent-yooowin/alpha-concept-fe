@@ -49,7 +49,7 @@ export async function apiRequest<T>(
       headers,
     });
 
-    console.log("response API >>>: ", response);
+    // console.log("response API >>>: ", response);
 
     if (response.status === 401) {
       await authService.logout();
@@ -69,7 +69,7 @@ export async function apiRequest<T>(
     const data = await response.json();
     return { data };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       error: error instanceof Error ? error.message : 'Problème Serveur ',
     };

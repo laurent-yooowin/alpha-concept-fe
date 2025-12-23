@@ -44,3 +44,7 @@ backend/src/migrations/1763401042726-initSchema.ts1
 backend/src/migrations/1763401042726-initSchema.ts
 backend/src/migrations/1765299726843-migrations.ts
 backend/src/migrations/1765301607517-migrations.ts
+backend/src/migrations/1765375914625-migrations.ts
+backend/src/migrations/1765902355004-migrations.ts
+backend/src/migrations/1765977564376-migrations.ts
+frontend/supabase/migrations/20251020145033_create_sps_admin_schema.sql

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Report, ReportStatus } from './report.entity';
@@ -12,6 +12,8 @@ export class ReportService {
   constructor(
     @InjectRepository(Report)
     private reportRepository: Repository<Report>,
+
+    @Inject(forwardRef(() => MissionService))
     private readonly missionService: MissionService,
   ) { }
 
@@ -35,11 +37,22 @@ export class ReportService {
       where.status = status;
     }
 
-    return this.reportRepository.find({
+    const reports = await this.reportRepository.find({
       where,
-      relations: ['mission', 'user'],
-      order: { createdAt: 'DESC' },
+      relations: ['visit', 'mission'],
+      order: { missionId: 'DESC', status: 'DESC' }
     });
+
+    if (reports?.length > 0) {
+      return reports.map((report) => {
+        const visit = report.visit;
+        // const mission = report.mission;
+        report.visit = { photos: visit.photos, photoCount: visit.photoCount, createdAt: visit.createdAt };
+        // report.mission = { status: this.missionService.status };
+        return report;
+      })
+    }
+    return [];
   }
 
   async findOne(id: string, user: User): Promise<Report> {
@@ -61,6 +74,35 @@ export class ReportService {
     return report;
   }
 
+  async findByVisit(visitId: string, user: User): Promise<Report> {
+    const where: any = { visitId };
+
+    if (user.role !== UserRole.ADMIN) {
+      where.userId = user.id;
+    }
+
+    const report = await this.reportRepository.findOne({
+      where,
+      // relations: ['mission', 'visit', 'user'],
+    });
+
+    if (!report) {
+      return null;
+    }
+
+    return report;
+  }
+
+  async findByMission(missionId: string, user: User): Promise<Report[]> {
+    const where: any = { missionId: missionId };
+
+    if (user.role !== UserRole.ADMIN) {
+      where.userId = user.id;
+    }
+    const report = await this.reportRepository.findBy(where);
+    return report;
+  }
+
   async update(id: string, user: User, updateReportDto: UpdateReportDto): Promise<Report> {
     const report = await this.findOne(id, user);
 
@@ -78,14 +120,14 @@ export class ReportService {
 
     if (updateReportDto.status === ReportStatus.SENT_TO_CLIENT) {
       updateReportDto['sentToClientAt'] = new Date();
-      const mission = await this.missionService.findOne(report.missionId, user);
-      mission.status = 'terminee';
-      const missionDto = new UpdateMissionDto();
-      Object.assign(missionDto, mission);
-      await this.missionService.update(mission.id, mission.userId, missionDto);
+      // const mission = await this.missionService.findOne(report.missionId, user);
+      // mission.status = 'terminee';
+      // const missionDto = new UpdateMissionDto();
+      // Object.assign(missionDto, mission);
+      // await this.missionService.update(mission.id, mission.userId, missionDto);      
     }
 
-    if (updateReportDto.status === ReportStatus.VALIDATED ) {
+    if (updateReportDto.status === ReportStatus.VALIDATED) {
       updateReportDto['validatedAt'] = new Date();
       const mission = await this.missionService.findOne(report.missionId, user);
       mission.status = 'terminee';
@@ -102,6 +144,13 @@ export class ReportService {
   async delete(id: string, user: User): Promise<void> {
     const report = await this.findOne(id, user);
     await this.reportRepository.remove(report);
+  }
+
+  async save(report: Report, user: User): Promise<void> {
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+    await this.reportRepository.save(report);
   }
 
   async countByStatus(user: User): Promise<{ [key: string]: number }> {

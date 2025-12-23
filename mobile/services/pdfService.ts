@@ -27,7 +27,7 @@ export const pdfService = {
         return await this.generateWebPDF(htmlContent, reportData.title);
       } else {
         // 
-        console.log('htmlContent >>>', htmlContent)
+        // console.log('htmlContent >>>', htmlContent)
         return await this.generateNativePDF(htmlContent, reportData.title);
       }
     } catch (error) {
@@ -121,22 +121,19 @@ export const pdfService = {
               Alert.alert("La photo n'a pas pu être telechargé");
             }
 
+            const comments = photo.userComments && photo.userComments.trime() != "" ? photo.userComments : photo.comment;
+
             const riskColor = getRiskColor(photo.aiAnalysis?.riskLevel || 'moyen');
             const riskLabel = getRiskLabel(photo.aiAnalysis?.riskLevel || 'moyen');
-
-            const divContent = `
-              <div class="photo-section">
+            // console.log('photo >>> : ', photo);
+            const divContent = `<div class="photo-section">
                 <div class="photo-header">
-                  <h3 class="photo-title">📸 Photo ${index + 1}</h3>
-                  <span class="risk-badge" style="background-color: ${riskColor};">
-                    ${riskLabel}
-                  </span>
+                  <h3 class="photo-title">📸 Photo ${index + 1}</h3>                  
                 </div>
 
                 <div class="photo-container">
                   <img src="data:image/jpeg;base64,${base64Img}" class="photo-image" />
                 </div>
-
                 ${photo.aiAnalysis ? `
                   <div class="analysis-section">
                     <div class="analysis-block">
@@ -152,24 +149,24 @@ export const pdfService = {
                         ${photo.aiAnalysis?.recommendations?.map(rec => `<li>${rec}</li>`).join('')}
                       </ul>
                     </div>
-                  </div>
-                ` : ''}
 
-                ${photo.aiAnalysis.references ? `
-                  <div class="comment-section">
-                    <h4 class="comment-heading">🏛️ Références</h4>
-                    <p class="comment-text">${photo.aiAnalysis.references?.map(rec => `<li>${rec}</li>`).join('') }</p>
+                    ${photo.aiAnalysis.references ? `
+                      <div class="analysis-block">
+                        <h4 class="comment-heading">🏛️ Références</h4>
+                        <ul class="analysis-list">
+                          ${photo.aiAnalysis?.references?.map(rec => `<li>${rec}</li>`).join('')}
+                        </ul>                        
+                      </div>
+                    ` : ''}
                   </div>
-                ` : ''}
-                
-                ${photo.comment ? `
-                  <div class="comment-section">
-                    <h4 class="comment-heading">💬 Commentaires du coordonnateur</h4>
-                    <p class="comment-text">${photo.comment}</p>
-                  </div>
-                ` : ''}
-              </div>
-            `;
+                    ` : ''}                    
+                  ${comments ? `
+                    <div class="comment-section">
+                      <h4 class="comment-heading">💬 Commentaires du coordonnateur</h4>
+                      <p class="comment-text">${comments}</p>
+                    </div>
+                  ` : ''}
+              </div> `;
 
             divs.push({
               index: index,
@@ -187,343 +184,369 @@ export const pdfService = {
       });
     }
 
+    const logoBase64 = await uploadService.downloadFile("https://alpha-concept.s3.eu-central-1.amazonaws.com/reports_files/logo_alpha.jpg", '/reports_files', true);
+    const logoBase64Img = logoBase64 && logoBase64.data ? logoBase64.data.data.base64 : '';
+    const logoImage = `
+      <img src="data:image/jpeg;base64,${logoBase64Img}" class="logo-image" />    
+    `;
+
     return `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          @page {
-            margin: 15mm;
-            size: A4;
-          }
+      <!DOCTYPE html>
+<html>
 
-          * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-          }
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    @page {
+      margin: 15mm;
+      size: A4;
+    }
 
-          body {
-            font-family: 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #1E293B;
-            background: #FFFFFF;
-            padding: 20px;
-          }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-          .report-header {
-            text-align: center;
-            background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
-            color: #FFFFFF;
-            padding: 30px 20px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          }
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #1E293B;
+      background: #FFFFFF;
+      padding: 20px;
+    }
 
-          .report-title {
-            font-size: 28px;
-            font-weight: bold;
-            margin-bottom: 10px;
-            letter-spacing: 0.5px;
-          }
+    .report-header {
+      text-align: center;
+      background: linear-gradient(135deg, #1E293B 0%, #334155 100%);
+      color: #FFFFFF;
+      padding: 30px 20px;
+      border-radius: 12px;
+      margin-bottom: 30px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
 
-          .report-subtitle {
-            font-size: 14px;
-            opacity: 0.9;
-            margin-top: 5px;
-          }
+    .report-title {
+      font-size: 28px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      letter-spacing: 0.5px;
+    }
 
-          .info-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: #F8FAFC;
-            border-radius: 12px;
-            border: 1px solid #E2E8F0;
-          }
+    .report-subtitle {
+      font-size: 18px;
+      opacity: 0.9;
+      margin-top: 5px;
+    }
 
-          .info-item {
-            padding: 12px;
-            background: #FFFFFF;
-            border-radius: 8px;
-            border-left: 4px solid #3B82F6;
-          }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 15px;
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #F8FAFC;
+      border-radius: 12px;
+      border: 1px solid #E2E8F0;
+    }
 
-          .info-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: #64748B;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-          }
+    .info-item {
+      padding: 12px;
+      background: #FFFFFF;
+      border-radius: 8px;
+      border-left: 4px solid #3B82F6;
+    }
 
-          .info-value {
-            font-size: 16px;
-            font-weight: 600;
-            color: #1E293B;
-          }
+    .info-grid-header {
+      display: grid;
+      grid-template-columns: 40% 60%;
+      gap: 10px;      
+      padding: 10px;      
+      border-radius: 12px;
+      border: 1px solid #E2E8F0;
+      align-items: center;
+      justify-items: center;
+    }
 
-          .conformity-section {
-            grid-column: 1 / -1;
-            padding: 15px;
-            background: #FFFFFF;
-            border-radius: 8px;
-          }
+    .info-header {
+      padding: 12px;
+    }
 
-          .conformity-bar {
-            width: 100%;
-            height: 30px;
-            background: #E2E8F0;
-            border-radius: 15px;
-            overflow: hidden;
-            margin-top: 10px;
-            position: relative;
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-          }
+    .info-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #64748B;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
 
-          .conformity-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #10B981 0%, #059669 100%);
-            transition: width 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding-right: 15px;
-            color: #FFFFFF;
-            font-weight: bold;
-            font-size: 14px;
-          }
+    .info-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1E293B;
+    }
 
-          .section-header {
-            background: linear-gradient(90deg, #3B82F6 0%, #2563EB 100%);
-            color: #FFFFFF;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin: 30px 0 20px 0;
-            font-size: 18px;
-            font-weight: bold;
-            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
-          }
+    .conformity-section {
+      grid-column: 1 / -1;
+      padding: 15px;
+      background: #FFFFFF;
+      border-radius: 8px;
+    }
 
-          .content-section {
-            padding: 25px;
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            white-space: pre-wrap;
-            line-height: 1.8;
-            font-size: 14px;
-            color: #334155;
-          }
+    .conformity-bar {
+      width: 100%;
+      height: 30px;
+      background: #E2E8F0;
+      border-radius: 15px;
+      overflow: hidden;
+      margin-top: 10px;
+      position: relative;
+      box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
 
-          .photo-section {
-            background: #FFFFFF;
-            border: 2px solid #E2E8F0;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 25px;
-            page-break-inside: avoid;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-          }
+    .conformity-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10B981 0%, #059669 100%);
+      transition: width 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 15px;
+      color: #FFFFFF;
+      font-weight: bold;
+      font-size: 14px;
+    }
 
-          .photo-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #F1F5F9;
-          }
+    .section-header {
+      background: linear-gradient(90deg, #3B82F6 0%, #2563EB 100%);
+      color: #FFFFFF;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin: 30px 0 20px 0;
+      font-size: 18px;
+      font-weight: bold;
+      box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+    }
 
-          .photo-title {
-            font-size: 18px;
-            font-weight: bold;
-            color: #1E293B;
-          }
+    .content-section {
+      padding: 25px;
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      white-space: pre-wrap;
+      line-height: 1.8;
+      font-size: 14px;
+      color: #334155;
+    }
 
-          .risk-badge {
-            padding: 6px 16px;
-            border-radius: 20px;
-            color: #FFFFFF;
-            font-weight: bold;
-            font-size: 12px;
-            letter-spacing: 0.5px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-          }
+    .photo-section {
+      background: #FFFFFF;
+      border: 2px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 10px;      
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
 
-          .photo-container {
-            margin: 15px 0;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          }
+    .photo-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #F1F5F9;
+    }
 
-          .photo-image {
-            width: 100%;
-            height: auto;
-            display: block;
-            max-height: 500px;
-            object-fit: contain;
-            background: #F8FAFC;
-          }
+    .photo-title {
+      font-size: 18px;
+      font-weight: bold;
+      color: #1E293B;
+    }
 
-          .analysis-section {
-            margin-top: 20px;
-          }
+    .risk-badge {
+      padding: 6px 16px;
+      border-radius: 20px;
+      color: #FFFFFF;
+      font-weight: bold;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
 
-          .analysis-block {
-            background: #F8FAFC;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            border-left: 4px solid #3B82F6;
-          }
+    .photo-container {
+      margin: 15px 0;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
 
-          .analysis-heading {
-            font-size: 14px;
-            font-weight: bold;
-            color: #1E293B;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-          }
+    .photo-image {
+      width: 100%;
+      height: auto;
+      display: block;
+      max-height: 400px;
+      object-fit: contain;
+      background: #F8FAFC;
+    }
 
-          .analysis-list {
-            margin-left: 20px;
-            color: #475569;
-          }
+    .logo-image {
+      width: 200px;
+      height: 160px;
+      display: block;
+      max-height: 200px;
+      object-fit: contain;
+      background: #F8FAFC;
+      border-radius: 12px;
+    }
 
-          .analysis-list li {
-            margin-bottom: 6px;
-            line-height: 1.5;
-            font-size: 13px;
-          }
+    .analysis-section {
+      margin-top: 10px;
+    }
 
-          .comment-section {
-            background: #FEF3C7;
-            border-left: 4px solid #F59E0B;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-          }
+    .analysis-block {
+      background: #F8FAFC;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      border-left: 4px solid #3B82F6;
+    }
 
-          .comment-heading {
-            font-size: 14px;
-            font-weight: bold;
-            color: #92400E;
-            margin-bottom: 8px;
-          }
+    .analysis-heading {
+      font-size: 14px;
+      font-weight: bold;
+      color: #1E293B;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+    }
 
-          .comment-text {
-            color: #78350F;
-            font-size: 13px;
-            line-height: 1.6;
-          }
+    .analysis-list {
+      margin-left: 20px;
+      color: #475569;
+    }
 
-          .footer {
-            margin-top: 40px;
-            padding: 20px;
-            background: #F8FAFC;
-            border-top: 3px solid #3B82F6;
-            border-radius: 12px;
-            text-align: center;
-          }
+    .analysis-list li {
+      margin-bottom: 6px;
+      line-height: 1.5;
+      font-size: 13px;
+    }
 
-          .footer-text {
-            font-size: 11px;
-            color: #64748B;
-            margin: 5px 0;
-          }
+    .comment-section {
+      background: #FEF3C7;
+      border-left: 4px solid #F59E0B;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
 
-          .footer-confidential {
-            font-weight: bold;
-            color: #1E293B;
-            margin-top: 10px;
-          }
+    .comment-heading {
+      font-size: 14px;
+      font-weight: bold;
+      color: #92400E;
+      margin-bottom: 8px;
+    }
 
-          @media print {
-            body {
-              padding: 0;
-            }
+    .comment-text {
+      color: #78350F;
+      font-size: 13px;
+      line-height: 1.6;
+    }
 
-            .photo-section {
-              page-break-inside: avoid;
-            }
+    .footer {
+      margin-top: 40px;
+      padding: 20px;
+      background: #F8FAFC;
+      border-top: 3px solid #3B82F6;
+      border-radius: 12px;
+      text-align: center;
+    }
 
-            .section-header {
-              page-break-after: avoid;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="report-header">
-          <div class="report-title">${reportData.title}</div>
-          <div class="report-subtitle">Rapport de Visite SPS</div>
-        </div>
+    .footer-text {
+      font-size: 11px;
+      color: #64748B;
+      margin: 5px 0;
+    }
 
-        <div class="info-grid">
-          <div class="info-item">
-            <div class="info-label">Mission</div>
-            <div class="info-value">${reportData.mission}</div>
-          </div>
+    .footer-confidential {
+      font-weight: bold;
+      color: #1E293B;
+      margin-top: 10px;
+    }
 
-          <div class="info-item">
-            <div class="info-label">Client</div>
-            <div class="info-value">${reportData.client}</div>
-          </div>
+    @media print {
+      body {
+        padding: 0;
+      }
 
-          <div class="info-item">
-            <div class="info-label">Date</div>
-            <div class="info-value">${reportData.date}</div>
-          </div>
+      .photo-section {
+        page-break-inside: avoid;
+      }
 
-          <div class="info-item">
-            <div class="info-label">Conformité</div>
-            <div class="info-value">${reportData.conformity}%</div>
-          </div>
+      .section-header {
+        page-break-after: avoid;
+      }
+    }
+  </style>
+</head>
 
-          <div class="conformity-section">
-            <div class="info-label">Niveau de Conformité Global</div>
-            <div class="conformity-bar">
-              <div class="conformity-fill" style="width: ${reportData.conformity}%;">
-                ${reportData.conformity}%
-              </div>
-            </div>
-          </div>
-        </div>
+<body>
+  <div class="report-header">
+    <div class="info-grid-header">
+      <div class="info-header">
+        ${logoImage}   
+      </div>    
+      <div class="info-header">
+        <div class="report-title">${reportData.title}</div>
+        <div class="report-subtitle">Rapport de Visite SPS</div>
+      </div>
+    </div>
+  </div>
 
-        ${reportData.header ? `
-          <div class="section-header">📋 En-tête</div>
-          <div class="content-section">${reportData.header}</div>
-        ` : ''}
+  <div class="info-grid">
+    <div class="info-item">
+      <div class="info-label">Mission</div>
+      <div class="info-value">${reportData.mission}</div>
+    </div>
 
-        <div class="section-header">📸 Observations Principales</div>
-        ${reportContent}
+    <div class="info-item">
+      <div class="info-label">Client</div>
+      <div class="info-value">${reportData.client}</div>
+    </div>
 
-        ${reportData.footer ? `
-          <div class="section-header">✅ Conclusion</div>
-          <div class="content-section">${reportData.footer?.replaceAll('CONCLUSION:\n', '')}</div>
-        ` : ''}
+    <div class="info-item">
+      <div class="info-label">Date</div>
+      <div class="info-value">${reportData.date}</div>
+    </div>    
+  </div>
 
-        <div class="footer">
-          <p class="footer-text">Rapport généré le ${new Date().toLocaleDateString('fr-FR', {
+  ${reportData.header ? `
+  <div class="section-header">📋 En-tête</div>
+  <div class="content-section">${reportData.header}</div>
+  ` : ''}
+
+  <div class="section-header">📸 Observations Principales</div>
+  ${reportContent}
+
+  ${reportData.footer ? `
+  <div class="section-header">✅ Conclusion</div>
+  <div class="content-section">${reportData.footer?.replaceAll('CONCLUSION:\n', '')}</div>
+  ` : ''}
+
+  <div class="footer">
+    <p class="footer-text">Rapport généré le ${new Date().toLocaleDateString('fr-FR', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
       day: 'numeric'
     })} à ${new Date().toLocaleTimeString('fr-FR')}</p>
-          <p class="footer-confidential">Document confidentiel - Tous droits réservés</p>
-        </div>
-      </body>
-    </html>
+    <p class="footer-confidential">Document confidentiel - Tous droits réservés</p>
+  </div>
+</body>
+
+</html>
     `;
   },
 
@@ -617,7 +640,7 @@ export const pdfService = {
   createMailtoLinkWithAttachment(email: string, subject: string, body: string, pdfPath?: string): string {
     const encodedSubject = encodeURIComponent(subject);
     const encodedBody = encodeURIComponent(body + (pdfPath ? '\n\n[PDF joint au rapport]' : ''));
-    console.log('pdfPath >>> ', pdfPath);
+    // console.log('pdfPath >>> ', pdfPath);
     return `mailto:${email}?subject=${encodedSubject}&body=${encodedBody}`;
   },
 };

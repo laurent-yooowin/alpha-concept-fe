@@ -1,3 +1,6 @@
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+
 export const getMissionStatusInfo = (status: string) => {
   switch (status) {
     case 'planifiee':
@@ -40,7 +43,7 @@ export const getReportStatusInfo = (status: string) => {
         label: 'Brouillon',
         color: '#64748B',
         gradient: ['#64748B', '#475569'],
-      };    
+      };
     case 'envoye':
       return {
         label: 'Envoyé',
@@ -65,6 +68,12 @@ export const getReportStatusInfo = (status: string) => {
         color: '#EF4444',
         gradient: ['#EF4444', '#DC2626'],
       };
+    case 'annule':
+      return {
+        label: 'Annulé',
+        color: '#EF4444',
+        gradient: ['#EF4444', '#DC2626'],
+      };
     case 'archive':
       return {
         label: 'Archivé',
@@ -77,5 +86,32 @@ export const getReportStatusInfo = (status: string) => {
         color: '#64748B',
         gradient: ['#64748B', '#475569'],
       };
+  }
+};
+
+export const downloadBase64File = async (
+  base64: string,
+  contentType: string,
+  fileName = "document.pdf"
+) => {
+  try {
+    const cleanBase64 = base64.includes(",")
+      ? base64.split(",")[1]
+      : base64;
+
+    const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+
+    await FileSystem.writeAsStringAsync(fileUri, cleanBase64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    await Sharing.shareAsync(fileUri, {
+      mimeType: contentType,
+      dialogTitle: 'Ouvrir le document',
+      UTI: contentType,
+    });
+  } catch (error) {
+    console.error('Erreur:', error);
+    throw error;
   }
 };

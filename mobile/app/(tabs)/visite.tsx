@@ -32,8 +32,9 @@ import * as Linking from 'expo-linking';
 import * as MailComposer from 'expo-mail-composer';
 import { useAuth } from '@/contexts/AuthContext';
 import { missionService } from '@/services/missionService';
-import { MissionStatus } from '@/backend/src/missions/mission.entity';
 import { userService } from '@/services/userService';
+import { Visit } from 'src/visits/visit.entity';
+import { reportsAPI } from '../../../frontend/src/lib/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -49,13 +50,13 @@ interface Photo {
     riskLevel: 'low' | 'medium' | 'high';
     confidence: number;
   };
-  userComments: string;
+  comment: string;
   userDirectives: string;
   validated: boolean;
 }
 
 interface Mission {
-  id: number;
+  id: string;
   title: string;
   client: string;
   status: string;
@@ -77,6 +78,8 @@ interface Mission {
     email: string;
     phone: string;
   };
+  visits: any[];
+  notSentReport: any[]
 }
 
 export default function VisiteScreen() {
@@ -131,35 +134,23 @@ export default function VisiteScreen() {
   const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
   const [reportStatus, setReportStatus] = useState < string | null > (null);
   const [hasChanges, setHasChanges] = useState(false);
-
-  useEffect(() => {
-    if (params.mission) {
-      try {
-        const missionData = JSON.parse(params.mission as string);
-        selectMission(missionData);
-        // setMission(missionData);
-      } catch (error) {
-        console.error('Erreur parsing mission:', error);
-      }
-    }
-
-    loadAvailableMissions();
-  }, [params.mission]);
+  const [showVisitsModal, setShowVisitsModal] = useState(false);
+  const [selection, setSelection] = useState({ start: 2, end: 2 });
 
   useFocusEffect(
     useCallback(() => {
+      setMission(null);
       if (params.mission) {
         try {
           const missionData = JSON.parse(params.mission as string);
-          selectMission(missionData);
+          selectMission(missionData, missionData.visitId, true);
           // setMission(missionData);
         } catch (error) {
           console.error('Erreur parsing mission:', error);
         }
       }
-
       loadAvailableMissions();
-    }, [])
+    }, [params.mission])
   );
 
   const loadUserProfile = async () => {
@@ -197,7 +188,7 @@ export default function VisiteScreen() {
             gradient: missionStatusInfo.gradient,
             statusLabel: missionStatusInfo.label,
             originalStatus: mission.status,
-            type: mission.type || 'Visite de contrôle',
+            type: mission.type || 'CSPS',
             contact: {
               firstName: mission.contactFirstName || '',
               lastName: mission.contactLastName || '',
@@ -206,8 +197,8 @@ export default function VisiteScreen() {
             },
             date: mission.date,
             time: mission.time,
-            type: mission.type,
             refClient: mission.refClient,
+            visits: mission.visits
           }
           if (newMission && mission.status != 'terminee') {
             backendMissions.push(newMission);
@@ -231,43 +222,53 @@ export default function VisiteScreen() {
   const loadAvailableMissions = async () => {
 
     try {
-      await loadUserProfile();
+      if (!userProfile) {
+        await loadUserProfile();
+      }
       // Charger les missions utilisateur depuis AsyncStorage
       // const userMissions = await AsyncStorage.getItem('userMissions');
       // const parsedUserMissions = userMissions ? JSON.parse(userMissions) : [];
       const parsedUserMissions = await loadMissions();
-
-      // Missions par défaut
-      const defaultMissions = [
-        {
-          id: 1,
-          title: 'RÉSIDENCE LES JARDINS',
-          client: 'Bouygues Construction',
-          location: 'Lyon 69003',
-          description: 'Contrôle mensuel de sécurité',
-          nextVisit: '2025-01-15T14:00:00',
-          type: 'Visite mensuelle'
-        },
-        {
-          id: 2,
-          title: 'BUREAUX PART-DIEU',
-          client: 'Eiffage Construction',
-          location: 'Lyon 69003',
-          description: 'Finalisation rapport conformité',
-          nextVisit: '2025-01-15T16:30:00',
-          type: 'Contrôle final'
-        }
-      ];
-
-      setAvailableMissions([...parsedUserMissions]);
+      setAvailableMissions(prev => parsedUserMissions);
     } catch (error) {
       console.error('Erreur chargement missions:', error);
     }
   };
 
-  const selectMission = async (selectedMission: any) => {
-    setShowMissionSelector(false);
+  const selectMission = async (selectedMission: any, visitId?: string | null, isInitVisit?: boolean) => {
+    if (isInitVisit) {
+      await selectVisit(selectedMission, visitId);
+    } else {
+      const createVisit = {
+        id: null,
+        missionId: selectedMission.id,
+        visitDate: new Date().toLocaleDateString('fr-FR'),
+        userId: selectedMission.userId
+      };
+      if (selectedMission && selectedMission.visits?.length > 0 && selectedMission.status != 'terminee') {
+        if (!selectedMission.visits.some(v => !v.id)) {
+          selectedMission.visits.unshift(createVisit);
+        }
+        // const notSentReport: { hasNotSentReport: boolean; visitId: string | null | undefined; reportId: any; }[] = [];
+        // selectedMission.visits.forEach(visit => {
+        //   if (visit.report && visit.report.status != 'envoye_au_client' && selectedMission.status != "terminee") {
+        //     notSentReport.push({ hasNotSentReport: true, visitId: visitId, reportId: visit.report.id });
+        //   }
+        // });
+        // selectedMission.notSentReport = notSentReport;
+      } else {
+        selectedMission.visits = [createVisit];
+      }
+      setShowMissionSelector(false);
+      setMission(selectedMission);
+      setShowVisitsModal(true);
+    }
+  };
+
+  const selectVisit = async (selectedMission: any, visitId: string | null) => {
+    setShowVisitsModal(false);
     setLoadingMission(true);
+    setReportSended(false);
     if (!mission || mission.id !== selectedMission.id) {
       setPhotos([]);
       setReportContent('');
@@ -275,163 +276,137 @@ export default function VisiteScreen() {
       setReportValidated(false);
       // console.log('selectedMission >>> ', selectedMission)
     }
-    await loadExistingVisitData(selectedMission.id);
+    await loadExistingVisitData(selectedMission.id, visitId);
     // setMission(selectedMission);
   };
 
-  const loadExistingVisitData = async (missionId: number) => {
+  const loadExistingVisitData = async (missionId: string, visitId: string | null) => {
     try {
       setExistingReportId(null);
       if (!userProfile) {
         await loadUserProfile();
       }
+      if (!missionId) return;
       setLoadingMission(true);
-      const response = await visitService.getVisits(missionId);
-      const mission = await missionService.getMission(missionId);
-      setMission({
-        ...mission.data, contact: {
-          firstName: mission.data.contactFirstName || '',
-          lastName: mission.data.contactLastName || '',
-          email: mission.data.contactEmail || '',
-          phone: mission.data.contactPhone || ''
-        }
-      });
-      // console.log('getVisits - response.data >>> ', response.data)
+      // const response = await visitService.getVisits(missionId);
+      const missionData = await missionService.getMission(missionId);
+      if (missionData?.data) {
+        const visits = [];
+        missionData.data.visits?.map(v => visits.push({ ...v, photos: [] }));
+        setMission({
+          ...missionData.data,
+          visits: visits,
+          contact: {
+            firstName: missionData.data.contactFirstName || '',
+            lastName: missionData.data.contactLastName || '',
+            email: missionData.data.contactEmail || '',
+            phone: missionData.data.contactPhone || ''
+          }
+        });
+        if (visitId) {
+          setPhotos([]);
+          const visits = missionData.data?.visits?.filter(v => v.id == visitId);
+          const visit = visits?.length > 0 ? visits[0] : null;
+          if (missionData.data && missionData.data.status === 'terminee' ||
+            visit && visit.report && visit.report.status == "envoye_au_client") {
+            setReportSended(true);
+          }
+          setHasExistingVisit(true);
+          setExistingVisitId(visit?.id);
+          // const reportsResponse = await reportService.getReports();
+          if (visit && visit.report) {
+            setExistingReportId(visit.report.id);
+            setReportStatus(visit.report.status);
+          }
+          setHasChanges(false);
+          if (visit && visit.photos && visit.photos.length > 0) {
+            // console.log('visit >>> : ', visit);
+            const loadedPhotos: Photo[] = await Promise.all(visit.photos?.map(async (photo: any) => {
+              const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+                'faible': 'low',
+                'moyen': 'medium',
+                'eleve': 'high',
+                'low': 'low',
+                'medium': 'medium',
+                'high': 'high'
+              };
 
-      if (response.data && response.data.length > 0) {
-        setPhotos([]);
-        const visit = response.data[0];
+              // const observationText = photo.analysis?.observation || [];
+              // const recommendationText = photo.analysis?.recommendation || [];
+              // 📁 Chemin local prévu pour cette image
+              const fileName = photo.uri.split('/').pop();
+              const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+              console.log("Photo n'existe pas >>> : ", photo.uri);
+              // 🚀 Sinon, télécharge l’image via ton API /api/download
+              const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
+              // console.log('photo.uri Avant >>> : ', photo.uri);
+              if (imgResp && imgResp.data && imgResp.data.data) {
+                // 💾 Sauvegarde localement
+                await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+                const info = await FileSystem.getInfoAsync(fileUri);
+                if (!info?.exists) {
+                  console.log("Photo uri dosn't exist >>> : ", fileUri);
+                } else {
+                  console.log("Photo uri exist in >>> : ", fileUri);
+                }
+                photo.uri = fileUri;
+                console.log('photo.uri >>> : ', photo.uri);
+              } else {
+                Alert.alert("La photo n'a pas pu être telechargé");
+              }
 
-        setHasExistingVisit(true);
-        setExistingVisitId(visit.id);
+              // console.log('photo.analysis?.references', photo.analysis?.references);
+              let refs = photo.analysis?.references;
+              if (refs && !Array.isArray(refs)) {
+                refs = refs.split(', ').filter((s: string) => s.length > 0);
+              }
 
-        const reportsResponse = await reportService.getReports();
-        if (reportsResponse.data) {
-          const visitReport = reportsResponse.data.find((r: any) => r.visitId === visit.id);
-          if (visitReport) {
-            setExistingReportId(visitReport.id);
-            setReportStatus(visitReport.status);
+              let observations = photo.analysis?.observation;
+              if (observations && !Array.isArray(observations)) {
+                observations = observations.split(', ').filter((s: string) => s.length > 0);
+              }
+
+              let recommendations = photo.analysis?.recommendation;
+              if (recommendations && !Array.isArray(recommendations)) {
+                recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+              }
+
+              return {
+                id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+                uri: fileUri || photo.s3Url,
+                s3Url: photo.s3Url,
+                timestamp: new Date(photo.createdAt || Date.now()),
+                aiAnalysis: photo.analysis ? {
+                  observations: observations ? observations : [],
+                  recommendations: recommendations ? recommendations : [],
+                  references: refs || [],
+                  riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                  confidence: (photo.analysis.confidence || 0)
+                } : undefined,
+                comment: photo.comment || '',
+                userDirectives: photo.userDirectives || '',
+                validated: photo.validated || true
+              };
+            }));
+
+            // console.log('loadedPhotos >>> : ', loadedPhotos);
+            // console.log('Loaded photos with analysis:', loadedPhotos);
+            setPhotos(loadedPhotos);
+            setUploadedPhotoUrls(visit.photos?.map((p: any) => p.s3Url || p.uri).filter(Boolean));
+          }
+
+          if (visit && visit.notes) {
+            setVisitNotes(visit.notes);
+          }
+
+          if (visit && visit.reportGenerated) {
+            setReportValidated(true);
           }
         }
-
-        setHasChanges(false);
-
-
-        if (visit.photos && visit.photos.length > 0) {
-          // console.log('visit >>> : ', visit);
-          const loadedPhotos: Photo[] = await Promise.all(visit.photos.map(async (photo: any) => {
-            const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
-              'faible': 'low',
-              'moyen': 'medium',
-              'eleve': 'high',
-              'low': 'low',
-              'medium': 'medium',
-              'high': 'high'
-            };
-
-            // const observationText = photo.analysis?.observation || [];
-            // const recommendationText = photo.analysis?.recommendation || [];
-            // 📁 Chemin local prévu pour cette image
-            const fileName = photo.uri.split('/').pop();
-            const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-
-            // 🔍 Vérifie si l’image est déjà stockée localement
-            // const info = await FileSystem.getInfoAsync(photo.uri);
-            // if (!info?.exists) {
-            //   console.log("Photo n'existe pas >>> : ", photo.uri);
-            //   // 🚀 Sinon, télécharge l’image via ton API /api/download
-            //   const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
-            //   // console.log('photo.uri Avant >>> : ', photo.uri);
-            //   if (imgResp && imgResp.data && imgResp.data.data) {
-            //     // 💾 Sauvegarde localement
-            //     await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
-            //       encoding: FileSystem.EncodingType.Base64,
-            //     });
-            //     const info = await FileSystem.getInfoAsync(fileUri);
-            //     if (!info?.exists) {
-            //       console.log("Photo uri dosn't exist >>> : ", fileUri);
-            //     } else {
-            //       console.log("Photo uri exist in >>> : ", fileUri);
-            //     }
-            //     photo.uri = fileUri;
-            //     console.log('photo.uri >>> : ', photo.uri);
-            //   } else {
-            //     Alert.alert("La photo n'a pas pu être telechargé");
-            //   }
-            // } else {
-            //   console.log("Photo uri exist >>> : ", photo.uri);
-            // }
-
-            console.log("Photo n'existe pas >>> : ", photo.uri);
-            // 🚀 Sinon, télécharge l’image via ton API /api/download
-            const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
-            // console.log('photo.uri Avant >>> : ', photo.uri);
-            if (imgResp && imgResp.data && imgResp.data.data) {
-              // 💾 Sauvegarde localement
-              await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              const info = await FileSystem.getInfoAsync(fileUri);
-              if (!info?.exists) {
-                console.log("Photo uri dosn't exist >>> : ", fileUri);
-              } else {
-                console.log("Photo uri exist in >>> : ", fileUri);
-              }
-              photo.uri = fileUri;
-              console.log('photo.uri >>> : ', photo.uri);
-            } else {
-              Alert.alert("La photo n'a pas pu être telechargé");
-            }
-
-            // console.log('photo.analysis?.references', photo.analysis?.references);
-            let refs = photo.analysis?.references;
-            if (refs && !Array.isArray(refs)) {
-              refs = refs.split(', ').filter((s: string) => s.length > 0);
-            }
-
-            let observations = photo.analysis?.observation;
-            if (observations && !Array.isArray(observations)) {
-              observations = observations.split(', ').filter((s: string) => s.length > 0);
-            }
-
-            let recommendations = photo.analysis?.recommendation;
-            if (recommendations && !Array.isArray(recommendations)) {
-              recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
-            }
-
-            return {
-              id: photo.id || `photo-${Date.now()}-${Math.random()}`,
-              uri: fileUri || photo.s3Url,
-              s3Url: photo.s3Url,
-              timestamp: new Date(photo.createdAt || Date.now()),
-              aiAnalysis: photo.analysis ? {
-                observations: observations ? observations : [],
-                recommendations: recommendations ? recommendations : [],
-                references: refs || [],
-                riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-                confidence: (photo.analysis.confidence || 0)
-              } : undefined,
-              userComments: photo.comment || '',
-              userDirectives: photo.userDirectives || '',
-              validated: photo.validated || true
-            };
-          }));
-
-          // console.log('loadedPhotos >>> : ', loadedPhotos);
-
-          // console.log('Loaded photos with analysis:', loadedPhotos);
-          setPhotos(loadedPhotos);
-          setUploadedPhotoUrls(visit.photos.map((p: any) => p.s3Url || p.uri).filter(Boolean));
-        }
-
-        if (visit.notes) {
-          setVisitNotes(visit.notes);
-        }
-
-        if (visit.reportGenerated) {
-          setReportValidated(true);
-        }
       } else {
+        setReportStatus('brouillon')
         setHasExistingVisit(false);
         setExistingVisitId(null);
         setExistingReportId(null);
@@ -496,9 +471,6 @@ export default function VisiteScreen() {
       // Fallback to mock data if AI fails
     }
 
-    // Fallback simulation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
     const analyses = [
       {
         observations: [
@@ -511,7 +483,8 @@ export default function VisiteScreen() {
           "Maintenir la signalisation visible"
         ],
         riskLevel: 'low' as const,
-        confidence: 92
+        confidence: 92,
+        references: []
       },
       {
         observations: [
@@ -525,7 +498,8 @@ export default function VisiteScreen() {
           "Sécuriser les accès avec barrières"
         ],
         riskLevel: 'high' as const,
-        confidence: 88
+        confidence: 88,
+        references: []
       },
       {
         observations: [
@@ -538,7 +512,8 @@ export default function VisiteScreen() {
           "Vérifier l'état des EPI régulièrement"
         ],
         riskLevel: 'medium' as const,
-        confidence: 85
+        confidence: 85,
+        references: []
       }
     ];
 
@@ -598,9 +573,6 @@ export default function VisiteScreen() {
       // Fallback to mock data if AI fails
     }
 
-    // Fallback simulation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
     const analyses = [
       {
         observations: [
@@ -613,7 +585,8 @@ export default function VisiteScreen() {
           "Maintenir la signalisation visible"
         ],
         riskLevel: 'low' as const,
-        confidence: 92
+        confidence: 92,
+        references: []
       },
       {
         observations: [
@@ -627,7 +600,8 @@ export default function VisiteScreen() {
           "Sécuriser les accès avec barrières"
         ],
         riskLevel: 'high' as const,
-        confidence: 88
+        confidence: 88,
+        references: []
       },
       {
         observations: [
@@ -640,7 +614,8 @@ export default function VisiteScreen() {
           "Vérifier l'état des EPI régulièrement"
         ],
         riskLevel: 'medium' as const,
-        confidence: 85
+        confidence: 85,
+        references: []
       }
     ];
 
@@ -663,7 +638,7 @@ export default function VisiteScreen() {
           id: Date.now().toString(),
           uri: photo.uri,
           timestamp: new Date(),
-          userComments: '',
+          comment: '',
           userDirectives: '',
           validated: false
         };
@@ -740,7 +715,6 @@ export default function VisiteScreen() {
                 ]
               );
             }
-
           } catch (error) {
             console.error('Erreur analyse IA:', error);
           } finally {
@@ -844,15 +818,13 @@ export default function VisiteScreen() {
   // Sauvegarder les commentaires
   const saveComments = async () => {
     if (!selectedPhoto) return;
-
     const photosData = photos.map(p =>
       p.id === selectedPhoto.id
-        ? { ...p, userComments: tempComments }
+        ? { ...p, comment: tempComments }
         : p
     )
     setPhotos(photosData);
-
-    setSelectedPhoto(prev => prev ? { ...prev, userComments: tempComments } : null);
+    setSelectedPhoto(prev => prev ? { ...prev, comment: tempComments } : null);
     // await saveVisit();
     setEditingComments(false);
     setHasChanges(true);
@@ -868,7 +840,6 @@ export default function VisiteScreen() {
         : p
     )
     setPhotos(photosData);
-
     setSelectedPhoto(prev => prev ? { ...prev, userDirectives: tempDirectives } : null);
     // await saveVisit(photosData);
     setEditingDirectives(false);
@@ -887,10 +858,8 @@ export default function VisiteScreen() {
       return;
     }
     const photosData = photosParam && photosParam.length > 0 ? photosParam : photos;
-
     setSavingVisit(true);
-
-    console.log('Photos savVisit >>>> : ', photosData);
+    // console.log('Photos savVisit >>>> : ', photosData);
 
     try {
       const visitPhotos = photosData.map(p => ({
@@ -908,7 +877,7 @@ export default function VisiteScreen() {
           photoConformityMessage: p.aiAnalysis?.photoConformityMessage || "",
           references: p.aiAnalysis?.references || [],
         },
-        comment: p.userComments,
+        comment: p.comment,
         userDirectives: p.userDirectives,
         validated: p.validated,
       }));
@@ -954,7 +923,7 @@ export default function VisiteScreen() {
         );
       }
 
-      loadExistingVisitData(mission.id);
+      loadExistingVisitData(mission.id, visitId);
 
       Alert.alert(
         'Succès',
@@ -991,9 +960,7 @@ export default function VisiteScreen() {
       Alert.alert('Erreur', 'Le rapport ne peut pas être vide');
       return;
     }
-
     setIsSavingReport(true);
-
     try {
       const response = await saveSendReport(false);
 
@@ -1041,9 +1008,6 @@ export default function VisiteScreen() {
     setReportSaved(false);
     setReportSended(false);
 
-    // Simulation de génération de rapport
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
     const validatedPhotos = photos.filter(p => p.validated);
     const totalRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length;
     const mediumRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'medium').length;
@@ -1065,8 +1029,8 @@ ${mediumRisks} risques moyens identifiés`;
 OBSERVATIONS PRINCIPALES:
 ${photos.map((photo, index) => {
       if (!photo.aiAnalysis) return '';
-      return `
-━━━━━━━━━━━━━━━━━━━━━
+
+      return `━━━━━━━━━━━━━━━━━━━━━
 Photo ${index + 1} - Niveau de risque: ${photo.aiAnalysis.riskLevel.toUpperCase()}
 📸 Photo: ${photo.s3Url}
 
@@ -1076,14 +1040,12 @@ ${photo.aiAnalysis?.observations?.map(obs => `• ${obs}`).join('\n')}
 Recommandations:
 ${(photo.aiAnalysis?.recommendations?.map(rec => `• ${rec}`)) || [].join('\n')}
 
-${photo.aiAnalysis?.references ? `🏛️ Références : ${photo.aiAnalysis.references?.map(obs => `• ${obs}`).join('\n')}` : ''}
+🏛️ Références:
+${photo.aiAnalysis?.references ? `${photo.aiAnalysis.references?.map(obs => `• ${obs}`).join('\n')}` : ''}
 
-${photo.userComments ? `💬 Commentaires du coordonnateur: ${photo.userComments}` : ''}
-
+💬 Commentaires du coordonnateur:
+${photo.comment ? `${photo.comment}` : ''}
 `}).join('\n')}
-
-
-
 `;
 
     const footer = `CONCLUSION:
@@ -1094,8 +1056,9 @@ ${totalRisks > 0
           : 'Le chantier présente un bon niveau de conformité sécurité.'
       }
 
-Coordonnateur: Pierre Dupont
-Date: ${new Date().toLocaleString('fr-FR')}`;
+Coordonnateur: ${userProfile.firstName} ${userProfile.lastName}
+
+Date: ${new Date().toLocaleDateString('fr-FR')}`;
 
     setReportContent(report);
     setReportHeader(header);
@@ -1103,6 +1066,27 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     setGeneratingReport(false);
     setEditingReport(false);
     setShowReportModal(true);
+  };
+
+  const handleChangeText = (value: string) => {
+    const cursor = selection.start;
+    // Détection insertion d’un retour à la ligne
+    if (value.length > reportContent.length && value[cursor - 1] === "\n") {
+      const before = value.slice(0, cursor);
+      const after = value.slice(cursor);
+
+      const newText = before + "• " + after;
+      const newCursor = before.length + 3; // position exacte après "• "
+
+      setReportContent(newText);
+
+      // ⚠️ important : attendre le rendu
+      setTimeout(() => {
+        setSelection({ start: newCursor, end: newCursor });
+      }, 0);
+    } else {
+      setReportContent(value);
+    }
   };
 
   // Update photo data from edited report content
@@ -1127,19 +1111,19 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
         const observations = observationsMatch?.[1]
           ?.split('•')
-          .map(s => s.trim())
+          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
           .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
 
         const recommendations = recommendationsMatch?.[1]
           ?.split('•')
-          .map(s => s.trim())
+          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
           .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
 
         const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
         const references = refsMatch?.[1]
           ?.split('•')
-          .map(s => s.trim())
+          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
           .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
         // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
@@ -1147,11 +1131,11 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           ...photo,
           aiAnalysis: photo.aiAnalysis ? {
             ...photo.aiAnalysis,
-            observations,
-            recommendations,
+            observation: observations,
+            recommendation: recommendations,
             references,
           } : undefined,
-          userComments: comments,
+          comment: comments,
         };
       }
       return photo;
@@ -1184,10 +1168,95 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     }
   }
 
+  const terminateMision = async () => {
+    if (mission?.status != "terminee") {
+      if (mission?.visits.some(v => v.report.id != existingReportId && v.report.status != "envoye_au_client")) {
+        Alert.alert(
+          'Attention !',
+          `La mission ${mission?.title} a un ou plusieurs rapports non envoyé, voulez-vous tout de même la clôturer ?
+
+Si vous clôturer la mission les rapports non envoyé seron annulés.
+          ` ,
+          [
+            {
+              text: 'Oui',
+              style: 'default',
+              onPress: async () => {
+                await missionService.updateMission(mission?.id, {
+                  status: 'terminee'
+                });
+                setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
+                Alert.alert(
+                  `La mission ${mission?.title} est clôturée.`,
+                  `La gestion et la modification des rapports ne sont plus autorisées.`
+                );
+              }
+            },
+            {
+              text: 'Non',
+              style: 'cancel',
+            }
+          ]
+        );
+      } else {
+        await missionService.updateMission(mission?.id, {
+          status: 'terminee'
+        });
+        setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
+        Alert.alert(
+          `La mission ${mission?.title} est clôturée.`,
+          `La gestion et la modification des rapports ne sont plus autorisées.`
+        );
+      }
+    }
+  }
+
+  const validateSentReport = async (clientEmail: string, reportFileUrl: string) => {
+    try {
+      await reportService.updateReport(existingReportId, {
+        status: 'envoye_au_client',
+        recipientEmail: clientEmail,
+        reportFileUrl: reportFileUrl,
+      });
+      setReportStatus('envoye_au_client');
+      setReportSended(true);
+
+      Alert.alert(
+        'Rapport envoyé au client',
+        `Souhaitez-vous clôturer la mission ${mission?.title} ?
+
+⚠️ Une fois la mission clôturée, il ne sera plus possible de créer, modifier ou envoyer des rapports.
+      ` ,
+        [
+          {
+            text: 'Oui',
+            style: 'default',
+            onPress: async () => {
+              await terminateMision();
+            }
+          },
+          {
+            text: 'Non',
+            style: 'cancel',
+          }
+        ]
+      );
+    } catch (error) {
+      Alert.alert(
+        `Erreur lors de la mise à jours du rapport, veuillez contacter le support .`
+      );
+    }
+
+  }
+
   // Envoyer le rapport
   const saveSendReport = async (isToSend?: boolean = true) => {
-    if (reportStatus == 'valide' || reportStatus == 'envoye_au_client') {
-      Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
+    if (reportStatus == 'envoye_au_client') {
+      Alert.alert('Rapport déjà envoyé !', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
+      return;
+    }
+    if (mission?.status == 'terminee') {
+      Alert.alert(`La mission ${mission?.title} est terminée !`, 'Vous ne pouvez pas modifier ni envoyer le rapport.');
       return;
     }
 
@@ -1198,7 +1267,6 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
     setIsSavingReport(true);
     setReportSaved(false);
     setReportSended(false);
-
     try {
       const conformity = Math.round(
         photos.reduce((acc, p) => {
@@ -1210,7 +1278,6 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
       );
 
       // 1. Save visit to backend
-
       const visitPhotos = photos.map(p => ({
         id: p.id,
         uri: p.uri,
@@ -1224,7 +1291,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           confidence: p.aiAnalysis?.confidence || 0,
           references: p.aiAnalysis?.references || []
         },
-        comment: p.userComments,
+        comment: p.comment,
         userDirectives: p.userDirectives,
         validated: p.validated,
       }));
@@ -1274,8 +1341,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
 
       // 2. Create or update report in backend
       let reportResponse;
-
-      if (existingReportId && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client')) {
+      if (existingReportId && (reportStatus !== 'envoye_au_client')) {
         // Update existing report if not validated
         reportResponse = await reportService.updateReport(existingReportId, {
           title: `RAPPORT VISITE - ${mission?.title}`,
@@ -1304,8 +1370,8 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         setExistingReportId(reportResponse?.data?.id);
         setReportStatus('brouillon');
         setHasChanges(false);
-        console.log('Created new report:', reportResponse.data?.id);
-      } else if (reportStatus === 'valide' || reportStatus !== 'envoye_au_client') {
+        // console.log('Created new report:', reportResponse.data?.id);
+      } else if (reportStatus == 'envoye_au_client') {
         // Report is validated, cannot update
         Alert.alert('Rapport envoyé au client', "Ce rapport a été envoyé au client, il n'est plus possible de le modifier ou l'envoyer");
         return;
@@ -1330,9 +1396,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         Alert.alert('Erreur', 'Impossible de sauvegarder le rapport sur le serveur');
         return false;
       }
-
       setReportSaved(true);
-
       // 3. Also save locally as fallback
       const newReport = {
         id: Date.now(),
@@ -1341,7 +1405,7 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         client: mission?.client || 'Client inconnu',
         date: new Date().toISOString().split('T')[0],
         status: 'envoyes',
-        type: mission?.type || 'Visite de contrôle',
+        type: mission?.type || 'CSPS',
         pages: Math.ceil((reportHeader + reportContent + reportFooter).length / 500),
         photos: photos.length,
         anomalies: photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length,
@@ -1354,19 +1418,16 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
         reportFooter: reportFooter,
         visitPhotos: photos
       };
-
       const existingReports = await AsyncStorage.getItem('userReports');
       const parsedReports = existingReports ? JSON.parse(existingReports) : [];
       const updatedReports = [newReport, ...parsedReports];
       await AsyncStorage.setItem('userReports', JSON.stringify(updatedReports));
-
       if (isToSend) {
         setReportSended(false);
         // const pdfPhotos = photos.map(p => ({
         //   uri: p.s3Url || p.uri,
-        //   comment: p.userComments,
+        //   comment: p.comment,
         // }));
-
         const pdfData = {
           title: `RAPPORT VISITE - ${mission?.title}`,
           mission: mission?.title || 'Mission inconnue',
@@ -1379,19 +1440,15 @@ Date: ${new Date().toLocaleString('fr-FR')}`;
           photos: photos,
         };
         // const userData = await AsyncStorage.getItem('user_data');
-
         setShowPdfLoadingModal(true);
         setPdfLoadingProgress('Conversion des photos...');
-
         const pdfPath = await pdfService.generateReportPDF(pdfData);
-
         const response = await uploadReportFile(pdfPath, reportResponse?.data?.title);
         const clientEmail = mission.contact?.email;
         let reportFileUrl = '';
         if (response) {
           reportFileUrl = response.url || '';
         }
-
         setPdfLoadingProgress('Finalisation...');
         const subject = `Rapport de visite - ${mission?.title}`;
         const body = `Bonjour ${mission?.contact?.firstName},
@@ -1407,7 +1464,7 @@ Nombre de photos: ${photos.length}
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement.
-${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
+${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
 `;
         // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
         //   clientEmail,
@@ -1429,36 +1486,45 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
           subject: subject,
           body: body,
         };
-
-        console.log('mailOptions mission >>> : ', mission);
-
+        // console.log('mailOptions mission >>> : ', mission);
         if (pdfPath) {
           mailOptions.attachments = [pdfPath] // pièce jointe
         }
-
         // 6️⃣ Ouvrir le mail ready-to-send
         try {
-          await MailComposer.composeAsync(mailOptions);
-          console.log('📤 Email prêt à être envoyé !');
-          // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
-          await reportService.updateReport(existingReportId, {
-            status: 'envoye_au_client' as ReportStatus,
-            recipientEmail: clientEmail,
-            reportFileUrl: reportFileUrl,
-          });
+          const mail = await MailComposer.composeAsync(mailOptions);
 
-          await missionService.updateMission(mission.id, {
-            status: 'terminee' as MissionStatus
-          });
-          setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
-          mission.status = 'terminee';
-          setReportStatus('envoye_au_client');
-          await loadAvailableMissions();
+          console.log("Send Mail >>> : ", mail);
+          // console.log('📤 Email prêt à être envoyé !');
+          // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
+
           setShowPdfLoadingModal(false);
-          setReportSended(true);
-          Alert.alert('Rapport envoyé au client', "Le rapport a été envoyé au client et mis à jours dans le serveur avec succès.");
-          // return true;
+
+          Alert.alert(
+            "Validation de l’envoi du rapport",
+            `Veuillez confirmer l’envoi du rapport PDF aux destinataires concernés.
+
+⚠️ Après l’envoi, aucune modification ne sera possible.
+            `,
+            [
+              {
+                text: 'Oui je confirme',
+                style: 'default',
+                onPress: async () => {
+                  await validateSentReport(clientEmail, reportFileUrl);
+                }
+              },
+              {
+                text: 'Non',
+                style: 'cancel',
+              }
+            ]
+          );
+          // mission.status = 'terminee';          
           setShowReportModal(false);
+          await loadAvailableMissions();
+          // Alert.alert('Rapport envoyé au client', "Le rapport a été envoyé au client et mis à jours dans le serveur avec succès.");
+          // return true;
         } catch (error) {
           console.error('Erreur sauvegarde rapport:', error);
           Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
@@ -1509,6 +1575,23 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
     }
   };
 
+  const formatDisplayDate = (date: Date) => {
+    if (!date) return null;
+    if (date instanceof Date) {
+      return date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    }
+    return new Date(date).toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+  };
+
   if (!mission) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -1536,7 +1619,11 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                     <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE MISSION</Text>
                     <TouchableOpacity
                       style={styles.closeMissionSelectorButton}
-                      onPress={() => setShowMissionSelector(false)}
+                      onPress={async () => {
+                        setMission(null);
+                        await loadAvailableMissions();
+                        setShowMissionSelector(false);
+                      }}
                     >
                       <X size={20} color="#FFFFFF" />
                     </TouchableOpacity>
@@ -1568,29 +1655,6 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
-                </LinearGradient>
-              </View>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
-
-        {/* Loading Mission Modal */}
-        <Modal visible={loadingMission} animationType="fade" transparent>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={{ flex: 1, justifyContent: 'flex-end' }}
-          >
-            <View style={styles.pdfLoadingOverlay}>
-              <View style={styles.pdfLoadingModal}>
-                <LinearGradient
-                  colors={['#8B5CF6', '#A855F7']}
-                  style={styles.analyzingGradient}
-                >
-                  <ActivityIndicator size={20} color="#FFFFFF" />
-                  <Text style={styles.analyzingTitle}>CHARGEMENT EN COURS</Text>
-                  <Text style={styles.analyzingSubtitle}>
-                    Chergement des détails de la mission avec les photos en cours ...
-                  </Text>
                 </LinearGradient>
               </View>
             </View>
@@ -1724,7 +1788,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
           <View style={styles.photosSectionHeader}>
             <Text style={styles.sectionTitle}>{`PHOTOS DU CHANTIER \n`}             ({photos.length}/10)</Text>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              {hasExistingVisit && existingReportId && !hasChanges ? (
+              {(reportSended || mission.status == "termine") ? (
                 <TouchableOpacity
                   style={styles.generateReportButton}
                   onPress={() => {
@@ -1766,7 +1830,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
           </View>
 
           {/* Add Photo Button */}
-          {photos.length < 10 && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (
+          {photos.length < 10 && (reportStatus !== 'envoye_au_client') && (mission?.status != 'terminee') && (
             <TouchableOpacity
               style={styles.addPhotoButton}
               onPress={() => setShowCamera(true)}
@@ -1791,7 +1855,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                   style={styles.photoCard}
                   onPress={() => {
                     setSelectedPhoto(photo);
-                    setTempComments(photo.userComments);
+                    setTempComments(photo.comment);
                     setTempDirectives(photo.userDirectives);
                     setShowPhotoDetail(true);
                     setEditingComments(false);
@@ -1947,7 +2011,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                         PHOTO #{photos.findIndex(p => p.id === selectedPhoto.id) + 1}
                       </Text>
                       <View style={styles.photoDetailActions}>
-                        {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                        {(reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
                           <TouchableOpacity
                             style={styles.deletePhotoButton}
                             onPress={() => deletePhoto(selectedPhoto)}
@@ -2031,7 +2095,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                       <View style={styles.commentsSection}>
                         <View style={styles.commentsSectionHeader}>
                           <Text style={styles.commentsSectionTitle}>DIRECTIVES</Text>
-                          {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                          {(reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
                             <TouchableOpacity
                               style={styles.editCommentsButton}
                               onPress={() => setEditingDirectives(true)}
@@ -2041,7 +2105,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                           )}
                         </View>
 
-                        {editingDirectives && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
+                        {editingDirectives && (reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') ? (
                           <View style={styles.commentsEditContainer}>
                             <TextInput
                               style={styles.commentsInput}
@@ -2083,7 +2147,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                                 </LinearGradient>
                               </TouchableOpacity>
 
-                              {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && <TouchableOpacity
+                              {(reportStatus !== 'envoye_au_client' && (!mission || (mission as any).originalStatus !== 'terminee')) && <TouchableOpacity
                                 style={styles.saveCommentsButton}
                                 onPress={() => addDirectivesAndAnalyseAI()}
                               >
@@ -2112,7 +2176,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                       <View style={styles.commentsSection}>
                         <View style={styles.commentsSectionHeader}>
                           <Text style={styles.commentsSectionTitle}>COMMENTAIRES</Text>
-                          {(reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
+                          {(reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
                             <TouchableOpacity
                               style={styles.editCommentsButton}
                               onPress={() => setEditingComments(true)}
@@ -2122,7 +2186,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                           )}
                         </View>
 
-                        {editingComments && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
+                        {editingComments && (reportStatus !== 'envoye_au_client' && (!mission || (mission as any).originalStatus !== 'terminee')) ? (
                           <View style={styles.commentsEditContainer}>
                             <TextInput
                               style={styles.commentsInput}
@@ -2139,7 +2203,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                                 style={styles.cancelCommentsButton}
                                 onPress={() => {
                                   setEditingComments(false);
-                                  setTempComments(selectedPhoto.userComments);
+                                  setTempComments(selectedPhoto.comment);
                                   setTempDirectives(selectedPhoto.userDirectives);
                                 }}
                               >
@@ -2181,8 +2245,8 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                           </View>
                         ) : (
                           <View style={styles.commentsDisplay}>
-                            {selectedPhoto.userComments ? (
-                              <Text style={styles.commentsText}>{selectedPhoto.userComments}</Text>
+                            {selectedPhoto.comment ? (
+                              <Text style={styles.commentsText}>{selectedPhoto.comment}</Text>
                             ) : (
                               <Text style={styles.noCommentsText}>Aucune directives ajouté</Text>
                             )}
@@ -2249,7 +2313,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                 </View>
 
                 <ScrollView style={styles.reportContent} showsVerticalScrollIndicator={false}>
-                  {editingReport && (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') ? (
+                  {editingReport && (reportStatus !== 'envoye_au_client' && (!mission || (mission as any).originalStatus !== 'terminee')) ? (
                     <View>
                       <Text style={styles.editSectionLabel}>EN-TÊTE</Text>
                       <TextInput
@@ -2266,7 +2330,11 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                       <TextInput
                         style={styles.reportTextInput}
                         value={reportContent}
-                        onChangeText={setReportContent}
+                        onChangeText={handleChangeText}
+                        selection={selection}
+                        onSelectionChange={(e) =>
+                          setSelection(e.nativeEvent.selection)
+                        }
                         multiline
                         numberOfLines={15}
                         textAlignVertical="top"
@@ -2311,17 +2379,19 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                                   <Text key={i} style={styles.reportListItem}>• {rec}</Text>
                                 ))}
                                 <Text style={styles.reportSectionTitle}>Références:</Text>
-                                {photo.aiAnalysis?.references && (Array.isArray(photo.aiAnalysis?.references)) && photo.aiAnalysis?.references.map((rec, i) => (
-                                  <Text key={i} style={styles.reportListItem}>• {rec}</Text>
-                                ))}
+                                {photo.aiAnalysis?.references && (Array.isArray(photo.aiAnalysis?.references)) &&
+                                  photo.aiAnalysis?.references.map((rec, i) => (
+                                    <Text key={i} style={styles.reportListItem}>• {rec}</Text>
+                                  ))
+                                }
                               </>
                             )}
-                            {photo.userComments && (
-                              <>
-                                <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
-                                <Text style={styles.reportCommentText}>{photo.userComments}</Text>
-                              </>
-                            )}
+                            <>
+                              <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
+                              {photo.comment && (
+                                <Text style={styles.reportCommentText}>{photo.comment}</Text>
+                              )}
+                            </>
                           </View>
                           <View style={styles.reportPhotoSeparator} />
                         </View>
@@ -2331,7 +2401,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                   )}
                 </ScrollView>
                 {
-                  (reportStatus !== 'valide' && reportStatus !== 'envoye_au_client') &&
+                  (reportStatus !== 'envoye_au_client' && (!mission || (mission as any).originalStatus !== 'terminee')) &&
                   <View style={styles.reportModalFooter}>
                     <TouchableOpacity
                       style={[
@@ -2382,55 +2452,6 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Mission Selector Modal */}
-      {/* <Modal visible={showMissionSelector} animationType="slide" transparent>
-        <View style={styles.missionSelectorOverlay}>
-          <View style={styles.missionSelectorModal}>
-            <LinearGradient
-              colors={['#1E293B', '#374151']}
-              style={styles.missionSelectorGradient}
-            >
-              <View style={styles.missionSelectorHeader}>
-                <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE MISSION</Text>
-                <TouchableOpacity
-                  style={styles.closeMissionSelectorButton}
-                  onPress={() => setShowMissionSelector(false)}
-                >
-                  <X size={20} color="#FFFFFF" />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView style={styles.missionSelectorContent} showsVerticalScrollIndicator={false}>
-                {availableMissions.map((availableMission) => (
-                  <TouchableOpacity
-                    key={availableMission.id}
-                    style={styles.missionSelectorItem}
-                    onPress={() => selectMission(availableMission)}
-                  >
-                    <LinearGradient
-                      colors={['#374151', '#4B5563']}
-                      style={styles.missionSelectorItemGradient}
-                    >
-                      <View style={styles.missionSelectorItemContent}>
-                        <View style={styles.missionSelectorItemLeft}>
-                          <Text style={styles.missionSelectorItemTitle}>{availableMission.title}</Text>
-                          <Text style={styles.missionSelectorItemClient}>{availableMission.client}</Text>
-                          <Text style={styles.missionSelectorItemLocation}>{availableMission.location}</Text>
-                        </View>
-                        <View style={styles.missionSelectorItemRight}>
-                          <Text style={styles.missionSelectorItemType}>{availableMission.type}</Text>
-                          <ArrowRight size={16} color="#94A3B8" />
-                        </View>
-                      </View>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </LinearGradient>
-          </View>
-        </View>
-      </Modal> */}
-
       {/* PDF Loading Modal */}
       <Modal visible={showPdfLoadingModal} animationType="fade" transparent>
         <KeyboardAvoidingView
@@ -2469,6 +2490,81 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                 <Text style={styles.analyzingTitle}>ANALYSE IA EN COURS</Text>
                 <Text style={styles.analyzingSubtitle}>
                   L'analyse de la photo pour identifier les risques sécurité en cours ...
+                </Text>
+              </LinearGradient>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={showVisitsModal} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.missionSelectorOverlay}>
+            <View style={styles.missionSelectorModal}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.missionSelectorGradient}
+              >
+                <ScrollView style={styles.missionSelectorContent} showsVerticalScrollIndicator={false}>
+                  <View style={styles.missionSelectorHeader}>
+                    <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE VISITE</Text>
+                    <TouchableOpacity
+                      style={styles.closeMissionSelectorButton}
+                      onPress={() => { setMission(null); setShowVisitsModal(false); setShowMissionSelector(true); }}
+                    >
+                      <X size={20} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                  {mission?.visits?.map((visit: any) => (
+                    <TouchableOpacity
+                      key={visit.id ? visit.id : Math.random() * new Date().getTime()}
+                      style={styles.missionSelectorItem}
+                      onPress={() => selectVisit(mission, visit.id)}
+                    >
+                      <LinearGradient
+                        colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#64748B', '#475569'])}
+                        style={styles.missionSelectorItemGradient}
+                      >
+                        <View style={styles.missionSelectorItemContent}>
+                          <View style={styles.missionSelectorItemLeft}>
+                            <Text style={styles.missionSelectorItemTitle}>{visit.id ? mission.title + ' -- ' + formatDisplayDate(visit.visitDate) : "Créer une nouvelle visite -- " + mission.title}</Text>
+                            <Text style={styles.missionSelectorItemClient}>{mission.client}</Text>
+                            <Text style={styles.missionSelectorItemLocation}>{mission.location}</Text>
+                          </View>
+                          <View style={styles.missionSelectorItemRight}>
+                            <Text style={styles.missionSelectorItemType}>{mission.type}</Text>
+                            <ArrowRight size={16} color="#94A3B8" />
+                          </View>
+                        </View>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </LinearGradient>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Loading Mission Modal */}
+      <Modal visible={loadingMission} animationType="fade" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.pdfLoadingOverlay}>
+            <View style={styles.pdfLoadingModal}>
+              <LinearGradient
+                colors={['#8B5CF6', '#A855F7']}
+                style={styles.analyzingGradient}
+              >
+                <ActivityIndicator size={20} color="#FFFFFF" />
+                <Text style={styles.analyzingTitle}>CHARGEMENT EN COURS</Text>
+                <Text style={styles.analyzingSubtitle}>
+                  Chargement des détails de la mission avec les photos en cours ...
                 </Text>
               </LinearGradient>
             </View>
@@ -2848,7 +2944,7 @@ const styles = StyleSheet.create({
   },
   cameraOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(159, 159, 6, 0.69)',
     justifyContent: 'space-between',
   },
   cameraHeader: {
@@ -3358,15 +3454,17 @@ const styles = StyleSheet.create({
   },
   missionSelectorHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
     marginBottom: 24,
     paddingBottom: 16,
     paddingTop: 24,
+    gap: 8,
   },
   missionSelectorTitle: {
     fontSize: 18,
+    paddingHorizontal: 24,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
     letterSpacing: 1,
@@ -3415,13 +3513,13 @@ const styles = StyleSheet.create({
   missionSelectorItemClient: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: '#94A3B8',
+    color: 'rgba(0, 0, 0, 0.5)',
     marginBottom: 2,
   },
   missionSelectorItemLocation: {
     fontSize: 11,
     fontFamily: 'Inter-Regular',
-    color: '#64748B',
+    color: '#afb3b9ff',
   },
   missionSelectorItemRight: {
     flex: 1,

@@ -38,7 +38,7 @@ export default function LoginPage() {
       <div
         className="absolute inset-0 bg-cover bg-center bg-no-repeat"
         style={{
-          backgroundImage: 'url(https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=1920)',
+          backgroundImage: "url('/alpha_background2.jpg')",
         }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900/80 via-prosps-blue-dark/70 to-prosps-blue/60"></div>

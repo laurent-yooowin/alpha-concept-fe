@@ -308,7 +308,7 @@ export default function LoginScreen() {
                 <Shield size={12} color="#FFFFFF" />
                 <Text style={styles.securityText}>Connexion sécurisée - Données chiffrées</Text>
               </LinearGradient>
-              <Text style={styles.versionText}>Version 1.0.0 - Coordinateur</Text>
+              <Text style={styles.versionText}>Version 1.0.0 - Coordonnateur</Text>
             </View>
           </View>
         </KeyboardAvoidingView>

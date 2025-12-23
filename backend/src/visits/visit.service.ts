@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Visit } from './visit.entity';
@@ -13,6 +13,8 @@ export class VisitService {
   constructor(
     @InjectRepository(Visit)
     private visitRepository: Repository<Visit>,
+
+    @Inject(forwardRef(() => MissionService))
     private missionService: MissionService
   ) { }
 
@@ -74,10 +76,24 @@ export class VisitService {
 
     return this.visitRepository.find({
       where,
-      relations: ['user'],
+      // relations: ['user'],
       order: { visitDate: 'DESC' },
     });
   }
+
+  // async getPhotosByReport(visitId: Report, user: User): Promise<Visit[]> {
+  //   const where: any = { id: visitId };
+
+  //   if (user.role !== UserRole.ADMIN) {
+  //     where.userId = user.id;
+  //   }
+
+  //   return this.visitRepository.find({
+  //     where,
+  //     // relations: ['user'],
+  //     order: { visitDate: 'DESC' },
+  //   });
+  // }
 
   async findOne(id: string, user: User): Promise<Visit> {
     const where: any = { id };

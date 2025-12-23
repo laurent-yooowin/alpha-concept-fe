@@ -26,13 +26,13 @@ import { visitService } from '@/services/visitService';
 import { reportService } from '@/services/reportService';
 import { missionService } from '@/services/missionService';
 import { userService } from '@/services/userService';
+import { reportsAPI } from '../../../frontend/src/lib/api';
 
 const { width } = Dimensions.get('window');
 
 export default function MissionsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('toutes');
-  const [userMissions, setUserMissions] = useState < any[] > ([]);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showMissionDetail, setShowMissionDetail] = useState(false);
   const [selectedMission, setSelectedMission] = useState < any > (null);
@@ -52,7 +52,7 @@ export default function MissionsScreen() {
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const [showEditEndDatePicker, setShowEditEndDatePicker] = useState(false);
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
-  const [filteredMissions, setFilteredMissions] = useState([]);
+  const [filteredMissions, setFilteredMissions] = useState < any[] > ([]);
   const [newMission, setNewMission] = useState({
     title: '',
     client: '',
@@ -75,15 +75,10 @@ export default function MissionsScreen() {
   const [speechRecognition, setSpeechRecognition] = useState < any > (null);
 
   // État pour le modal de détails de visite
-  const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
-  const [selectedVisit, setSelectedVisit] = useState < any > (null);
-  const [photos, setPhotos] = useState < any > (null);
-  const [selectedReport, setSelectedReport] = useState < any > (null);
-  const [showEditReportModal, setShowEditReportModal] = useState(false);
-  const [editedReportHeader, setEditedReportHeader] = useState('');
-  const [editedReportContent, setEditedReportContent] = useState('');
-  const [editedReportFooter, setEditedReportFooter] = useState('');
-  const [isSavingReport, setIsSavingReport] = useState(false);
+  const [missions, setMissions] = useState < any[] > ([]);
+  const [missionVisits, setMissionVisits] = useState({ visits: [], mission: {} });
+  const [showVisitsModal, setShowVisitsModal] = useState(false);
+  const [showReportsModal, setShowReportsModal] = useState(false);
 
   const filters = [
     { id: 'toutes', label: 'Toutes les missions', count: 15, color: '#8B5CF6', icon: FileText },
@@ -97,27 +92,19 @@ export default function MissionsScreen() {
     'AEU',
     'Divers'
   ];
-  const [missions, setMissions] = useState < any[] > ([]);
 
   // Initialize date and time for new mission
   // Charger les missions depuis le backend
-  useEffect(() => {
-    const today = new Date();
-    // setSelectedDate(today);
-    // setSelectedTime(today);
-    // setEditSelectedTime(today);
-    setNewMission(prev => ({
-      ...prev,
-      date: formatDateForInput(today),
-      endDate: formatDateForInput(today),
-      time: formatTime(today)
-    }));
-
-    loadMissions();
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
+      const today = new Date();
+      setNewMission(prev => ({
+        ...prev,
+        date: formatDateForInput(today),
+        endDate: formatDateForInput(today),
+        time: formatTime(today)
+      }));
+
       loadMissions();
     }, [])
   );
@@ -214,40 +201,39 @@ export default function MissionsScreen() {
   const loadMissions = async () => {
     try {
       const response = await missionService.getMissions();
-      const visitsResponse = await visitService.getVisits();
-      const reportsResponse = await reportService.getReports();
-
       if (response.data && Array.isArray(response.data)) {
         // console.log('response.data IDs:', response.data.map(m => m.id));
         const backendMissions = response.data.map((mission: any) => {
           const missionStatusInfo = getMissionStatusInfo(mission.status);
+          let completionNbr = 0;
+          let competion = 0;
           let hasVisit = false;
-          let visitId = null;
-          let reportId = null;
-
-          try {
-            if (visitsResponse.data) {
-              const missionVisit = visitsResponse.data.find((v: any) => v.missionId === mission.id);
-              if (missionVisit) {
-                hasVisit = true;
-                visitId = missionVisit.id;
-                if (reportsResponse.data) {
-                  const visitReport = reportsResponse.data.find((r: any) => r.visitId === visitId);
-                  if (visitReport) {
-                    reportId = visitReport.id;
-                  }
-                }
+          let hasReport = false;
+          if (mission.visits && mission.visits.length > 0) {
+            hasVisit = true;
+            mission.visits.forEach((visit: any) => {
+              if (visit.report) {
+                hasReport = true;
               }
-            }
-          } catch (error) {
-            console.log('Error checking visit/report for mission:', mission.id, error);
+              if (visit.report && visit.report.status === 'envoyee_au_client') {
+                completionNbr += 1;
+              }
+            });
           }
 
           let nextVisit = mission.date ? `${mission.date}` : new Date().toISOString();
           nextVisit = mission.time ? `${nextVisit}T${mission.time}:00` : nextVisit;
 
+          if (completionNbr >= 1) {
+            competion = completionNbr > 0 ? (completionNbr / 4) * 100 : 0;
+          } else if (hasVisit) {
+            competion = 15;
+          }
+
           return {
-            id: mission.id,
+            ...mission,
+            hasVisit: hasVisit,
+            hasReport: hasReport,
             title: mission.title?.toUpperCase() || 'MISSION SANS TITRE',
             client: mission.client || 'Client non renseigné',
             status: mission.status === 'en_cours' ? 'aujourdhui' :
@@ -255,15 +241,13 @@ export default function MissionsScreen() {
                 mission.status === 'rejetee_replanifiee' ? 'en_retard' :
                   mission.status === 'planifiee' ? 'planifiees' : 'planifiees',
             nextVisit: nextVisit,
-            date: mission.date,
-            time: mission.time,
             endDate: mission.endDate || (mission.endDate ? new Date(mission.endDate).toLocaleDateString('fr-FR') : ''),
             refBusiness: mission.refBusiness || '',
             refClient: mission.refClient || '',
             location: mission.address || 'Localisation non renseignée',
             description: mission.description || '',
             alerts: mission.status === 'rejetee_replanifiee' ? 1 : 0,
-            completion: mission.status == 'terminee' ? 100 : (hasVisit ? 50 : 0),
+            completion: competion,
             gradient: missionStatusInfo.gradient,
             statusLabel: missionStatusInfo.label,
             originalStatus: mission.status,
@@ -273,15 +257,11 @@ export default function MissionsScreen() {
               lastName: mission.contactLastName || '',
               email: mission.contactEmail || '',
               phone: mission.contactPhone || ''
-            },
-            hasVisit,
-            visitId,
-            reportId
+            }
           };
         });
 
         setMissions(backendMissions);
-        setUserMissions(backendMissions);
         filtermissions(backendMissions, 'toutes');
       } else {
         setMissions([]);
@@ -383,9 +363,34 @@ export default function MissionsScreen() {
     setFilteredMissions(prev => filtred);
   }
 
-  // Fonction pour démarrer une visite avec les données de la mission
-  const startVisitForMission = (mission: any) => {
-    console.log('startVisitForMission >>>: ', mission);
+  const handleClickVisits = (mission: any) => {
+    if (mission?.originalStatus === 'terminee' || !mission) return;
+    const createVisit = {
+      id: null,
+      missionId: mission.id,
+      visitDate: new Date().toLocaleDateString('fr-FR'),
+      userId: mission.userId
+    };
+
+    const missionParam = {
+      ...mission,
+      visits: []
+    }
+    if (mission.visits && mission.visits.length > 0) {
+      if (!mission.visits.some(v => !v.id)) {
+        mission.visits.unshift(createVisit);
+      }
+      setMissionVisits({ visits: mission.visits, mission: missionParam });
+    } else {
+      const visits: any = [];
+      visits.push(createVisit);
+      setMissionVisits({ visits: visits, mission: missionParam });
+    }
+    setShowVisitsModal(true);
+  }
+
+  const startVisitForMission = (visitId: string, missionId: string) => {
+    const mission = missions.find(m => m.id === missionId);
     // Encoder les données de la mission pour les passer en paramètres
     const missionData = encodeURIComponent(JSON.stringify({
       ...mission,
@@ -401,14 +406,31 @@ export default function MissionsScreen() {
         lastName: mission.contactLastName || '',
         email: mission.contactEmail || '',
         phone: mission.contactPhone || ''
-      }
+      },
+      visitId: visitId
     }));
 
+    setShowVisitsModal(false);
     router.push(`/visite?mission=${missionData}`);
   };
 
-  const openReportDetails = (mission: any) => {
-    console.log('openReportDetails >>>: ', mission);
+  const handleClickReports = (mission: any) => {
+    if (!mission) return;
+    const missionParam = {
+      ...mission,
+      visits: []
+    }
+
+    const reports = mission.visits.filter((visit: any) => visit.report);
+    if (mission.visits && mission.visits.length > 0) {
+      setMissionVisits({ visits: reports, mission: missionParam });
+      setShowReportsModal(true);
+    }
+  }
+
+  const openReportDetails = (reportId: string, missionId: string) => {
+    if (!missionId) return;
+    const mission = missions.find(m => m.id === missionId);
     // Encoder les données de la mission pour les passer en paramètres
     const missionData = encodeURIComponent(JSON.stringify({
       ...mission,
@@ -418,175 +440,18 @@ export default function MissionsScreen() {
       location: mission.location,
       description: mission.description,
       nextVisit: mission.nextVisit,
-      type: mission.status
+      type: mission.status,
+      reportId: reportId
     }));
 
+    setShowReportsModal(false);
     router.push(`/rapports?mission=${missionData}`);
   };
 
   // Toutes les missions peuvent maintenant avoir un bouton visite
   const canStartVisit = (status: string) => {
-    return status != 'terminée'; // Toutes les missions peuvent démarrer une visite
-  };
-
-  // Fonction pour ouvrir les détails de visite
-  const openVisitDetails = async (mission: any) => {
-    try {
-      if (!mission.visitId) {
-        Alert.alert('Erreur', 'Aucune visite trouvée pour cette mission.');
-        return;
-      }
-
-      const visitResponse = await visitService.getVisit(mission.visitId);
-      if (visitResponse.data) {
-        const loadedPhotos: Photo[] = visitResponse.data?.photos.map((photo: any) => {
-          const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
-            'faible': 'low',
-            'moyen': 'medium',
-            'eleve': 'high',
-            'low': 'low',
-            'medium': 'medium',
-            'high': 'high'
-          };
-
-          const observationText = photo.analysis?.observation || '';
-          const recommendationText = photo.analysis?.recommendation || '';
-
-          return {
-            id: photo.id || `photo-${Date.now()}-${Math.random()}`,
-            uri: photo.uri || photo.s3Url,
-            s3Url: photo.s3Url,
-            timestamp: new Date(photo.createdAt || Date.now()),
-            aiAnalysis: photo.analysis ? {
-              observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
-              recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
-              riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-              confidence: (photo.analysis.confidence || 0)
-            } : undefined,
-            userComments: photo.comment || '',
-            validated: photo.validated || true,
-          };
-        });
-
-        setPhotos(loadedPhotos);
-
-        setSelectedVisit(visitResponse.data);
-
-        if (mission.reportId) {
-          const reportResponse = await reportService.getReport(mission.reportId);
-          if (reportResponse.data) {
-            setSelectedReport(reportResponse.data);
-          }
-        }
-
-        setShowVisitDetailModal(true);
-      }
-    } catch (error) {
-      console.error('Error loading visit details:', error);
-      Alert.alert('Erreur', 'Impossible de charger les détails de la visite.');
-    }
-  };
-
-  // Fonction pour modifier le rapport
-  const handleModifyReport = () => {
-    if (selectedReport) {
-      setEditedReportHeader(selectedReport.header || '');
-      setEditedReportContent(selectedReport.content || '');
-      setEditedReportFooter(selectedReport.footer || '');
-      setShowEditReportModal(true);
-    }
-  };
-
-  // Fonction pour sauvegarder les modifications du rapport
-  const handleSaveReportModifications = async () => {
-    if (!selectedReport) return;
-
-    try {
-      setIsSavingReport(true);
-      await reportService.updateReport(selectedReport.id, {
-        header: editedReportHeader,
-        content: editedReportContent,
-        footer: editedReportFooter,
-      });
-
-      if (selectedVisit) {
-        try {
-          const visitResponse = await visitService.getVisit(selectedVisit.id);
-          if (visitResponse.data && visitResponse.data.photos) {
-            const updatedPhotos = visitResponse.data.photos.map((photo: any, index: number) => {
-              const photoSectionRegex = new RegExp(
-                `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
-                'i'
-              );
-              const photoSection = editedReportContent.match(photoSectionRegex)?.[0] || '';
-
-              if (photoSection) {
-                const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-                const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
-                const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
-
-                const observationsMatch = photoSection.match(obsRegex);
-                const recommendationsMatch = photoSection.match(recRegex);
-                const commentsMatch = photoSection.match(comRegex);
-
-                const observations = observationsMatch?.[1]
-                  ?.split('•')
-                  .map(s => s.trim())
-                  .filter(s => s.length > 0)
-                  .join(', ') || photo.analysis?.observation || '';
-
-                const recommendations = recommendationsMatch?.[1]
-                  ?.split('•')
-                  .map(s => s.trim())
-                  .filter(s => s.length > 0)
-                  .join(', ') || photo.analysis?.recommendation || '';
-
-                const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
-
-                return {
-                  ...photo,
-                  analysis: {
-                    ...photo.analysis,
-                    observation: observations,
-                    recommendation: recommendations,
-                  },
-                  comment: comments,
-                };
-              }
-
-              return photo;
-            });
-
-            const visitNotes = updatedPhotos
-              .map((p: any) => p.comment)
-              .filter((c: string) => c)
-              .join('\n\n');
-
-            await visitService.updateVisit(selectedVisit.id, {
-              photos: updatedPhotos,
-              notes: visitNotes,
-            });
-          }
-        } catch (visitError) {
-          console.log('Note: Could not update related visit:', visitError);
-        }
-      }
-
-      Alert.alert('Succès', 'Le rapport a été modifié avec succès.');
-      setShowEditReportModal(false);
-
-      const reportResponse = await reportService.getReport(selectedReport.id);
-      if (reportResponse.data) {
-        setSelectedReport(reportResponse.data);
-      }
-
-      loadMissions();
-    } catch (error) {
-      console.error('Error updating report:', error);
-      Alert.alert('Erreur', 'Impossible de modifier le rapport.');
-    } finally {
-      setIsSavingReport(false);
-    }
+    // return status != 'terminée'; // Toutes les missions peuvent démarrer une visite
+    return true;
   };
 
   const activeFilterData = updatedFilters.find(f => f.id === activeFilter);
@@ -817,11 +682,6 @@ export default function MissionsScreen() {
 
     try {
       const isBackendMission = typeof selectedMission.id === 'string' && selectedMission.id.length > 10;
-
-      // if (isBackendMission) {
-      // Utiliser l'API pour mettre à jour une mission backend
-      const { missionService } = await import('@/services/missionService');
-
       const updateData = {
         title: editedMission.title,
         client: editedMission.client,
@@ -918,8 +778,7 @@ export default function MissionsScreen() {
               const isBackendMission = typeof selectedMission.id === 'string' && selectedMission.id.length > 10;
 
               if (isBackendMission) {
-                // Supprimer via l'API
-                const { missionService } = await import('@/services/missionService');
+                // Supprimer via l'API                
                 const response = await missionService.deleteMission(selectedMission.id);
 
                 if (response.error) {
@@ -1031,8 +890,6 @@ export default function MissionsScreen() {
     setIsCreatingMission(true);
 
     try {
-      const { missionService } = await import('@/services/missionService');
-
       const missionData = {
         title: newMission.title,
         client: newMission.client,
@@ -1188,12 +1045,14 @@ export default function MissionsScreen() {
                             <Text style={styles.alertBadgeText}>{mission.alerts}</Text>
                           </View>
                         )}
-                        {mission.originalStatus == 'terminee' ? (
+
+                        {
+                          mission.hasReport &&
                           <TouchableOpacity
                             style={styles.visitButton}
                             onPress={(e) => {
                               e.stopPropagation();
-                              openReportDetails(mission);
+                              handleClickReports(mission);
                             }}
                           >
                             <LinearGradient
@@ -1204,12 +1063,15 @@ export default function MissionsScreen() {
                               <Text style={[styles.visitButtonText, { color: '#FFFFFF' }]}>Rapport</Text>
                             </LinearGradient>
                           </TouchableOpacity>
-                        ) : showVisitButton ? (
+                        }
+
+                        {
+                          mission.originalStatus != 'terminee' &&
                           <TouchableOpacity
                             style={styles.visitButton}
                             onPress={(e) => {
                               e.stopPropagation();
-                              startVisitForMission(mission);
+                              handleClickVisits(mission);
                             }}
                           >
                             <LinearGradient
@@ -1220,9 +1082,8 @@ export default function MissionsScreen() {
                               <Text style={styles.visitButtonText}>Visite</Text>
                             </LinearGradient>
                           </TouchableOpacity>
-                        ) : (
-                          <ArrowRight size={16} color="#FFFFFF" />
-                        )}
+                        }
+
                       </View>
                     </View>
 
@@ -2248,214 +2109,112 @@ export default function MissionsScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Visit Detail Modal */}
-      <Modal visible={showVisitDetailModal} animationType="slide" transparent>
+      {/* Vists Selector Modal */}
+      <Modal visible={showVisitsModal} animationType="slide" transparent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1, justifyContent: 'flex-end' }}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.visitDetailModal}>
-              {selectedVisit && selectedReport && (
-                <>
-                  <LinearGradient
-                    colors={['#10B981', '#059669']}
-                    style={styles.visitDetailHeader}
-                  >
-                    <View style={styles.visitDetailHeaderContent}>
-                      <View style={styles.visitDetailHeaderLeft}>
-                        <FileText size={24} color="#FFFFFF" />
-                        <View>
-                          <Text style={styles.visitDetailTitle}>Détails du Rapport</Text>
-                          <Text style={styles.visitDetailSubtitle}>
-                            {new Date(selectedVisit.visitDate).toLocaleDateString('fr-FR')}
-                          </Text>
-                        </View>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.closeButton}
-                        onPress={() => {
-                          setShowVisitDetailModal(false);
-                          setSelectedVisit(null);
-                          setPhotos(null);
-                          setSelectedReport(null);
-                        }}
-                      >
-                        <X size={24} color="#FFFFFF" />
-                      </TouchableOpacity>
-                    </View>
-                  </LinearGradient>
-
-                  <ScrollView style={styles.visitDetailContent} showsVerticalScrollIndicator={false}>
-                    <View style={styles.visitDetailSection}>
-                      <Text style={styles.visitDetailSectionTitle}>CONTENU DU RAPPORT</Text>
-                      <View style={styles.visitDetailContentBox}>
-                        <Text style={styles.visitDetailContentText}>
-                          {selectedReport.header || 'Aucun contenu disponible'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {photos && photos.length > 0 && (
-                      <View style={styles.visitDetailSection}>
-                        <View style={styles.reportPhotoSeparator} />
-                        {photos.map((photo: any, index: number) => (
-                          <View key={index} style={styles.photoItem}>
-                            <View style={styles.photoPlaceholder}>
-                              <Image
-                                source={{ uri: photo.s3Url }}
-                                style={styles.detailPhotoImage}
-                                resizeMode="cover"
-                              />
-                              <Text style={styles.photoIndexText}>Photo {index + 1}</Text>
-                            </View>
-                            {photo.aiAnalysis && (
-                              <>
-                                <Text style={styles.reportSectionTitle}>Observations:</Text>
-                                {photo.aiAnalysis.observations.map((obs, i) => (
-                                  <Text key={i} style={styles.reportListItem}>• {obs}</Text>
-                                ))}
-                                <Text style={styles.reportSectionTitle}>Recommandations:</Text>
-                                {photo.aiAnalysis.recommendations.map((rec, i) => (
-                                  <Text key={i} style={styles.reportListItem}>• {rec}</Text>
-                                ))}
-                              </>
-                            )}
-                            {photo.userComments && (
-                              <>
-                                <Text style={styles.reportSectionTitle}>💬 Commentaires du coordonnateur:</Text>
-                                <Text style={styles.reportCommentText}>{photo.userComments}</Text>
-                              </>
-                            )}
-                          </View>
-                        ))}
-                      </View>
-                    )}
-
-                    {selectedVisit.notes && (
-                      <View style={styles.visitDetailSection}>
-                        <Text style={styles.visitDetailSectionTitle}>NOTES</Text>
-                        <View style={styles.visitDetailContentBox}>
-                          <Text style={styles.visitDetailContentText}>
-                            {selectedVisit.notes}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-                  </ScrollView>
-
-                  {selectedReport.status !== 'valide' && (
-                    <View style={styles.visitDetailActions}>
-                      <TouchableOpacity
-                        style={styles.modifyReportButton}
-                        onPress={handleModifyReport}
-                      >
-                        <LinearGradient
-                          colors={['#F59E0B', '#D97706']}
-                          style={styles.modifyReportGradient}
-                        >
-                          <Edit3 size={20} color="#FFFFFF" />
-                          <Text style={styles.modifyReportText}>Modifier le rapport</Text>
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </>
-              )}
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Edit Report Modal */}
-      <Modal visible={showEditReportModal} animationType="slide" transparent>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={{ flex: 1, justifyContent: 'flex-end' }}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.visitDetailModal}>
+          <View style={styles.missionSelectorOverlay}>
+            <View style={styles.missionSelectorModal}>
               <LinearGradient
-                colors={['#F59E0B', '#D97706']}
-                style={styles.visitDetailHeader}
+                colors={['#1E293B', '#374151']}
+                style={styles.missionSelectorGradient}
               >
-                <View style={styles.visitDetailHeaderContent}>
-                  <View style={styles.visitDetailHeaderLeft}>
-                    <Edit3 size={24} color="#FFFFFF" />
-                    <View>
-                      <Text style={styles.visitDetailTitle}>Modifier le Rapport</Text>
-                      <Text style={styles.visitDetailSubtitle}>
-                        {selectedReport?.title || 'Rapport'}
-                      </Text>
-                    </View>
+                <ScrollView style={styles.missionSelectorContent} showsVerticalScrollIndicator={false}>
+                  <View style={styles.missionSelectorHeader}>
+                    <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE VISITE</Text>
+                    <TouchableOpacity
+                      style={styles.closeMissionSelectorButton}
+                      onPress={() => setShowVisitsModal(false)}
+                    >
+                      <X size={20} color="#FFFFFF" />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    style={styles.closeButton}
-                    onPress={() => setShowEditReportModal(false)}
-                  >
-                    <X size={24} color="#FFFFFF" />
-                  </TouchableOpacity>
-                </View>
+                  {missionVisits?.visits?.map((visit: any) => (
+                    <TouchableOpacity
+                      key={visit.id ? visit.id : Math.random() * new Date().getTime()}
+                      style={styles.missionSelectorItem}
+                      onPress={() => startVisitForMission(visit.id, missionVisits.mission?.id)}
+                    >
+                      <LinearGradient
+                        colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#64748B', '#475569'])}
+                        style={styles.missionSelectorItemGradient}
+                      >
+                        <View style={styles.missionSelectorItemContent}>
+                          <View style={styles.missionSelectorItemLeft}>
+                            <Text style={styles.missionSelectorItemTitle}>{visit.id ? missionVisits.mission.title + ' -- ' + formatDisplayDate(visit.visitDate) : "Créer une nouvelle visite -- " + missionVisits.mission.title}</Text>
+                            <Text style={styles.missionSelectorItemClient}>{missionVisits.mission.client}</Text>
+                            <Text style={styles.missionSelectorItemLocation}>{missionVisits.mission.location}</Text>
+                          </View>
+                          <View style={styles.missionSelectorItemRight}>
+                            <Text style={styles.missionSelectorItemType}>{missionVisits.mission.type}</Text>
+                            <ArrowRight size={16} color="#94A3B8" />
+                          </View>
+                        </View>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
               </LinearGradient>
-
-              <ScrollView style={styles.editReportContent}>
-                <Text style={styles.editReportLabel}>En-tête du rapport</Text>
-                <TextInput
-                  style={styles.editReportTextInput}
-                  value={editedReportHeader}
-                  onChangeText={setEditedReportHeader}
-                  multiline
-                  numberOfLines={5}
-                  placeholder="Saisissez l'en-tête du rapport..."
-                  placeholderTextColor="#64748B"
-                />
-
-                <Text style={styles.editReportLabel}>Observations (Contenu principal)</Text>
-                <TextInput
-                  style={styles.editReportTextInput}
-                  value={editedReportContent}
-                  onChangeText={setEditedReportContent}
-                  multiline
-                  numberOfLines={10}
-                  placeholder="Saisissez les observations du rapport..."
-                  placeholderTextColor="#64748B"
-                />
-
-                <Text style={styles.editReportLabel}>Conclusion</Text>
-                <TextInput
-                  style={styles.editReportTextInput}
-                  value={editedReportFooter}
-                  onChangeText={setEditedReportFooter}
-                  multiline
-                  numberOfLines={5}
-                  placeholder="Saisissez la conclusion du rapport..."
-                  placeholderTextColor="#64748B"
-                />
-
-                <TouchableOpacity
-                  style={styles.saveReportButton}
-                  onPress={handleSaveReportModifications}
-                  disabled={isSavingReport}
-                >
-                  <LinearGradient
-                    colors={['#10B981', '#059669']}
-                    style={styles.saveReportGradient}
-                  >
-                    {isSavingReport ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Save size={20} color="#FFFFFF" />
-                        <Text style={styles.saveReportText}>Enregistrer</Text>
-                      </>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              </ScrollView>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Reports Selector Modal */}
+      <Modal visible={showReportsModal} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.missionSelectorOverlay}>
+            <View style={styles.missionSelectorModal}>
+              <LinearGradient
+                colors={['#1E293B', '#374151']}
+                style={styles.missionSelectorGradient}
+              >
+                <ScrollView style={styles.missionSelectorContent} showsVerticalScrollIndicator={false}>
+                  <View style={styles.missionSelectorHeader}>
+                    <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UN RAPPORT</Text>
+                    <TouchableOpacity
+                      style={styles.closeMissionSelectorButton}
+                      onPress={() => setShowReportsModal(false)}
+                    >
+                      <X size={20} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                  {missionVisits?.visits?.map((visit: any) => (
+                    <TouchableOpacity
+                      key={visit.id ? visit.id : Math.random() * new Date().getTime()}
+                      style={styles.missionSelectorItem}
+                      onPress={() => openReportDetails(visit.report?.id, missionVisits.mission?.id)}
+                    >
+                      <LinearGradient
+                        colors={['#374151', '#4B5563']}
+                        style={styles.missionSelectorItemGradient}
+                      >
+                        <View style={styles.missionSelectorItemContent}>
+                          <View style={styles.missionSelectorItemLeft}>
+                            <Text style={styles.missionSelectorItemTitle}>{visit.report?.id ? missionVisits.mission.title + ' -- ' + formatDisplayDate(visit.report.createdAt) : "Créer une nouvelle visite"}</Text>
+                            <Text style={styles.missionSelectorItemClient}>{missionVisits.mission.client}</Text>
+                            <Text style={styles.missionSelectorItemLocation}>{missionVisits.mission.location}</Text>
+                          </View>
+                          <View style={styles.missionSelectorItemRight}>
+                            <Text style={styles.missionSelectorItemType}>{missionVisits.mission.type}</Text>
+                            <ArrowRight size={16} color="#94A3B8" />
+                          </View>
+                        </View>
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </LinearGradient>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -2808,6 +2567,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#374151',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  modalVisitsCloseButton: {
+    width: '100%',
+    height: 50,
+    // borderRadius: 20,
+    // backgroundColor: '#374151',
+    paddingVertical: 10,
+    // marginLeft: 20,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
   },
   modalContent: {
     flex: 1,
@@ -3432,5 +3201,108 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
+  },
+
+  // Mission Selector Modal styles
+  missionSelectorOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    overflowY: 'auto',
+  },
+  missionSelectorModal: {
+    height: '85%',
+    borderRadius: 24,
+    // overflow: 'hidden',
+  },
+  missionSelectorGradient: {
+    flex: 1,
+    // paddingTop: 24,
+    alignItems: 'center',
+    borderRadius: 24,
+    maxHeight: '100%',
+    overflowY: 'auto',
+  },
+  missionSelectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 24,
+    marginBottom: 24,
+    paddingBottom: 16,
+    paddingTop: 24,
+  },
+  missionSelectorTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  closeMissionSelectorButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#374151',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  missionSelectorContent: {
+    flex: 1,
+    width: '90%',
+    // flexDirection: 'row',
+    gap: 8,
+  },
+  missionSelectorItem: {
+    height: 120,
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  missionSelectorItemGradient: {
+    flex: 1,
+    padding: 16,
+  },
+  missionSelectorItemContent: {
+    flex: 1,
+    // flexDirection: 'row',
+    justifyContent: 'space-between',
+    // alignItems: 'center',
+  },
+  missionSelectorItemLeft: {
+    flex: 1,
+    alignItems: "flex-start",
+  },
+  missionSelectorItemTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  missionSelectorItemClient: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: 'rgba(0, 0, 0, 0.5)',
+    marginBottom: 2,
+  },
+  missionSelectorItemLocation: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: '#afb3b9ff',
+  },
+  missionSelectorItemRight: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 4,
+    justifyContent: "flex-end"
+  },
+  missionSelectorItemType: {
+    fontSize: 10,
+    fontFamily: 'Inter-Medium',
+    color: '#94A3B8',
+    textAlign: 'right',
   },
 });

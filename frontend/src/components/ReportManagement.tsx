@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { missionsAPI, reportsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText } from 'lucide-react';
@@ -6,7 +6,6 @@ import { generatePdfService } from '../services/generatePdfService';
 import { visitService } from '../services/visitService';
 import { filesService } from '../services/filesService';
 import Swal from 'sweetalert2';
-import { Response } from 'express';
 
 interface Report {
   id: string;
@@ -33,6 +32,10 @@ interface Report {
   contactLastName: string | null;
   contactPhone: string | number | null;
   conformityPercentage: number | null;
+  visit: any;
+  missionStatus: string;
+  missionDate: string;
+  missionTime: string;
 }
 
 export default function ReportManagement() {
@@ -50,66 +53,81 @@ export default function ReportManagement() {
   const [editedObservations, setEditedObservations] = useState('');
   const [adminRemarks, setAdminRemarks] = useState('');
   const [isEditing, setIsEditing] = useState(false);
-  // const [photos, setPhotos] = useState([]);
+  const [cursorPos, setCursorPos] = useState(null);
 
-  const context = useAuth();
-
+  const editedContentRef = useRef(null);
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
 
   useEffect(() => {
     fetchReports();
   }, []);
 
+  // useLayoutEffect pour repositionner le curseur après le rendu
+  useLayoutEffect(() => {
+    if (cursorPos !== null && editedContentRef.current) {
+      editedContentRef.current.selectionStart = cursorPos;
+      editedContentRef.current.selectionEnd = cursorPos;
+      setCursorPos(null); // reset
+    }
+  }, [editedContent, cursorPos]);
+
+  const processData = (reports) => {
+    return reports.map((report: Report) => {
+      report.createdAt = new Date(report.createdAt).toLocaleDateString('fr-FR');
+
+      if (report.updatedAt) {
+        report.updatedAt = new Date(report.updatedAt).toLocaleDateString('fr-FR');
+      }
+
+      if (report.validatedAt) {
+        report.validatedAt = new Date(report.validatedAt).toLocaleDateString('fr-FR');
+      }
+
+      if (report.sentAt) {
+        report.sentAt = new Date(report.sentAt).toLocaleDateString('fr-FR');
+      }
+
+      if (report.sentToClientAt) {
+        report.sentToClientAt = new Date(report.sentToClientAt).toLocaleDateString('fr-FR');
+      }
+
+      const mission: any = report.mission;
+      if (mission) {
+        report.title = mission.title;
+        report.address = mission.address;
+        report.client = mission.client;
+        report.mission = mission.title;
+        report.missionId = mission.id;
+        report.contactEmail = mission.contactEmail;
+        report.contactFirstName = mission.contactFirstName;
+        report.contactLastName = mission.contactLastName;
+        report.contactPhone = mission.contactPhone;
+        report.missionStatus = mission.status;
+        report.missionDate = mission.date;
+        report.missionTime = mission.time;
+        // const clientUser = usersData.find((u: any) => u.id === mission.client_id);
+        // report.client = clientUser ? `${clientUser.firstName} ${clientUser.lastName}` : 'Inconnu';
+      }
+      // report.content = report.header + '\n' + report.content + '\n' + report.footer || '';
+
+      return report;
+    });
+  }
   const fetchReports = async () => {
+    setReports([]);
     setLoading(true);
     try {
       const [reportData] = await Promise.all([
         reportsAPI.getAll()
       ]);
-
-      reportData.map((report: Report) => {
-        report.createdAt = new Date(report.createdAt).toLocaleString('fr-FR');
-
-        if (report.updatedAt) {
-          report.updatedAt = new Date(report.updatedAt).toLocaleString('fr-FR');
-        }
-
-        if (report.validatedAt) {
-          report.validatedAt = new Date(report.validatedAt).toLocaleString('fr-FR');
-        }
-
-        if (report.sentAt) {
-          report.sentAt = new Date(report.sentAt).toLocaleString('fr-FR');
-        }
-
-        if (report.sentToClientAt) {
-          report.sentToClientAt = new Date(report.sentToClientAt).toLocaleString('fr-FR');
-        }
-
-        const mission: any = report.mission;
-        if (mission) {
-          report.title = mission.title;
-          report.address = mission.address;
-          report.client = mission.client;
-          report.mission = mission.title;
-          report.contactEmail = mission.contactEmail;
-          report.contactFirstName = mission.contactFirstName;
-          report.contactLastName = mission.contactLastName;
-          report.contactPhone = mission.contactPhone;
-          // const clientUser = usersData.find((u: any) => u.id === mission.client_id);
-          // report.client = clientUser ? `${clientUser.firstName} ${clientUser.lastName}` : 'Inconnu';
-        }
-        // report.content = report.header + '\n' + report.content + '\n' + report.footer || '';
-
-        return report;
-      });
-
-      setReports(reportData);
-      setFilteredReports(reportData);
+      const reportsData = processData(reportData);
+      setReports(reportsData);
+      setFilteredReports(reportsData);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching reports:', error);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const exportToCSV = async () => {
@@ -208,21 +226,141 @@ export default function ReportManagement() {
 
       setShowViewModal(false);
       setSelectedReport(null);
-      fetchReports();
+      await fetchReports();
     } catch (error) {
       console.error('Error validating report:', error);
       alert('Erreur lors de la validation');
     }
   };
 
+  const terminateReportFn = async () => {
+    setShowViewModal(false);
+    setSelectedReport(null);
+    await fetchReports();
+  }
+
+  const terminateMision = async () => {
+    try {
+      if (selectedReport?.missionStatus === 'terminee') return;
+
+      const hasUnsentReports = reports.some(
+        r =>
+          r.missionId === selectedReport?.missionId &&
+          r.status !== 'envoye_au_client' &&
+          r.id != selectedReport.id
+      );
+
+      // Cas : rapports non envoyés → confirmation
+      if (hasUnsentReports) {
+        const result = await Swal.fire({
+          title: 'Attention !',
+          text: `La mission ${selectedReport?.mission} a un ou plusieurs rapports non envoyés.
+
+Si vous clôturez la mission, les rapports non envoyés seront annulés.`,
+          icon: 'warning',
+          showCancelButton: true,
+          confirmButtonText: 'Oui',
+          cancelButtonText: 'Non',
+          confirmButtonColor: '#dc3545',
+          cancelButtonColor: '#6c757d',
+          reverseButtons: true,
+        });
+
+        if (!result.isConfirmed) {
+          await terminateReportFn();
+          return;
+        } else {
+          // Clôture de la mission
+          await missionsAPI.update(selectedReport?.missionId, {
+            status: 'terminee',
+          });
+          await terminateReportFn();
+
+          // Succès
+          await Swal.fire({
+            title: 'Mission clôturée',
+            text: `La mission ${selectedReport?.mission} est clôturée.
+La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`,
+            icon: 'success',
+          });
+        }
+      } else {
+        // Clôture de la mission
+        await missionsAPI.update(selectedReport?.missionId, {
+          status: 'terminee',
+        });
+        await terminateReportFn();
+
+        // Succès
+        await Swal.fire({
+          title: 'Mission clôturée',
+          text: `La mission ${selectedReport?.mission} est clôturée.
+La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`,
+          icon: 'success',
+        });
+      }
+
+
+
+    } catch (error) {
+      console.error(error);
+      await terminateReportFn();
+      await Swal.fire({
+        title: 'Erreur',
+        text: "Une erreur est survenue lors de la clôture de la mission. Veuillez réessayer.",
+        icon: 'error',
+      });
+    }
+  };
+
+  const validateSentReport = async (clientEmail: string, reportFileUrl: string) => {
+    try {
+      await reportsAPI.update(selectedReport.id, {
+        status: 'envoye_au_client',
+        recipientEmail: clientEmail,
+        reportFileUrl: reportFileUrl,
+      });
+
+      Swal.fire({
+        title: 'Rapport envoyé au client',
+        text: `Souhaitez-vous clôturer la mission ${selectedReport?.mission} ?
+
+⚠️ Une fois la mission clôturée, il ne sera plus possible de créer, modifier ou envoyer des rapports.`,
+        icon: 'success',
+        showCancelButton: true,
+        confirmButtonText: 'Oui',
+        cancelButtonText: 'Non',
+        reverseButtons: true,
+      }).then(async (result) => {
+        if (result.isConfirmed) {
+          terminateMision();
+        } else {
+          await terminateReportFn();
+        }
+      });
+
+    } catch (error) {
+      await terminateReportFn();
+      Swal.fire({
+        title: 'Mail envoyé !',
+        text: `Erreur lors de la mise à jours du rapport, veuillez contacter le support .`,
+        icon: 'error',
+      });
+    }
+
+  }
+
   const handleSendToClient = async () => {
-    if (!selectedReport) return;
+    if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
+      selectedReport.missionStatus == 'terminee') return;
+
     let photos: any[] = [];
     try {
-      const visitResponse = await visitService.getVisit(selectedReport.visitId);
+      // const visitResponse = await visitService.getVisit(selectedReport.visitId);
+      const visitResponse = selectedReport.visit;
       // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
       if (visitResponse && visitResponse.photos) {
-        photos = visitResponse.photos
+        visitResponse.photos
           .map((photo: any) => {
             const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
               'faible': 'low',
@@ -235,33 +373,40 @@ export default function ReportManagement() {
 
             const observationText = photo.analysis?.observation || '';
             const recommendationText = photo.analysis?.recommendation || '';
+            const refText = photo.analysis?.references || '';
 
-            return {
+            const observations = Array.isArray(observationText) ? observationText : observationText.split('. ');
+            const recommendations = Array.isArray(recommendationText) ? recommendationText : recommendationText.split('. ');
+            const refs = Array.isArray(refText) ? refText : refText.split('. ');
+
+            const ret = {
               id: photo.id || `photo-${Date.now()}-${Math.random()}`,
               uri: photo.uri || photo.s3Url,
               s3Url: photo.s3Url,
               timestamp: new Date(photo.createdAt || Date.now()),
               aiAnalysis: photo.analysis ? {
-                observations: observationText ? observationText.split('. ').filter((s: string) => s.length > 0) : [],
-                recommendations: recommendationText ? recommendationText.split('. ').filter((s: string) => s.length > 0) : [],
+                observations: observations ? observations.filter((s: string) => s.length > 0) : [],
+                recommendations: recommendations ? recommendations.filter((s: string) => s.length > 0) : [],
                 riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
                 confidence: (photo.analysis.confidence || 0),
-                references: photo.aiAnalysis?.references.join(', ') || ''
+                references: refs ? refs.filter((s: string) => s.length > 0) : [],
               } : undefined,
               comment: photo.comment || '',
               validated: photo.validated || true
             };
+            photos.push(ret);
           });
       }
     } catch (error) {
       console.log('Could not load visit photos:', error);
     }
+
     try {
       const pdfData: any = {
         title: selectedReport.title,
         mission: selectedReport.mission,
         client: selectedReport.client,
-        date: selectedReport.createdAt,
+        date: selectedReport.createdAt || '',
         conformity: selectedReport.conformityPercentage,
         header: selectedReport.header || '',
         content: selectedReport.content || 'Contenu non disponible',
@@ -271,22 +416,10 @@ export default function ReportManagement() {
       };
 
       const pdfHtml = await generatePdfService.generateReportPDF(pdfData);
-
-      const confirm = await Swal.fire({
-        title: 'Confirmer l’envoi du rapport',
-        text: `Voulez-vous vraiment envoyer le rapport PDF au client ${selectedReport.contactFirstName} ?`,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Oui, envoyer',
-        cancelButtonText: 'Annuler',
-      });
-
-      if (!confirm.isConfirmed) return;
-
       try {
         setLoading(true);
 
-        const resp = await generatePdfService.generateWebPDFBase64(pdfHtml || '', `${pdfData.title}.pdf`);
+        const resp = await generatePdfService.generateWebPDFBase64(pdfHtml || '', `${pdfData.mission}.pdf`);
         if (!resp) {
           Swal.fire({
             title: 'Erreur',
@@ -296,53 +429,55 @@ export default function ReportManagement() {
           return;
         }
 
-        const message = `
-          Bonjour ${pdfData.client},
+        const message = `Bonjour ${selectedReport?.contactFirstName},
+Veuillez trouver ci-joint le rapport de visite suivant:
 
-          Veuillez trouver ci-joint le rapport CSPS concernant la mission ${pdfData.mission} réalisée le ${pdfData.date}.
+Mission: ${selectedReport?.mission}
+Date d'attribution: ${selectedReport.missionDate} ${selectedReport.missionTime && selectedReport.missionTime.trim() != '' ? ' à ' + selectedReport.missionTime : ''}
+Date de visite: ${new Date(selectedReport?.visit?.createdAt || '').toLocaleDateString('fr-FR')}
+Adresse chantier: ${selectedReport.address} 
+Nombre de photos: ${selectedReport?.visit?.photos?.length}
 
-          Nous restons à votre disposition pour toute question ou précision complémentaire.
+Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
-          Cordialement,
-          Alpha concept.
-          ${context.profile?.firstName}
-          Mail: ${context.profile?.email}
-          Téléphone: ${context.profile?.phone}
-          Adresse: ${context.profile?.address}      
-        `;
-
+Cordialement.
+${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}`}
+`;
         const subject = `Rapport CSPS – ${pdfData.mission} – ${pdfData.date}`;
 
         const pdfUrl = resp?.url;
 
-        const response = await generatePdfService.sendReportPDFByEmail(
-          selectedReport.contactEmail || '',
-          subject,
-          message,
-          '',
-          pdfUrl || '',
-          false,
-          `${pdfData.mission.replace(/\s+/g, '_')}_rapport_CSPS.pdf`
-        );
+        const confirm = await Swal.fire({
+          title: 'Confirmer l’envoi du rapport',
+          text: `Voulez-vous vraiment envoyer le rapport PDF au client ${selectedReport.contactFirstName} ?`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Oui, envoyer',
+          cancelButtonText: 'Annuler',
+        });
 
-        if (response.ok || response.success) {
-          Swal.fire({
-            title: 'Mail envoyé !',
-            text: `Le rapport PDF a bien été envoyé au client ${pdfData.client}.`,
-            icon: 'success',
-            confirmButtonText: 'OK',
-          });
-
-          await reportsAPI.update(selectedReport.id, {
-            status: 'envoye_au_client',
-            // sentToClientAt: new Date().toISOString(),
-          });
+        if (!confirm.isConfirmed) {
+          return;
         } else {
-          Swal.fire({
-            title: 'Erreur',
-            text: 'Échec de l’envoi du mail.',
-            icon: 'error',
-          });
+          const response = await generatePdfService.sendReportPDFByEmail(
+            selectedReport.contactEmail || '',
+            subject,
+            message,
+            '',
+            pdfUrl || '',
+            false,
+            `${pdfData.mission.replace(/\s+/g, '_')}_rapport_CSPS.pdf`
+          );
+
+          if (response.ok || response.success) {
+            await validateSentReport(selectedReport?.contactEmail, pdfUrl);
+          } else {
+            Swal.fire({
+              title: 'Erreur',
+              text: 'Échec de l’envoi du mail.',
+              icon: 'error',
+            });
+          }
         }
       } catch (err: any) {
         Swal.fire({
@@ -354,9 +489,9 @@ export default function ReportManagement() {
         setLoading(false);
       }
 
-      setShowViewModal(false);
-      setSelectedReport(null);
-      fetchReports();
+      // setShowViewModal(false);
+      // setSelectedReport(null);
+      // await fetchReports();
       // alert('Rapport envoyé au client avec succès');
     } catch (error) {
       console.error('Error sending report:', error);
@@ -366,18 +501,19 @@ export default function ReportManagement() {
 
   // Update photo data from edited report content
   const updatePhotosFromEditedContent = (photos: any[]) => {
-    const updatedPhotos = photos.map((photo, index) => {
+    const updatedPhotos: any = [];
+    photos.map((photo, index) => {
       const photoSectionRegex = new RegExp(
         `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
         'i'
       );
-      const photoSection = selectedReport?.content.match(photoSectionRegex)?.[0] || '';
+      const photoSection = editedContent?.match(photoSectionRegex)?.[0] || '';
 
       if (photoSection) {
         const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-        const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
+        const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
         const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
-        const refsRegex = /🏛️\s*Références :\s*([\s\S]*)/i;
+        const refsRegex = /🏛️\s*Références:\s*([\s\S]*?)(?=\n💬\s*Commentaires du coordonnateur:|$)/i;
 
         const observationsMatch = photoSection.match(obsRegex);
         const recommendationsMatch = photoSection.match(recRegex);
@@ -386,28 +522,35 @@ export default function ReportManagement() {
 
         const observations = observationsMatch?.[1]
           ?.split('•')
-          .map(s => s.trim())
+          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
           .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
 
         const recommendations = recommendationsMatch?.[1]
           ?.split('•')
-          .map(s => s.trim())
+          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
           .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
 
         const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
-        const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
+        // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
+        const references = refsMatch?.[1]
+          ?.split('•')
+          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
+          .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
 
-        return {
+        updatedPhotos.push({
           ...photo,
-          aiAnalysis: photo.aiAnalysis ? {
-            ...photo.aiAnalysis,
-            observations,
-            recommendations,
+          analysis: photo.analysis ? {
+            riskLevel: photo.analysis.riskLevel,
+            confidence: photo.analysis.confidence,
+            observation: observations,
+            recommendation: recommendations,
             references,
           } : undefined,
           comment: comments,
-        };
+        });
+      } else {
+        updatedPhotos.push(photo);
       }
       return photo;
     });
@@ -415,6 +558,23 @@ export default function ReportManagement() {
     // setPhotos(updatedPhotos);
   };
 
+  const handleChange = (e) => {
+    const textarea = e.target;
+    const value = textarea.value;
+    const cursor = textarea.selectionStart;
+
+    // Détection d'un saut de ligne
+    if (value.length > editedContent.length && value[cursor - 1] === "\n") {
+      const before = value.slice(0, cursor);
+      const after = value.slice(cursor);
+      const newText = before + "• " + after;
+
+      setEditedContent(newText);
+      setCursorPos(cursor + 2); // position exacte après "• "
+    } else {
+      setEditedContent(value);
+    }
+  };
   const handleSaveEdits = async () => {
     if (!selectedReport) return;
     let photos = [];
@@ -425,7 +585,7 @@ export default function ReportManagement() {
       if (visitResponse && visitResponse.photos) {
         photos = updatePhotosFromEditedContent(visitResponse.photos);
       }
-      await reportsAPI.update(selectedReport.id, {
+      const respReport = await reportsAPI.update(selectedReport.id, {
         content: editedContent,
         header: editedHeader,
         footer: editedFooter,
@@ -433,12 +593,24 @@ export default function ReportManagement() {
         remarquesAdmin: adminRemarks,
       });
 
-      await visitService.update(visitResponse.id, {
+      const respVisit = await visitService.update(visitResponse.id, {
         photos: photos
       });
 
+      setSelectedReport(prev => prev ? {
+        ...prev,
+        content: respReport?.content,
+        header: respReport?.header,
+        footer: respReport?.footer,
+        observations: respReport?.observations,
+        remarquesAdmin: respReport?.remarquesAdmin,
+        sentToClientAt: respReport?.sentToClientAt,
+        updatedAt: respReport?.updatedAt,
+        visit: respVisit
+      } : null)
+
       setIsEditing(false);
-      fetchReports();
+      await fetchReports();
       Swal.fire({
         title: 'Rapport sauvegardé !',
         text: `Les modifications du rapport sont sauvegardé avec succès.`,
@@ -482,6 +654,7 @@ export default function ReportManagement() {
       case 'brouillon': return 'bg-slate-100 text-slate-700 border-slate-200';
       case 'envoye': return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'valide': return 'bg-green-100 text-green-700 border-green-200';
+      case 'annule': return 'bg-slate-100 text-red-700 border-red-200';
       case 'envoye_au_client': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
       default: return 'bg-slate-100 text-slate-700 border-slate-200';
     }
@@ -492,6 +665,7 @@ export default function ReportManagement() {
       case 'brouillon': return 'Brouillon';
       case 'envoye': return 'Soumis';
       case 'valide': return 'Validé';
+      case 'annule': return 'Annulé';
       case 'envoye_au_client': return 'Envoyé au client';
       default: return status;
     }
@@ -569,10 +743,8 @@ export default function ReportManagement() {
               className="pl-10 pr-8 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none appearance-none bg-white"
             >
               <option value="all">Tous les statuts</option>
-              <option value="brouillon">Brouillon</option>
-              <option value="envoye">Soumis</option>
-              <option value="valide">Validé</option>
               <option value="envoye_au_client">Envoyé au client</option>
+              <option value="annule">Annulé</option>
             </select>
           </div>
         </div>
@@ -591,7 +763,10 @@ export default function ReportManagement() {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredReports.map((report) => (
-                <tr key={report.id} className="hover:bg-slate-50 transition-colors">
+                <tr key={report.id}
+                  className={`${report.missionStatus == "terminee" ? 'bg-green-100 text-green-700 hover:bg-slate-50 transition-colors' : "hover:bg-slate-50 transition-colors"}`}
+                  style={{ cursor: "pointer" }}
+                >
                   <td className="px-6 py-4">
                     <div>
                       <p className="font-medium text-slate-900">{report.title}</p>
@@ -685,8 +860,9 @@ export default function ReportManagement() {
                     <br />
                     <p className="mb-1 text-sm text-slate-500">Contenu principal</p>
                     <textarea
+                      ref={editedContentRef}
                       value={editedContent}
-                      onChange={(e) => setEditedContent(e.target.value)}
+                      onChange={handleChange}
                       rows={20}
                       className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
                     />
@@ -790,15 +966,17 @@ export default function ReportManagement() {
                     </>
                   ) : (
                     <>
-                      {selectedReport && selectedReport.status !== 'envoye_au_client' && (
-                        <button
-                          onClick={() => setIsEditing(true)}
-                          className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition-colors font-medium"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                          Modifier
-                        </button>
-                      )}
+                      {selectedReport && selectedReport.status !== 'envoye_au_client' &&
+                        selectedReport.status !== 'annule' &&
+                        selectedReport.missionStatus !== 'terminee' && (
+                          <button
+                            onClick={() => setIsEditing(true)}
+                            className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                            Modifier
+                          </button>
+                        )}
 
                       {/* {selectedReport.status === 'envoye' && isAdmin && false && (
                         <button
@@ -810,15 +988,18 @@ export default function ReportManagement() {
                         </button>
                       )} */}
 
-                      {selectedReport && !isAdmin && selectedReport.status !== 'envoye_au_client' && (
-                        <button
-                          onClick={handleSendToClient}
-                          className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
-                        >
-                          <Send className="w-4 h-4" />
-                          Envoyer au client
-                        </button>
-                      )}
+                      {selectedReport && !isAdmin &&
+                        selectedReport.status !== 'envoye_au_client' &&
+                        selectedReport.missionStatus !== 'terminee' &&
+                        selectedReport.status !== 'annule' && (
+                          <button
+                            onClick={handleSendToClient}
+                            className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
+                          >
+                            <Send className="w-4 h-4" />
+                            Envoyer au client
+                          </button>
+                        )}
                     </>
                   )}
                 </>

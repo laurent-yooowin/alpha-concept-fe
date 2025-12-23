@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -46,15 +46,9 @@ export default function ProfilScreen() {
     experience: 0,
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     loadUserProfile();
   }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadUserProfile();
-    }, [])
-  );
 
   const loadUserProfile = async () => {
     setLoading(true);
@@ -64,7 +58,7 @@ export default function ProfilScreen() {
       const user = response.data;
       setCoordinatorInfo({
         name: `${user.firstName} ${user.lastName}`,
-        role: user.role === 'csps' ? 'Coordonnateur SPS' : user.role === 'admin' ? 'Administrateur' : 'Coordinateur',
+        role: user.role === 'csps' ? 'Coordonnateur SPS' : user.role === 'admin' ? 'Administrateur' : 'Coordonnateur',
         certification: 'SPS Niveau 2',
         phone: user.phone || '',
         email: user.email,

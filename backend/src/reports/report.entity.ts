@@ -10,6 +10,7 @@ export enum ReportStatus {
   REJECTED = 'refuse',
   ARCHIVED = 'archive',
   SENT_TO_CLIENT = 'envoye_au_client',
+  CANCELLED = 'annule',
 }
 
 @Entity('reports')
@@ -34,13 +35,10 @@ export class Report {
   // ✅ RELATION AVEC VISIT (ManyToOne ✅ AU LIEU DE OneToOne ❌)
   // =========================
 
-  @Column('uuid', { nullable: true })
+  @Column('uuid')
   visitId: string;
 
-  @ManyToOne(() => Visit, visit => visit.reports, {
-    nullable: true,
-    onDelete: 'SET NULL',
-  })
+  @OneToOne(() => Visit, visit => visit.report)
   @JoinColumn({ name: 'visitId' })
   visit: Visit;
 

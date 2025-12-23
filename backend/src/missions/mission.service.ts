@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, forwardRef, Inject, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Mission } from './mission.entity';
@@ -8,7 +8,10 @@ import { User, UserRole } from '../user/user.entity';
 import { UserService } from '../user/user.service';
 import { parse } from 'csv-parse/sync';
 import * as XLSX from 'xlsx';
-import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { VisitService } from '../visits/visit.service';
+import { ReportService } from '../reports/report.service';
+import { ReportStatus } from '../reports/report.entity';
 
 @Injectable()
 export class MissionService {
@@ -18,6 +21,12 @@ export class MissionService {
     @InjectRepository(MissionAssignment)
     private assignmentRepository: Repository<MissionAssignment>,
     private userService: UserService,
+
+    @Inject(forwardRef(() => VisitService))
+    private visitService: VisitService,
+
+    @Inject(forwardRef(() => ReportService))
+    private reportService: ReportService,
   ) { }
   private readonly logger = new Logger(MissionService.name);
 
@@ -51,7 +60,6 @@ export class MissionService {
       });
     }
 
-
     if (missions) {
       await Promise.all(missions.map(async (mission) => {
         const missionId = mission.id;
@@ -61,6 +69,25 @@ export class MissionService {
         });
         if (assignment) {
           mission.assigned = true;
+        }
+        const visits = await this.visitService.findByMission(mission.id, user);
+        if (visits && visits.length > 0) {
+          visits.sort((a, b) => b.visitDate.getTime() - a.visitDate.getTime());
+          await Promise.all(visits.map(async (visit) => {
+            let report = await this.reportService.findByVisit(visit.id, user);
+            if (report) {
+              report.content = null;
+              report.header = null;
+              report.footer = null;
+              report.observations = null;
+              report.remarquesAdmin = null;
+              visit.photos = null;
+              visit.notes = null;
+              visit.report = report;
+            }
+            return visit;
+          }));
+          mission.visits = visits;
         }
         return mission;
       }));
@@ -111,20 +138,57 @@ export class MissionService {
       mission.assigned = true;
     }
 
+    const visits = await this.visitService.findByMission(mission.id, user);
+    if (visits && visits.length > 0) {
+      visits.sort((a, b) => b.visitDate.getTime() - a.visitDate.getTime());
+      await Promise.all(visits.map(async (visit) => {
+        let report = await this.reportService.findByVisit(visit.id, user);
+        // report.content = null;
+        // report.header = null;
+        // report.footer = null;
+        // report.observations = null;
+        // report.remarquesAdmin = null;
+        // visit.photos = null;
+        // visit.notes = null;
+        if (report) {
+          visit.report = report;
+        }
+        return visit;
+      }));
+      mission.visits = visits;
+    }
+
     return mission;
   }
 
-  async update(id: string, userId: string, updateMissionDto: UpdateMissionDto): Promise<Mission> {
-    const mission = await this.missionRepository.findOne({
-      where: { id },
-    });
+  async update(id: string, user: User, updateMissionDto: UpdateMissionDto): Promise<Mission> {
+    try {
+      const mission = await this.missionRepository.findOne({
+        where: { id },
+      });
 
-    if (!mission) {
-      throw new NotFoundException('Mission not found');
+      if (!mission) {
+        throw new NotFoundException('Mission not found');
+      }
+
+      const relatedReports = await this.reportService.findByMission(id, user);
+      if (relatedReports?.length > 0) {
+        const filtredReports = relatedReports.filter(r => r.status != ReportStatus.SENT_TO_CLIENT);
+        if (filtredReports.length > 0) {
+          await Promise.all(filtredReports.map(async (report) => {
+            report.status = ReportStatus.CANCELLED;
+            await this.reportService.save(report, user);
+            return report;
+          }));
+        }
+      }
+
+      Object.assign(mission, updateMissionDto);
+      return this.missionRepository.save(mission);
+    } catch (error) {
+      this.logger.error(error);
+      throw new HttpException('Impossible de mettre à jours la mission  !', 500);
     }
-
-    Object.assign(mission, updateMissionDto);
-    return this.missionRepository.save(mission);
   }
 
   async delete(id: string, userId: string): Promise<void> {

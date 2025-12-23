@@ -38,8 +38,11 @@ export class Visit {
   // ✅ RELATION AVEC REPORT (OneToMany ✅)
   // =========================
 
-  @OneToMany(() => Report, report => report.visit)
-  reports: Report[];
+  @OneToOne(() => Report, report => report.visit, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  report: Report;
 
   // =========================
   // ✅ DONNÉES MÉTIER

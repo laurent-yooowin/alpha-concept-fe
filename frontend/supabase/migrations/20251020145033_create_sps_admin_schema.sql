@@ -306,7 +306,7 @@ CREATE TABLE IF NOT EXISTS missions (
 
 ALTER TABLE missions ENABLE ROW LEVEL SECURITY;
 
--- Les coordinateurs peuvent voir leurs missions
+-- Les coordonnateurs peuvent voir leurs missions
 CREATE POLICY "Coordinators can view planifiee missions"
   ON missions FOR SELECT
   TO authenticated
@@ -357,7 +357,7 @@ CREATE POLICY "Admins can update all missions"
     )
   );
 
--- Les coordinateurs peuvent modifier le statut de leurs missions
+-- Les coordonnateurs peuvent modifier le statut de leurs missions
 CREATE POLICY "Coordinators can update own missions"
   ON missions FOR UPDATE
   TO authenticated
@@ -397,7 +397,7 @@ CREATE TABLE IF NOT EXISTS rapports (
 
 ALTER TABLE rapports ENABLE ROW LEVEL SECURITY;
 
--- Les coordinateurs peuvent voir leurs rapports
+-- Les coordonnateurs peuvent voir leurs rapports
 CREATE POLICY "Coordinators can view own reports"
   ON rapports FOR SELECT
   TO authenticated
@@ -415,13 +415,13 @@ CREATE POLICY "Admins can view all reports"
     )
   );
 
--- Les coordinateurs peuvent créer leurs rapports
+-- Les coordonnateurs peuvent créer leurs rapports
 CREATE POLICY "Coordinators can create reports"
   ON rapports FOR INSERT
   TO authenticated
   WITH CHECK (coordinator_id = auth.uid());
 
--- Les coordinateurs peuvent modifier leurs rapports non validés
+-- Les coordonnateurs peuvent modifier leurs rapports non validés
 CREATE POLICY "Coordinators can update own draft reports"
   ON rapports FOR UPDATE
   TO authenticated
@@ -499,7 +499,7 @@ CREATE POLICY "Users can view photos of accessible reports"
     )
   );
 
--- Les coordinateurs peuvent ajouter des photos à leurs rapports
+-- Les coordonnateurs peuvent ajouter des photos à leurs rapports
 CREATE POLICY "Coordinators can add photos to own reports"
   ON rapport_photos FOR INSERT
   TO authenticated

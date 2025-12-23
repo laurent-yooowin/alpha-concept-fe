@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { MailerService } from '@nestjs-modules/mailer';
+import { ISendMailOptions, MailerService } from '@nestjs-modules/mailer';
 import * as puppeteer from 'puppeteer';
 import { Readable } from 'stream';
 
@@ -11,7 +11,7 @@ export class MailService {
 
   async sendPdfReport(to: string, subject: string, text: string, pdfBuffer: Readable, pdfName: string) {
     try {
-      await this.mailerService.sendMail({
+      let options: ISendMailOptions = {
         to,
         subject,
         text,
@@ -22,7 +22,14 @@ export class MailService {
             contentType: 'application/pdf',
           },
         ],
-      });
+      };
+
+      // if (from && from.trim() != '') {
+      //   options.from = from;
+      //   options.sender = from;
+      // }
+
+      await this.mailerService.sendMail(options);
       return { success: true, message: 'Email envoyé avec succès.' };
     } catch (error) {
       console.error('Erreur envoi mail:', error);

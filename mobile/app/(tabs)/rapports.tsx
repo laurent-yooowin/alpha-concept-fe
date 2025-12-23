@@ -22,7 +22,7 @@ import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleChe
 import { LinearGradient } from 'expo-linear-gradient';
 import { reportService, ReportStatus } from '@/services/reportService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getReportStatusInfo } from '@/utils/missionHelpers';
+import { downloadBase64File, getReportStatusInfo } from '@/utils/missionHelpers';
 import * as Linking from 'expo-linking';
 import { pdfService } from '@/services/pdfService';
 import { visitService } from '@/services/visitService';
@@ -30,7 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 import * as MailComposer from 'expo-mail-composer';
 import { uploadService } from '@/services/uploadService';
-import { Mission } from '../../services/missionService';
+import { Mission, missionService } from '../../services/missionService';
 import { useLocalSearchParams } from 'expo-router';
 import { userService } from '@/services/userService';
 
@@ -44,14 +44,7 @@ export default function RapportsScreen() {
   const [activeFilter, setActiveFilter] = useState('tous');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [reports, setReports] = useState < any[] > ([]);
-  const [loading, setLoading] = useState(true);
-  const [reportCounts, setReportCounts] = useState({
-    brouillon: 0,
-    envoye: 0,
-    archive: 0,
-  });
   const [selectedReport, setSelectedReport] = useState < any | null > (null);
-  const [selectedMission, setSelectedMission] = useState < any | null > (null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [selectedReportPhotos, setSelectedReportPhotos] = useState([]);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -59,35 +52,29 @@ export default function RapportsScreen() {
   const [editedContent, setEditedContent] = useState('');
   const [editedFooter, setEditedFooter] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [loadingReport, setLoadingReport] = useState(false);
   const [showPdfLoadingModal, setShowPdfLoadingModal] = useState(false);
   const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
+  const [selection, setSelection] = useState({ start: 2, end: 2 });
 
-  useEffect(() => {
-    loadReports();
-    loadReportCounts();
-  }, []);
-
+  // Recharger UNIQUEMENT si la mission change
   useFocusEffect(
     useCallback(() => {
-      loadReports();
-      loadReportCounts();
-    }, [])
+      if (params.mission) {
+        let missionData;
+        try {
+          missionData = JSON.parse(params.mission as string);
+          console.log('Params missionData >>> : ', missionData);
+          loadReports(missionData); // Filtre par mission
+        } catch (error) {
+          console.error('Erreur parsing mission:', error);
+        }
+      } else {
+        loadReports();
+      }
+    }, [params.mission]) // Ajoute params.mission comme dépendance
   );
 
-  useEffect(() => {
-    let missionData;
-    if (params.mission) {
-      try {
-        missionData = JSON.parse(params.mission as string);
-        console.log('Params missionData >>> : ', missionData);
-        setSelectedMission(missionData);
-      } catch (error) {
-        console.error('Erreur parsing mission:', error);
-      }
-    }
-    loadReports(missionData);
-    loadReportCounts();
-  }, [params.mission]);
 
   const loadUserProfile = async () => {
     try {
@@ -103,11 +90,11 @@ export default function RapportsScreen() {
 
   const loadReports = async (missionData?: Mission | null) => {
     try {
+      setLoadingReport(true);
       // await loadUserProfile();
       if (!userProfile) {
         await loadUserProfile();
       }
-      setLoading(true);
       const response = await reportService.getReports();
       let missionExists = false;
       let selectedReportMission = null;
@@ -116,30 +103,26 @@ export default function RapportsScreen() {
         const backendReports = await Promise.all(
           response.data.map(async (report: any) => {
             const statusInfo = getReportStatusInfo(report.status);
-            let nbrPhotos = 0;
             let anomalies = 0;
-            if (report.visitId) {
-              const photos = await visitService.getVisit(report.visitId).then(res => res.data.photos).catch(() => []);
-              nbrPhotos = photos.length;
-              photos.forEach((photo: any) => {
+            if (report.visit) {
+              report.visit.photos.forEach((photo: any) => {
                 if (photo.analysis && photo.analysis.riskLevel && (photo.analysis.riskLevel.toLowerCase() === 'eleve' || photo.analysis.riskLevel.toLowerCase() === 'high')) {
                   anomalies += 1;
                 }
               });
-
             }
             const reportRet = {
-              id: report.id,
-              visitId: report.visitId,
+              ...report,
               title: report.title,
               mission: report.mission?.title || 'Mission inconnue',
+              missionData: report.mission,
               client: report.mission?.client || 'Client inconnu',
               date: new Date(report.createdAt).toISOString().split('T')[0],
               status: report.status || 'brouillon',
               originalStatus: report.status || 'brouillon',
               type: report.mission?.type,
               pages: Math.ceil(report.content.length / 500),
-              photos: nbrPhotos || 0,
+              photos: report.visit?.photoCount || 0,
               anomalies: anomalies,
               conformity: report.conformityPercentage,
               aiGenerated: true,
@@ -178,14 +161,17 @@ export default function RapportsScreen() {
         // setReports([...backendReports, ...parsedLocalReports]);
         setReports([...backendReports]);
         if (missionExists && selectedReportMission) {
-          console.log('selectedReportMission >>> : ', selectedReportMission);
+          // console.log('selectedReportMission >>> : ', selectedReportMission);          
           openReportDetail(selectedReportMission);
+        } else {
+          setLoadingReport(false);
         }
       } else {
         // Load only local reports if backend fails
         const localReports = await AsyncStorage.getItem('userReports');
         const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
         setReports([]);
+        setLoadingReport(false);
       }
     } catch (error) {
       console.log('Error loading reports:', error);
@@ -193,19 +179,7 @@ export default function RapportsScreen() {
       const localReports = await AsyncStorage.getItem('userReports');
       const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
       setReports(parsedLocalReports);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadReportCounts = async () => {
-    try {
-      const response = await reportService.getReportCounts();
-      if (response.data) {
-        setReportCounts(response.data);
-      }
-    } catch (error) {
-      console.log('Error loading report counts:', error);
+      setLoadingReport(false);
     }
   };
 
@@ -217,6 +191,28 @@ export default function RapportsScreen() {
       setShowEditModal(true);
     }
   };
+
+  const handleChangeText = (value: string) => {
+    const cursor = selection.start;
+    // Détection insertion d’un retour à la ligne
+    if (value.length > editedContent.length && value[cursor - 1] === "\n") {
+      const before = value.slice(0, cursor);
+      const after = value.slice(cursor);
+
+      const newText = before + "• " + after;
+      const newCursor = before.length + 3; // position exacte après "• "
+
+      setEditedContent(newText);
+
+      // ⚠️ important : attendre le rendu
+      setTimeout(() => {
+        setSelection({ start: newCursor, end: newCursor });
+      }, 0);
+    } else {
+      setEditedContent(value);
+    }
+  };
+
 
   const handleSaveModifications = async () => {
     if (!selectedReport) return;
@@ -246,11 +242,6 @@ export default function RapportsScreen() {
               // console.log('photoSection >>> :', photoSection);
 
               if (photoSection) {
-                // const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-                // const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n\s*💬|$)/i;
-                // const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
-                // const refsRegex = /🏛️\s*Références :\s*([\s\S]*)/i;
-
                 const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
                 const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
                 const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
@@ -263,24 +254,19 @@ export default function RapportsScreen() {
 
                 const observations = observationsMatch?.[1]
                   ?.split('•')
-                  .map(s => s.trim())
+                  .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
                   .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
 
                 const recommendations = recommendationsMatch?.[1]
                   ?.split('•')
-                  .map(s => s.trim())
+                  .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
                   .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
 
                 const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
-                // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
-                // console.log('observationsMatch >>> :', observations);
-                // console.log('recommendationsMatch >>> :', recommendations);
-                // console.log('commentsMatch >>> :', comments);
-
                 const references = refsMatch?.[1]
                   ?.split('•')
-                  .map(s => s.trim())
+                  .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
                   .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
 
                 return {
@@ -316,26 +302,12 @@ export default function RapportsScreen() {
 
       Alert.alert('Succès', 'Le rapport a été modifié avec succès.');
       setShowEditModal(false);
-      loadReports();
+      await loadReports(selectedReport.missionData);
     } catch (error) {
       console.error('Error updating report:', error);
       Alert.alert('Erreur', 'Impossible de modifier le rapport.');
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleValidateReport = async () => {
-    if (!selectedReport) return;
-
-    try {
-      await reportService.validateReport(selectedReport.id);
-      Alert.alert('Succès', 'Le rapport a été validé avec succès.');
-      setShowReportModal(false);
-      loadReports();
-    } catch (error) {
-      console.error('Error validating report:', error);
-      Alert.alert('Erreur', 'Impossible de valider le rapport.');
     }
   };
 
@@ -364,14 +336,114 @@ export default function RapportsScreen() {
     }
   }
 
+  const terminateMision = async () => {
+    if (selectedReport.missionData?.status != "terminee") {
+      if (reports.some(r => r.missionId == selectedReport.missionId && r.status != "envoye_au_client")) {
+        Alert.alert(
+          'Attention !',
+          `La mission ${selectedReport.missionData?.title} a un ou plusieurs rapports non envoyé, voulez-vous tout de même la clôturer ?
+  
+Si vous clôturer la mission les rapports non envoyé seron annulés.
+            ` ,
+          [
+            {
+              text: 'Oui',
+              style: 'default',
+              onPress: async () => {
+                await missionService.updateMission(selectedReport.missionId, {
+                  status: 'terminee'
+                });
+
+                Alert.alert(
+                  `La mission ${selectedReport.missionData?.title} est clôturée.`,
+                  `La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`
+                );
+                setShowReportModal(false);
+                await loadReports(selectedReport.missionData);
+              }
+            },
+            {
+              text: 'Non',
+              style: 'cancel',
+              onPress: async () => {
+                setShowReportModal(false);
+                await loadReports(selectedReport.missionData);
+              }
+            }
+          ]
+        );
+      } else {
+        await missionService.updateMission(selectedReport.missionId, {
+          status: 'terminee'
+        });
+
+        Alert.alert(
+          `La mission ${selectedReport.missionData?.title} est clôturée.`,
+          `La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`
+        );
+        setShowReportModal(false);
+        await loadReports(selectedReport.missionData);
+      }
+    }
+  }
+
+  const validateSentReport = async (clientEmail: string, reportFileUrl: string) => {
+    try {
+      await reportService.updateReport(selectedReport.id, {
+        status: 'envoye_au_client' as ReportStatus,
+        recipientEmail: clientEmail,
+        reportFileUrl: reportFileUrl,
+      });
+
+      setSelectedReport(prev => prev ? { ...prev, status: 'envoye_au_client', recipientEmail: clientEmail, reportFileUrl: reportFileUrl } : null);
+      setReports(prev => prev ? prev.map(r => {
+        if (r.id == selectedReport.id) {
+          r.status = 'envoye_au_client';
+          r.recipientEmail = clientEmail;
+          r.reportFileUrl = reportFileUrl;
+        }
+        return r;
+      }) : []);
+
+      Alert.alert(
+        'Rapport envoyé au client',
+        `Souhaitez-vous clôturer la mission ${selectedReport.missionData?.title} ?
+  
+⚠️ Une fois la mission clôturée, il ne sera plus possible de créer, modifier ou envoyer des rapports.
+        ` ,
+        [
+          {
+            text: 'Oui',
+            style: 'default',
+            onPress: async () => {
+              await terminateMision();
+            }
+          },
+          {
+            text: 'Non',
+            style: 'cancel',
+            onPress: async () => {
+              setShowReportModal(false);
+              await loadReports(selectedReport.missionData);
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      Alert.alert(
+        `Erreur lors de la mise à jours du rapport, veuillez contacter le support .`
+      );
+    }
+  }
+
   const handleSendReport = async () => {
     if (!selectedReport) return;
-    if (selectedReport.status == 'valide' || selectedReport.status == 'envoye_au_client') {
+    if (selectedReport.status == 'annule' || selectedReport.status == 'envoye_au_client') {
       Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
       return;
     }
 
-    let adminEmail = selectedReport.contact.email;
+    let clientEmail = selectedReport.contact.email;
     const subject = `Rapport SPS: ${selectedReport.title}`;
 
     try {
@@ -381,12 +453,12 @@ export default function RapportsScreen() {
       let photos: any[] = [];
       let visitResponse;
       // console.log('selectedReport >>> : ', selectedReport);
-      if (selectedReport.visitId) {
+      if (selectedReport.visit) {
         try {
-          visitResponse = await visitService.getVisit(selectedReport.visitId);
+          // visitResponse = await visitService.getVisit(selectedReport.visitId);
           // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
-          if (visitResponse.data && visitResponse.data.photos) {
-            photos = visitResponse.data.photos
+          if (selectedReport.visit.photos) {
+            photos = selectedReport.visit.photos
               .map((photo: any) => {
                 const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
                   'faible': 'low',
@@ -457,12 +529,6 @@ export default function RapportsScreen() {
         reportFileUrl = response.url || '';
       }
       // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
-      const resp = await reportService.updateReport(selectedReport.id, {
-        status: 'envoye_au_client' as ReportStatus,
-        recipientEmail: adminEmail,
-        reportFileUrl: reportFileUrl,
-      });
-      // console.log('Report update response after upload:', resp);
 
       setPdfLoadingProgress('Finalisation...');
 
@@ -473,24 +539,13 @@ Mission: ${selectedReport?.title}
 Date d'attribution: ${selectedReport.dateMission} à ${selectedReport.timeMission}
 Date de visite: ${new Date(visitResponse?.data?.createdAt || '').toLocaleString('fr-FR')}
 Adresse chantier: ${selectedReport.location} 
-Conformité: ${selectedReport.conformity} %
 Nombre de photos: ${visitResponse?.data?.photos?.length}
 
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement.
-${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
+${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
 `;
-
-      // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
-      //   adminEmail,
-      //   subject,
-      //   body,
-      //   pdfPath || undefined
-      // );
-
-      // await Linking.openURL(mailtoUrl);
-
       // 4️⃣ Vérifier si MailComposer est disponible
       const isAvailable = await MailComposer.isAvailableAsync();
       if (!isAvailable) {
@@ -500,7 +555,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
 
       // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
       const mailOptions = {
-        recipients: [adminEmail],
+        recipients: [clientEmail],
         subject: subject,
         body: body,
 
@@ -515,9 +570,29 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
 
       console.log('📤 Email prêt à être envoyé !');
 
+      Alert.alert(
+        "Validation de l’envoi du rapport",
+        `Veuillez confirmer l’envoi du rapport PDF aux destinataires concernés.
+      
+⚠️ Après l’envoi, aucune modification ne sera possible.
+                  `,
+        [
+          {
+            text: 'Oui je confirme',
+            style: 'default',
+            onPress: async () => {
+              await validateSentReport(clientEmail, reportFileUrl);
+            }
+          },
+          {
+            text: 'Non',
+            style: 'cancel',
+          }
+        ]
+      );
+
       setShowPdfLoadingModal(false);
-      loadReports();
-      setShowReportModal(false);
+
     } catch (error) {
       console.error('Error sending report:', error);
       setShowPdfLoadingModal(false);
@@ -528,10 +603,10 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
   const getFilterCounts = () => {
     return {
       tous: reports.length,
-      envoye: reports.filter(r => r.originalStatus === 'envoye').length,
+      envoye_au_client: reports.filter(r => r.originalStatus === 'envoye_au_client').length,
       brouillon: reports.filter(r => r.originalStatus === 'brouillon').length,
       valide: reports.filter(r => r.originalStatus === 'valide').length,
-      rejete: reports.filter(r => r.originalStatus === 'rejete').length,
+      annule: reports.filter(r => r.originalStatus === 'annule').length,
     };
   };
 
@@ -539,25 +614,24 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
 
   const filters = [
     { id: 'tous', label: 'Tous les rapports', count: filterCounts.tous, color: '#8B5CF6', icon: FileText, gradient: ['#8B5CF6', '#7C3AED'] },
-    { id: 'envoye_au_client', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
-    // { id: 'envoye', label: 'Envoyés', count: filterCounts.envoye, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
+    { id: 'envoye_au_client', label: 'Envoyés', count: filterCounts.envoye_au_client, color: '#10B981', icon: Send, gradient: ['#10B981', '#059669'] },
     { id: 'brouillon', label: 'En cours', count: filterCounts.brouillon, color: '#F59E0B', icon: Clock, gradient: ['#F59E0B', '#D97706'] },
-    { id: 'valide', label: 'Validés', count: filterCounts.valide, color: '#3B82F6', icon: CheckCircle, gradient: ['#3B82F6', '#2563EB'] },
-    { id: 'rejete', label: 'Refusés', count: filterCounts.rejete, color: '#EF4444', icon: X, gradient: ['#EF4444', '#DC2626'] },
+    // { id: 'valide', label: 'Validés', count: filterCounts.valide, color: '#3B82F6', icon: CheckCircle, gradient: ['#3B82F6', '#2563EB'] },
+    { id: 'annule', label: 'Annulés', count: filterCounts.annule, color: '#EF4444', icon: X, gradient: ['#EF4444', '#DC2626'] },
   ];
 
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'envoye_au_client':
         return { label: 'Envoyé', color: '#10B981', icon: Send };
-      case 'envoye':
-        return { label: 'Envoyé', color: '#10B981', icon: Send };
+      // case 'envoye':
+      //   return { label: 'Envoyé', color: '#10B981', icon: Send };
       case 'brouillon':
         return { label: 'En cours', color: '#F59E0B', icon: Clock };
       case 'valide':
         return { label: 'Validé', color: '#3B82F6', icon: CheckCircle };
-      case 'rejete':
-        return { label: 'Refusé', color: '#EF4444', icon: X };
+      case 'annule':
+        return { label: 'Annulé', color: '#EF4444', icon: X };
       default:
         return { label: 'En cours', color: '#F59E0B', icon: Clock };
     }
@@ -586,91 +660,111 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
   };
 
   const openReportDetail = async (report: any) => {
-    console.log('report modal >>>> : ', report);
+    // console.log('report modal >>>> : ', report);
+    setLoadingReport(true);
     let photos: any[] = [];
     if (report?.visitId) {
       try {
         const visitResponse = await visitService.getVisit(report.visitId);
         // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
         if (visitResponse.data && visitResponse.data.photos) {
-          photos = await Promise.all(visitResponse.data.photos
-            .map(async (photo: any) => {
-              const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
-                'faible': 'low',
-                'moyen': 'medium',
-                'eleve': 'high',
-                'low': 'low',
-                'medium': 'medium',
-                'high': 'high'
-              };
+          photos = await Promise.all(visitResponse.data.photos?.map(async (photo: any) => {
+            const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+              'faible': 'low',
+              'moyen': 'medium',
+              'eleve': 'high',
+              'low': 'low',
+              'medium': 'medium',
+              'high': 'high'
+            };
 
-              // const observationText = photo.analysis?.observation || '';
-              // const recommendationText = photo.analysis?.recommendation || '';
+            // const observationText = photo.analysis?.observation || '';
+            // const recommendationText = photo.analysis?.recommendation || '';
 
-              // 📁 Chemin local prévu pour cette image
-              const fileName = photo.uri.split('/').pop();
-              const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+            // 📁 Chemin local prévu pour cette image
+            const fileName = photo.uri.split('/').pop();
+            const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
-              const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
-              // console.log('photo.uri Avant >>> : ', photo.uri);
-              if (imgResp && imgResp.data && imgResp.data.data) {
-                // 💾 Sauvegarde localement
-                await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
-                  encoding: FileSystem.EncodingType.Base64,
-                });
-                const info = await FileSystem.getInfoAsync(fileUri);
-                if (!info?.exists) {
-                  console.log("Photo uri dosn't exist >>> : ", fileUri);
-                } else {
-                  console.log("Photo uri exist in >>> : ", fileUri);
-                }
-                photo.uri = fileUri;
-                // console.log('photo.uri >>> : ', photo.uri);
+            const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
+            // console.log('photo.uri Avant >>> : ', photo.uri);
+            if (imgResp && imgResp.data && imgResp.data.data) {
+              // 💾 Sauvegarde localement
+              await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+              const info = await FileSystem.getInfoAsync(fileUri);
+              if (!info?.exists) {
+                console.log("Photo uri dosn't exist >>> : ", fileUri);
               } else {
-                Alert.alert("La photo n'a pas pu être telechargé");
+                console.log("Photo uri exist in >>> : ", fileUri);
               }
+              photo.uri = fileUri;
+              // console.log('photo.uri >>> : ', photo.uri);
+            } else {
+              Alert.alert("La photo n'a pas pu être telechargé");
+            }
 
-              let refs = photo.analysis?.references;
-              if (refs && !Array.isArray(refs)) {
-                refs = refs.split(', ').filter((s: string) => s.length > 0);
-              }
+            let refs = photo.analysis?.references;
+            if (refs && !Array.isArray(refs)) {
+              refs = refs.split(', ').filter((s: string) => s.length > 0);
+            }
 
-              let observations = photo.analysis?.observation;
-              if (observations && !Array.isArray(observations)) {
-                observations = observations.split(', ').filter((s: string) => s.length > 0);
-              }
+            let observations = photo.analysis?.observation;
+            if (observations && !Array.isArray(observations)) {
+              observations = observations.split(', ').filter((s: string) => s.length > 0);
+            }
 
-              let recommendations = photo.analysis?.recommendation;
-              if (recommendations && !Array.isArray(recommendations)) {
-                recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
-              }
+            let recommendations = photo.analysis?.recommendation;
+            if (recommendations && !Array.isArray(recommendations)) {
+              recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+            }
 
-              return {
-                id: photo.id || `photo-${Date.now()}-${Math.random()}`,
-                uri: fileUri || photo.s3Url,
-                s3Url: photo.s3Url,
-                timestamp: new Date(photo.createdAt || Date.now()),
-                aiAnalysis: photo.analysis ? {
-                  observations: observations ? observations : [],
-                  recommendations: recommendations ? recommendations : [],
-                  references: refs ? refs : [],
-                  riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-                  photoConformity: photo.analysis?.photoConformity || true,
-                  photoConformityMessage: photo.analysis?.photoConformityMessage || "",
-                  confidence: (photo.analysis.confidence || 0)
-                } : undefined,
-                comment: photo.comment || '',
-                validated: photo.validated || true
-              };
-            }));
+            return {
+              id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+              uri: fileUri || photo.s3Url,
+              s3Url: photo.s3Url,
+              timestamp: new Date(photo.createdAt || Date.now()),
+              aiAnalysis: photo.analysis ? {
+                observations: observations ? observations : [],
+                recommendations: recommendations ? recommendations : [],
+                references: refs ? refs : [],
+                riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                photoConformity: photo.analysis?.photoConformity || true,
+                photoConformityMessage: photo.analysis?.photoConformityMessage || "",
+                confidence: (photo.analysis.confidence || 0)
+              } : undefined,
+              comment: photo.comment || '',
+              validated: photo.validated || true
+            };
+          }));
         }
       } catch (error) {
         console.log('Could not load visit photos:', error);
+      } finally {
+        setLoadingReport(false);
       }
     }
     setSelectedReportPhotos(photos);
     setSelectedReport(report);
     setShowReportModal(true);
+  };
+
+  const downloadReportFile = async (reportUrl: string) => {
+    if (!reportUrl) return;
+    try {
+      const response: any = await uploadService.downloadFile(
+        reportUrl,
+        "/reports",
+        true
+      );
+      if (response.data) {
+        const { base64, contentType, fileName } = response.data.data;
+        downloadBase64File(base64, contentType, fileName);
+      }
+
+    } catch (error) {
+      console.error(error);
+    }
   }
 
   return (
@@ -733,7 +827,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
               <Text style={styles.emptyStateText}>
                 {activeFilter === 'tous'
                   ? 'Aucun rapport ne correspond à votre recherche'
-                  : `Aucun rapport ${activeFilter === 'envoye' ? 'envoyé' :
+                  : `Aucun rapport ${activeFilter === 'envoye_au_client' ? 'envoyé' :
                     activeFilter === 'brouillon' ? 'en brouillon' :
                       activeFilter === 'archive' ? 'archivé' : ''
                   }`
@@ -778,14 +872,29 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                             <Text style={styles.rapportClient}>{rapport.client}</Text>
                           </View>
                         </View>
+                        <View style={styles.rapportBtnContainer}>
+                          {rapport.reportFileUrl &&
+                            <TouchableOpacity
+                              onPress={() => downloadReportFile(rapport.reportFileUrl)}
+                            >
+                              <LinearGradient
+                                colors={rapport.originalStatus ? getReportStatusInfo(rapport.originalStatus).gradient : ['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)']}
+                                style={styles.statusBadge}
+                              >
+                                <Download size={10} color="#FFFFFF" />
+                                <Text style={styles.statusText}>Fichier PDF</Text>
+                              </LinearGradient>
+                            </TouchableOpacity>
+                          }
 
-                        <LinearGradient
-                          colors={rapport.originalStatus ? getReportStatusInfo(rapport.originalStatus).gradient : ['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)']}
-                          style={styles.statusBadge}
-                        >
-                          <StatusIcon size={10} color="#FFFFFF" />
-                          <Text style={styles.statusText}>{statusInfo.label}</Text>
-                        </LinearGradient>
+                          <LinearGradient
+                            colors={rapport.originalStatus ? getReportStatusInfo(rapport.originalStatus).gradient : ['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)']}
+                            style={styles.statusBadge}
+                          >
+                            <StatusIcon size={10} color="#FFFFFF" />
+                            <Text style={styles.statusText}>{statusInfo.label}</Text>
+                          </LinearGradient>
+                        </View>
                       </View>
 
                       {/* Stats */}
@@ -1107,12 +1216,12 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                                   </View>
                                 )}
 
-                                {photo.userComments && (
                                   <View style={styles.reportCommentSection}>
                                     <Text style={styles.reportCommentTitle}>💬 Commentaires du coordonnateur</Text>
-                                    <Text style={styles.reportCommentText}>{photo.userComments}</Text>
+                                    {photo.comment && (
+                                      <Text style={styles.reportCommentText}>{photo.comment}</Text>
+                                    )}
                                   </View>
-                                )}
                               </View>
                             );
                           })}
@@ -1137,7 +1246,7 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                     )} */}
                   </ScrollView>
 
-                  {selectedReport && selectedReport.status != 'valide' && selectedReport.status != 'envoye_au_client' && (
+                  {selectedReport && selectedReport.status != 'annule' && selectedReport.status != 'envoye_au_client' && selectedReport.missionData.status != 'terminee' && (
                     <View style={styles.reportDetailActions}>
                       <TouchableOpacity
                         style={styles.actionButton}
@@ -1218,7 +1327,11 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
                 <TextInput
                   style={styles.editModalTextInput}
                   value={editedContent}
-                  onChangeText={setEditedContent}
+                  onChangeText={handleChangeText}
+                  selection={selection}
+                  onSelectionChange={(e) =>
+                    setSelection(e.nativeEvent.selection)
+                  }
                   multiline
                   numberOfLines={15}
                   placeholder="Saisissez les observations du rapport..."
@@ -1282,11 +1395,55 @@ ${userProfile && `Cordonnateur: ${userProfile.firstName} ${userProfile.lastName}
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Loading Mission Modal */}
+      <Modal visible={loadingReport} animationType="fade" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'flex-end' }}
+        >
+          <View style={styles.pdfLoadingOverlay}>
+            <View style={styles.pdfLoadingModal}>
+              <LinearGradient
+                colors={['#8B5CF6', '#A855F7']}
+                style={styles.analyzingGradient}
+              >
+                <ActivityIndicator size={20} color="#FFFFFF" />
+                <Text style={styles.analyzingTitle}>CHARGEMENT EN COURS</Text>
+                <Text style={styles.analyzingSubtitle}>
+                  Chargement du rapport en cours ...
+                </Text>
+              </LinearGradient>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  analyzingGradient: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+  },
+  analyzingTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+    marginTop: 8,
+  },
+  analyzingSubtitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    opacity: 0.9,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
+  },
   container: {
     flex: 1,
     backgroundColor: '#0F172A',
@@ -1441,6 +1598,11 @@ const styles = StyleSheet.create({
   rapportTitleContainer: {
     flex: 1,
   },
+  rapportBtnContainer: {
+    // flex: 0.5,
+    flexDirection: 'column-reverse',
+    gap: 10,
+  },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1503,6 +1665,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 12,
     gap: 4,
+    marginLeft: 4
   },
   statusText: {
     fontSize: 10,

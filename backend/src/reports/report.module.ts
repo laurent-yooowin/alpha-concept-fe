@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Report } from './report.entity';
 import { ReportService } from './report.service';
@@ -7,7 +7,7 @@ import { MissionService } from '../missions/mission.service';
 import { MissionModule } from '../missions/mission.module';
 
 @Module({
-  imports: [MissionModule, TypeOrmModule.forFeature([Report])],
+  imports: [forwardRef(()=> MissionModule), TypeOrmModule.forFeature([Report])],
   controllers: [ReportController],
   providers: [ReportService],
   exports: [ReportService],
