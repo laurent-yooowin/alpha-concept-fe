@@ -37,7 +37,7 @@ export class ReportService {
       where.status = status;
     }
 
-    const reports = await this.reportRepository.find({
+    const reports: any = await this.reportRepository.find({
       where,
       relations: ['visit', 'mission'],
       order: { missionId: 'DESC', status: 'DESC' }
@@ -133,7 +133,7 @@ export class ReportService {
       mission.status = 'terminee';
       const missionDto = new UpdateMissionDto();
       Object.assign(missionDto, mission);
-      await this.missionService.update(mission.id, mission.userId, missionDto);
+      await this.missionService.update(mission.id, user, missionDto);
     }
 
     Object.assign(report, updateReportDto);

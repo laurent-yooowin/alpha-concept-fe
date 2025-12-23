@@ -43,7 +43,7 @@ export class VisitService {
     if (mission && (mission.status === 'planifiee' || mission.status === 'assignee')) {
       const updateMissionDto = new UpdateMissionDto();
       updateMissionDto.status = MissionStatus.IN_PROGRESS;
-      await this.missionService.update(mission.id, user.id, updateMissionDto);
+      await this.missionService.update(mission.id, user, updateMissionDto);
     }
 
     return this.visitRepository.save(visit);

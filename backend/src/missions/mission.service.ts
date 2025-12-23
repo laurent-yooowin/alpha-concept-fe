@@ -246,7 +246,7 @@ export class MissionService {
     updateMissionDto.assigned = true;
     updateMissionDto.userId = userIds[0];
     this.logger.log('🚀 updateMissionDto.status =', updateMissionDto.status);
-    await this.update(missionId, assignedBy.id, updateMissionDto);
+    await this.update(missionId, assignedBy, updateMissionDto);
 
     this.logger.log(`Existing assignments for mission `, userIds);
     return this.assignmentRepository.save(assignments);
@@ -489,7 +489,7 @@ export class MissionService {
           });
           continue;
         } else if (existingMission) {
-          const updatedMission = await this.update(existingMission.id, importUser.id, missionData);
+          const updatedMission = await this.update(existingMission.id, importUser, missionData);
           imported.push(updatedMission);
           continue;
         }
