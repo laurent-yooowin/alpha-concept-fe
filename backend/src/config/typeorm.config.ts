@@ -11,7 +11,7 @@ export default new DataSource({
   password: process.env.DATABASE_PASSWORD || '',
   database: process.env.DATABASE_NAME || 'csps_db',
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-  migrations: [__dirname + '/../migrations/*{.ts,.js}'],
+  migrations: process.env.NODE_ENV === 'development' ? [__dirname + '/../migrations/*{.ts}'] : [__dirname + '/../migrations/*{.js}'],
   synchronize: false,
   logging: true,
 });
