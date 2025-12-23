@@ -752,6 +752,7 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
   const downloadReportFile = async (reportUrl: string) => {
     if (!reportUrl) return;
     try {
+      setLoadingReport(true);
       const response: any = await uploadService.downloadFile(
         reportUrl,
         "/reports",
@@ -761,9 +762,10 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
         const { base64, contentType, fileName } = response.data.data;
         downloadBase64File(base64, contentType, fileName);
       }
-
+      setLoadingReport(false);
     } catch (error) {
       console.error(error);
+      setLoadingReport(false);
     }
   }
 
@@ -1216,12 +1218,12 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
                                   </View>
                                 )}
 
-                                  <View style={styles.reportCommentSection}>
-                                    <Text style={styles.reportCommentTitle}>💬 Commentaires du coordonnateur</Text>
-                                    {photo.comment && (
-                                      <Text style={styles.reportCommentText}>{photo.comment}</Text>
-                                    )}
-                                  </View>
+                                <View style={styles.reportCommentSection}>
+                                  <Text style={styles.reportCommentTitle}>💬 Commentaires du coordonnateur</Text>
+                                  {photo.comment && (
+                                    <Text style={styles.reportCommentText}>{photo.comment}</Text>
+                                  )}
+                                </View>
                               </View>
                             );
                           })}

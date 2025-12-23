@@ -1038,7 +1038,7 @@ Observations:
 ${photo.aiAnalysis?.observations?.map(obs => `• ${obs}`).join('\n')}
 
 Recommandations:
-${(photo.aiAnalysis?.recommendations?.map(rec => `• ${rec}`)) || [].join('\n')}
+${photo.aiAnalysis?.recommendations ? photo.aiAnalysis?.recommendations?.map(rec => `• ${rec}`).join('\n') : ''}
 
 🏛️ Références:
 ${photo.aiAnalysis?.references ? `${photo.aiAnalysis.references?.map(obs => `• ${obs}`).join('\n')}` : ''}
