@@ -72,7 +72,7 @@ export default function RapportsScreen() {
       } else {
         loadReports();
       }
-    }, [params.mission]) // Ajoute params.mission comme dépendance
+    }, [params.mission]) // Ajoute params.mission comme dépendance    
   );
 
 
@@ -358,16 +358,14 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
                   `La mission ${selectedReport.missionData?.title} est clôturée.`,
                   `La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`
                 );
-                setShowReportModal(false);
-                await loadReports(selectedReport.missionData);
+                await loadReports();
               }
             },
             {
               text: 'Non',
               style: 'cancel',
               onPress: async () => {
-                setShowReportModal(false);
-                await loadReports(selectedReport.missionData);
+                await loadReports();
               }
             }
           ]
@@ -381,8 +379,7 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
           `La mission ${selectedReport.missionData?.title} est clôturée.`,
           `La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`
         );
-        setShowReportModal(false);
-        await loadReports(selectedReport.missionData);
+        await loadReports();
       }
     }
   }
@@ -423,8 +420,7 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
             text: 'Non',
             style: 'cancel',
             onPress: async () => {
-              setShowReportModal(false);
-              await loadReports(selectedReport.missionData);
+              await loadReports();
             }
           }
         ]
@@ -569,6 +565,8 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
       await MailComposer.composeAsync(mailOptions);
 
       console.log('📤 Email prêt à être envoyé !');
+      setShowPdfLoadingModal(false);
+      setShowReportModal(false);
 
       Alert.alert(
         "Validation de l’envoi du rapport",
@@ -587,11 +585,17 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
           {
             text: 'Non',
             style: 'cancel',
+            onPress: async () => {
+              await reportService.updateReport(selectedReport.id, {
+                reportFileUrl: reportFileUrl,
+              });
+              await loadReports();
+            }
           }
         ]
       );
 
-      setShowPdfLoadingModal(false);
+
 
     } catch (error) {
       console.error('Error sending report:', error);

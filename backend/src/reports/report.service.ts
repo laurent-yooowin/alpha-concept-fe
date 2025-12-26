@@ -37,20 +37,29 @@ export class ReportService {
       where.status = status;
     }
 
-    const reports: any = await this.reportRepository.find({
+    let reportsDb: any = await this.reportRepository.find({
       where,
       relations: ['visit', 'mission'],
-      order: { missionId: 'DESC', status: 'DESC' }
+      order: { createdAt: 'DESC' }
     });
 
-    if (reports?.length > 0) {
-      return reports.map((report) => {
-        const visit = report.visit;
-        // const mission = report.mission;
-        report.visit = { photos: visit.photos, photoCount: visit.photoCount, createdAt: visit.createdAt };
-        // report.mission = { status: this.missionService.status };
-        return report;
-      })
+    if (reportsDb?.length > 0) {
+      const reports = [];
+      let firstReport = reportsDb[0];
+      reportsDb.forEach((report) => {
+        if (!reports.some(r => r.id == report.id) || reports.length == 0) {
+          const secondeMission = reportsDb.filter(r => r.missionId == report.missionId);
+          if (secondeMission?.length > 0) {
+            secondeMission.forEach(sr => {
+              const visit = sr.visit;
+              sr.visit = { photos: visit.photos, photoCount: visit.photoCount, createdAt: visit.createdAt };
+              console.log('secondeMission >>> : ', sr.title, sr.id);
+              reports.push(sr)
+            });
+          }
+        }
+      });
+      return reports;
     }
     return [];
   }

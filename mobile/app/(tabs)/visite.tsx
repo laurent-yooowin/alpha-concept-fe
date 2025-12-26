@@ -148,8 +148,9 @@ export default function VisiteScreen() {
         } catch (error) {
           console.error('Erreur parsing mission:', error);
         }
+      } else {
+        loadAvailableMissions();
       }
-      loadAvailableMissions();
     }, [params.mission])
   );
 
@@ -167,6 +168,7 @@ export default function VisiteScreen() {
 
   const loadMissions = async () => {
     try {
+      setLoadingMission(true);
       const response = await missionService.getMissions();
       if (response.data && Array.isArray(response.data)) {
         const backendMissions = [];
@@ -216,11 +218,12 @@ export default function VisiteScreen() {
       console.log('Erreur lors du chargement des missions:', error);
       // setMissions([]);
       return [];
+    } finally {
+      setLoadingMission(false);
     }
   };
 
   const loadAvailableMissions = async () => {
-
     try {
       if (!userProfile) {
         await loadUserProfile();
@@ -237,6 +240,7 @@ export default function VisiteScreen() {
 
   const selectMission = async (selectedMission: any, visitId?: string | null, isInitVisit?: boolean) => {
     if (isInitVisit) {
+      await loadAvailableMissions();
       await selectVisit(selectedMission, visitId);
     } else {
       const createVisit = {
@@ -527,7 +531,7 @@ export default function VisiteScreen() {
       // console.log('selectedPhoto.analysis >>> : ', selectedPhoto.aiAnalysis);
       const previousReport = JSON.stringify(selectedPhoto.aiAnalysis);
       // Use backend AI analysis
-      const response = await aiService.analyzePhotoWithDirectives(photoUri, tempDirectives, previousReport);
+      const response: any = await aiService.analyzePhotoWithDirectives(photoUri, tempDirectives, previousReport);
       // console.log('analyzePhotoWithDirectives response >>> : ', response);
 
       if (response.data) {
@@ -1090,164 +1094,172 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
   };
 
   // Update photo data from edited report content
-  const updatePhotosFromEditedContent = () => {
-    const updatedPhotos = photos.map((photo, index) => {
-      const photoSectionRegex = new RegExp(
-        `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
-        'i'
-      );
-      const photoSection = reportContent.match(photoSectionRegex)?.[0] || '';
+  // const updatePhotosFromEditedContent = () => {
+  //   const updatedPhotos = photos.map((photo, index) => {
+  //     const photoSectionRegex = new RegExp(
+  //       `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
+  //       'i'
+  //     );
+  //     const photoSection = reportContent.match(photoSectionRegex)?.[0] || '';
 
-      if (photoSection && editingReport) {
-        const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-        const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
-        const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
-        const refsRegex = /🏛️\s*Références:\s*([\s\S]*?)(?=\n💬\s*Commentaires du coordonnateur:|$)/i;
+  //     if (photoSection && editingReport) {
+  //       const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
+  //       const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
+  //       const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
+  //       const refsRegex = /🏛️\s*Références:\s*([\s\S]*?)(?=\n💬\s*Commentaires du coordonnateur:|$)/i;
 
-        const observationsMatch = photoSection.match(obsRegex);
-        const recommendationsMatch = photoSection.match(recRegex);
-        const commentsMatch = photoSection.match(comRegex);
-        const refsMatch = photoSection.match(refsRegex);
+  //       const observationsMatch = photoSection.match(obsRegex);
+  //       const recommendationsMatch = photoSection.match(recRegex);
+  //       const commentsMatch = photoSection.match(comRegex);
+  //       const refsMatch = photoSection.match(refsRegex);
 
-        const observations = observationsMatch?.[1]
-          ?.split('•')
-          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-          .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
+  //       const observations = observationsMatch?.[1]
+  //         ?.split('•')
+  //         .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
+  //         .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
 
-        const recommendations = recommendationsMatch?.[1]
-          ?.split('•')
-          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-          .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
+  //       const recommendations = recommendationsMatch?.[1]
+  //         ?.split('•')
+  //         .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
+  //         .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
 
-        const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
+  //       const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
-        const references = refsMatch?.[1]
-          ?.split('•')
-          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-          .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
-        // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
+  //       const references = refsMatch?.[1]
+  //         ?.split('•')
+  //         .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
+  //         .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
+  //       // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
 
-        return {
-          ...photo,
-          aiAnalysis: photo.aiAnalysis ? {
-            ...photo.aiAnalysis,
-            observation: observations,
-            recommendation: recommendations,
-            references,
-          } : undefined,
-          comment: comments,
-        };
-      }
-      return photo;
-    });
-    setPhotos(updatedPhotos);
-  };
+  //       return {
+  //         ...photo,
+  //         aiAnalysis: photo.aiAnalysis ? {
+  //           ...photo.aiAnalysis,
+  //           observation: observations,
+  //           recommendation: recommendations,
+  //           references,
+  //         } : undefined,
+  //         comment: comments,
+  //       };
+  //     }
+  //     return photo;
+  //   });
+  //   setPhotos(updatedPhotos);
+  // };
 
-  const uploadReportFile = async (pdfPath: any, title) => {
-    try {
-      let fileToUpload: Blob | string;
-      let fileName: string = "report_" + Date.now() + ".pdf";
+  // const uploadReportFile = async (pdfPath: any, title) => {
+  //   try {
+  //     let fileToUpload: Blob | string;
+  //     let fileName: string = "report_" + Date.now() + ".pdf";
 
-      if (Platform.OS === 'web') {
-        // Web: Use fetch to get blob
-        const response = await fetch(pdfPath);
-        fileToUpload = await response.blob();
-      } else {
-        // Mobile: Pass URI directly, FormData will handle it
-        fileToUpload = pdfPath;
-      }
-      if (title) {
-        fileName = `report_${title}_${Date.now()}.pdf`;
-      }
-      const response = await uploadService.uploadReportsFile(pdfPath, fileName);
-      // console.log('uploadReportFile response >>> : ', response);
-      return response;
-    } catch (error) {
-      console.error('Error uploading report file:', error);
-      return null;
-    }
-  }
+  //     if (Platform.OS === 'web') {
+  //       // Web: Use fetch to get blob
+  //       const response = await fetch(pdfPath);
+  //       fileToUpload = await response.blob();
+  //     } else {
+  //       // Mobile: Pass URI directly, FormData will handle it
+  //       fileToUpload = pdfPath;
+  //     }
+  //     if (title) {
+  //       fileName = `report_${title}_${Date.now()}.pdf`;
+  //     }
+  //     const response = await uploadService.uploadReportsFile(pdfPath, fileName);
+  //     // console.log('uploadReportFile response >>> : ', response);
+  //     return response;
+  //   } catch (error) {
+  //     console.error('Error uploading report file:', error);
+  //     return null;
+  //   }
+  // }
 
-  const terminateMision = async () => {
-    if (mission?.status != "terminee") {
-      if (mission?.visits.some(v => v.report.id != existingReportId && v.report.status != "envoye_au_client")) {
-        Alert.alert(
-          'Attention !',
-          `La mission ${mission?.title} a un ou plusieurs rapports non envoyé, voulez-vous tout de même la clôturer ?
+  //   const terminateMision = async () => {
+  //     if (mission?.status != "terminee") {
+  //       if (mission?.visits.some(v => v.report.id != existingReportId && v.report.status != "envoye_au_client")) {
+  //         Alert.alert(
+  //           'Attention !',
+  //           `La mission ${mission?.title} a un ou plusieurs rapports non envoyé, voulez-vous tout de même la clôturer ?
 
-Si vous clôturer la mission les rapports non envoyé seron annulés.
-          ` ,
-          [
-            {
-              text: 'Oui',
-              style: 'default',
-              onPress: async () => {
-                await missionService.updateMission(mission?.id, {
-                  status: 'terminee'
-                });
-                setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
-                Alert.alert(
-                  `La mission ${mission?.title} est clôturée.`,
-                  `La gestion et la modification des rapports ne sont plus autorisées.`
-                );
-              }
-            },
-            {
-              text: 'Non',
-              style: 'cancel',
-            }
-          ]
-        );
-      } else {
-        await missionService.updateMission(mission?.id, {
-          status: 'terminee'
-        });
-        setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
-        Alert.alert(
-          `La mission ${mission?.title} est clôturée.`,
-          `La gestion et la modification des rapports ne sont plus autorisées.`
-        );
-      }
-    }
-  }
+  // Si vous clôturer la mission les rapports non envoyé seron annulés.
+  //           ` ,
+  //           [
+  //             {
+  //               text: 'Oui',
+  //               style: 'default',
+  //               onPress: async () => {
+  //                 await missionService.updateMission(mission?.id, {
+  //                   status: 'terminee'
+  //                 });
+  //                 setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
+  //                 Alert.alert(
+  //                   `La mission ${mission?.title} est clôturée.`,
+  //                   `La gestion et la modification des rapports ne sont plus autorisées.`
+  //                 );
+  //                 await loadAvailableMissions();
+  //               }
+  //             },
+  //             {
+  //               text: 'Non',
+  //               style: 'cancel',
+  //               onPress: async () => {
+  //                 await loadAvailableMissions();
+  //               }
+  //             }
+  //           ]
+  //         );
+  //       } else {
+  //         await missionService.updateMission(mission?.id, {
+  //           status: 'terminee'
+  //         });
+  //         setMission(prev => prev ? { ...prev, status: 'terminee' } : null);
+  //         Alert.alert(
+  //           `La mission ${mission?.title} est clôturée.`,
+  //           `La gestion et la modification des rapports ne sont plus autorisées.`
+  //         );
+  //         await loadAvailableMissions();
+  //       }
+  //     }
+  //   }
 
-  const validateSentReport = async (clientEmail: string, reportFileUrl: string) => {
-    try {
-      await reportService.updateReport(existingReportId, {
-        status: 'envoye_au_client',
-        recipientEmail: clientEmail,
-        reportFileUrl: reportFileUrl,
-      });
-      setReportStatus('envoye_au_client');
-      setReportSended(true);
+  //   const validateSentReport = async (clientEmail: string, reportFileUrl: string) => {
+  //     try {
+  //       await reportService.updateReport(existingReportId, {
+  //         status: 'envoye_au_client',
+  //         recipientEmail: clientEmail,
+  //         reportFileUrl: reportFileUrl,
+  //       });
+  //       setReportStatus('envoye_au_client');
+  //       setReportSended(true);
 
-      Alert.alert(
-        'Rapport envoyé au client',
-        `Souhaitez-vous clôturer la mission ${mission?.title} ?
+  //       Alert.alert(
+  //         'Rapport envoyé au client',
+  //         `Souhaitez-vous clôturer la mission ${mission?.title} ?
 
-⚠️ Une fois la mission clôturée, il ne sera plus possible de créer, modifier ou envoyer des rapports.
-      ` ,
-        [
-          {
-            text: 'Oui',
-            style: 'default',
-            onPress: async () => {
-              await terminateMision();
-            }
-          },
-          {
-            text: 'Non',
-            style: 'cancel',
-          }
-        ]
-      );
-    } catch (error) {
-      Alert.alert(
-        `Erreur lors de la mise à jours du rapport, veuillez contacter le support .`
-      );
-    }
+  // ⚠️ Une fois la mission clôturée, il ne sera plus possible de créer, modifier ou envoyer des rapports.
+  //       ` ,
+  //         [
+  //           {
+  //             text: 'Oui',
+  //             style: 'default',
+  //             onPress: async () => {
+  //               await terminateMision();
+  //             }
+  //           },
+  //           {
+  //             text: 'Non',
+  //             style: 'cancel',
+  //             onPress: async () => {
+  //               await loadAvailableMissions();
+  //             }
+  //           }
+  //         ]
+  //       );
+  //     } catch (error) {
+  //       Alert.alert(
+  //         `Erreur lors de la mise à jours du rapport, veuillez contacter le support .`
+  //       );
+  //     }
 
-  }
+  //   }
 
   // Envoyer le rapport
   const saveSendReport = async (isToSend?: boolean = true) => {
@@ -1261,9 +1273,9 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
     }
 
     // If report was edited, update photos from the edited content
-    if (editingReport) {
-      updatePhotosFromEditedContent();
-    }
+    // if (editingReport) {
+    //   updatePhotosFromEditedContent();
+    // }
     setIsSavingReport(true);
     setReportSaved(false);
     setReportSended(false);
@@ -1422,117 +1434,114 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
       const parsedReports = existingReports ? JSON.parse(existingReports) : [];
       const updatedReports = [newReport, ...parsedReports];
       await AsyncStorage.setItem('userReports', JSON.stringify(updatedReports));
-      if (isToSend) {
-        setReportSended(false);
-        // const pdfPhotos = photos.map(p => ({
-        //   uri: p.s3Url || p.uri,
-        //   comment: p.comment,
-        // }));
-        const pdfData = {
-          title: `RAPPORT VISITE - ${mission?.title}`,
-          mission: mission?.title || 'Mission inconnue',
-          client: mission?.client || 'Client inconnu',
-          date: new Date().toLocaleDateString('fr-FR'),
-          conformity,
-          header: reportHeader,
-          content: reportContent,
-          footer: reportFooter,
-          photos: photos,
-        };
-        // const userData = await AsyncStorage.getItem('user_data');
-        setShowPdfLoadingModal(true);
-        setPdfLoadingProgress('Conversion des photos...');
-        const pdfPath = await pdfService.generateReportPDF(pdfData);
-        const response = await uploadReportFile(pdfPath, reportResponse?.data?.title);
-        const clientEmail = mission.contact?.email;
-        let reportFileUrl = '';
-        if (response) {
-          reportFileUrl = response.url || '';
-        }
-        setPdfLoadingProgress('Finalisation...');
-        const subject = `Rapport de visite - ${mission?.title}`;
-        const body = `Bonjour ${mission?.contact?.firstName},
-Veuillez trouver ci-joint le rapport de visite suivant:
+      //       if (isToSend) {
+      //         setReportSended(false);
+      //         // const pdfPhotos = photos.map(p => ({
+      //         //   uri: p.s3Url || p.uri,
+      //         //   comment: p.comment,
+      //         // }));
+      //         const pdfData = {
+      //           title: `RAPPORT VISITE - ${mission?.title}`,
+      //           mission: mission?.title || 'Mission inconnue',
+      //           client: mission?.client || 'Client inconnu',
+      //           date: new Date().toLocaleDateString('fr-FR'),
+      //           conformity,
+      //           header: reportHeader,
+      //           content: reportContent,
+      //           footer: reportFooter,
+      //           photos: photos,
+      //         };
+      //         // const userData = await AsyncStorage.getItem('user_data');
+      //         setShowPdfLoadingModal(true);
+      //         setPdfLoadingProgress('Conversion des photos...');
+      //         const pdfPath = await pdfService.generateReportPDF(pdfData);
+      //         const response = await uploadReportFile(pdfPath, reportResponse?.data?.title);
+      //         const clientEmail = mission.contact?.email;
+      //         let reportFileUrl = '';
+      //         if (response) {
+      //           reportFileUrl = response.url || '';
+      //         }
+      //         setPdfLoadingProgress('Finalisation...');
+      //         const subject = `Rapport de visite - ${mission?.title}`;
+      //         const body = `Bonjour ${mission?.contact?.firstName},
+      // Veuillez trouver ci-joint le rapport de visite suivant:
 
-Mission: ${mission?.title}
-Date d'attribution: ${mission.date} à ${mission.time}
-Date de visite: ${visitResponse.data.createdAt}
-Adresse chantier: ${mission.location} 
-Conformité: ${conformity}%
-Nombre de photos: ${photos.length}
+      // Mission: ${mission?.title}
+      // Date d'attribution: ${mission.date} à ${mission.time}
+      // Date de visite: ${visitResponse.data.createdAt}
+      // Adresse chantier: ${mission.location} 
+      // Conformité: ${conformity}%
+      // Nombre de photos: ${photos.length}
 
-Le rapport complet avec les photos est disponible en pièce jointe PDF.
+      // Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
-Cordialement.
-${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
-`;
-        // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
-        //   clientEmail,
-        //   subject,
-        //   body,
-        //   pdfPath || undefined
-        // );
-        // await Linking.openURL(mailtoUrl);
+      // Cordialement.
+      // ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
+      // `;
+      //         // const mailtoUrl = pdfService.createMailtoLinkWithAttachment(
+      //         //   clientEmail,
+      //         //   subject,
+      //         //   body,
+      //         //   pdfPath || undefined
+      //         // );
+      //         // await Linking.openURL(mailtoUrl);
 
-        const isAvailable = await MailComposer.isAvailableAsync();
-        if (!isAvailable) {
-          console.warn('📧 MailComposer non disponible sur cet appareil.');
-          // return pdfPath;
-        }
+      //         const isAvailable = await MailComposer.isAvailableAsync();
+      //         if (!isAvailable) {
+      //           console.warn('📧 MailComposer non disponible sur cet appareil.');
+      //           // return pdfPath;
+      //         }
 
-        // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
-        const mailOptions = {
-          recipients: [clientEmail],
-          subject: subject,
-          body: body,
-        };
-        // console.log('mailOptions mission >>> : ', mission);
-        if (pdfPath) {
-          mailOptions.attachments = [pdfPath] // pièce jointe
-        }
-        // 6️⃣ Ouvrir le mail ready-to-send
-        try {
-          const mail = await MailComposer.composeAsync(mailOptions);
+      //         // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
+      //         const mailOptions = {
+      //           recipients: [clientEmail],
+      //           subject: subject,
+      //           body: body,
+      //         };
+      //         // console.log('mailOptions mission >>> : ', mission);
+      //         if (pdfPath) {
+      //           mailOptions.attachments = [pdfPath] // pièce jointe
+      //         }
+      //         // 6️⃣ Ouvrir le mail ready-to-send
+      //         try {
+      //           const mail = await MailComposer.composeAsync(mailOptions);
 
-          console.log("Send Mail >>> : ", mail);
-          // console.log('📤 Email prêt à être envoyé !');
-          // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
+      //           console.log("Send Mail >>> : ", mail);
+      //           // console.log('📤 Email prêt à être envoyé !');
+      //           // console.log('Generated PDF at:', pdfPath, 'Uploaded to:', reportFileUrl);
 
-          setShowPdfLoadingModal(false);
+      //           setShowPdfLoadingModal(false);
+      //           setShowReportModal(false);
 
-          Alert.alert(
-            "Validation de l’envoi du rapport",
-            `Veuillez confirmer l’envoi du rapport PDF aux destinataires concernés.
+      //           Alert.alert(
+      //             "Validation de l’envoi du rapport",
+      //             `Veuillez confirmer l’envoi du rapport PDF aux destinataires concernés.
 
-⚠️ Après l’envoi, aucune modification ne sera possible.
-            `,
-            [
-              {
-                text: 'Oui je confirme',
-                style: 'default',
-                onPress: async () => {
-                  await validateSentReport(clientEmail, reportFileUrl);
-                }
-              },
-              {
-                text: 'Non',
-                style: 'cancel',
-              }
-            ]
-          );
-          // mission.status = 'terminee';          
-          setShowReportModal(false);
-          await loadAvailableMissions();
-          // Alert.alert('Rapport envoyé au client', "Le rapport a été envoyé au client et mis à jours dans le serveur avec succès.");
-          // return true;
-        } catch (error) {
-          console.error('Erreur sauvegarde rapport:', error);
-          Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
-          setShowReportModal(false);
-          setShowPdfLoadingModal(false);
-          // return false;
-        }
-      }
+      // ⚠️ Après l’envoi, aucune modification ne sera possible.
+      //             `,
+      //             [
+      //               {
+      //                 text: 'Oui je confirme',
+      //                 style: 'default',
+      //                 onPress: async () => {
+      //                   await validateSentReport(clientEmail, reportFileUrl);
+      //                 }
+      //               },
+      //               {
+      //                 text: 'Non',
+      //                 style: 'cancel',
+      //               }
+      //             ]
+      //           );
+
+      //         } catch (error) {
+      //           console.error('Erreur sauvegarde rapport:', error);
+      //           Alert.alert('Erreur', "Erreur lors de la sauvegarde et d'envoie du rapport");
+      //           setShowReportModal(false);
+      //           setShowPdfLoadingModal(false);
+      //           // return false;
+      //         }
+      //       }
     } catch (error: any) {
       console.error('Erreur sauvegarde rapport:', error);
       setShowPdfLoadingModal(false);
@@ -1590,6 +1599,25 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
       year: 'numeric'
     });
 
+  };
+
+  const openReportDetails = () => {
+    if (!existingReportId || !mission) return;
+    // Encoder les données de la mission pour les passer en paramètres
+    const missionData = encodeURIComponent(JSON.stringify({
+      ...mission,
+      id: mission.id,
+      title: mission.title,
+      client: mission.client,
+      location: mission.location,
+      description: mission.description,
+      nextVisit: mission.nextVisit,
+      type: mission.status,
+      reportId: existingReportId
+    }));
+
+    setShowReportModal(false);
+    router.push(`/rapports?mission=${missionData}`);
   };
 
   if (!mission) {
@@ -2295,14 +2323,14 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
                 <View style={styles.reportModalHeader}>
                   <Text style={styles.reportModalTitle}>RAPPORT DE VISITE  </Text>
                   <View style={styles.reportModalActions}>
-                    {(!mission || (mission as any).originalStatus !== 'terminee') && (
+                    {/* {(!mission || (mission as any).originalStatus !== 'terminee') && (
                       <TouchableOpacity
                         style={styles.editReportButton}
                         onPress={() => { setReportSaved(false); setEditingReport(!editingReport) }}
                       >
                         <Edit3 size={20} color={editingReport ? "#F59E0B" : "#3B82F6"} />
                       </TouchableOpacity>
-                    )}
+                    )} */}
                     <TouchableOpacity
                       style={styles.closeReportButton}
                       onPress={() => setShowReportModal(false)}
@@ -2399,9 +2427,7 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
                       <Text style={styles.reportText}>{reportFooter}</Text>
                     </View>
                   )}
-                </ScrollView>
-                {
-                  (reportStatus !== 'envoye_au_client' && (!mission || (mission as any).originalStatus !== 'terminee')) &&
+                </ScrollView>                                
                   <View style={styles.reportModalFooter}>
                     <TouchableOpacity
                       style={[
@@ -2431,9 +2457,9 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
                     <TouchableOpacity
                       style={[
                         styles.sendReportButton,
-                        !reportSended && styles.sendReportButtonDisabled
+                        !reportSaved && styles.sendReportButtonDisabled
                       ]}
-                      onPress={() => saveSendReport(true)}
+                      onPress={() => openReportDetails()}
                       disabled={!reportSaved}
                     >
                       <LinearGradient
@@ -2441,11 +2467,10 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
                         style={styles.sendReportGradient}
                       >
                         <Send size={20} color="#FFFFFF" />
-                        <Text style={styles.sendReportText}>Envoyer</Text>
+                        <Text style={styles.sendReportText}>Rapport</Text>
                       </LinearGradient>
                     </TouchableOpacity>
-                  </View>
-                }
+                  </View>                
               </LinearGradient>
             </View>
           </View>

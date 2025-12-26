@@ -1620,7 +1620,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   missionCard: {
-    height: 180,
+    minHeight: 180,
     borderRadius: 16,
     overflow: 'hidden',
     marginBottom: 16,
