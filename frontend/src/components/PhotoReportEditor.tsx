@@ -21,7 +21,11 @@ function PhotoReportEditor({
 
     useEffect(() => {
         loadImages();
-    }, [initialPhotos]);
+    }, []);
+
+    // useEffect(() => {
+    //     loadImages();
+    // }, [initialPhotos]);
 
     useEffect(() => {
         setHeader(editedHeader);
@@ -67,7 +71,7 @@ function PhotoReportEditor({
         try {
             const imagesMap = {};
 
-            for (const photo of initialPhotos) {
+            await Promise.all(initialPhotos?.map(async (photo) => {
                 try {
                     const base64 = await downloadImages(photo.s3Url);
                     console.log(`Image chargée pour ${photo.id}:`, base64 ? 'OK' : 'VIDE');
@@ -82,7 +86,7 @@ function PhotoReportEditor({
                 } catch (error) {
                     console.error(`Erreur chargement image ${photo.id}:`, error);
                 }
-            }
+            }));
 
             console.log('Images chargées:', Object.keys(imagesMap).length);
             setBase64Images(imagesMap);
@@ -395,16 +399,16 @@ function PhotoReportEditor({
                     )}
 
                     {/* Content principal */}
-                    OBSERVATIONS PRINCIPALES:
+                    <b>OBSERVATIONS PRINCIPALES:</b>
                     {'\n'}
                     {photos.map((photo, index) => (
                         <div key={photo.id}>
                             {'━'.repeat(25)}
                             {'\n'}
                             Photo {index + 1} - Niveau de risque: {getRiskLevelLabel(photo.analysis.riskLevel)}
+                            {/* {'\n'}
+                            📸 Photo: {photo.s3Url} */}
                             {'\n'}
-                            📸 Photo: {photo.s3Url}
-                            {'\n\n'}
                             {base64Images[photo.id] ? (
                                 <img
                                     src={base64Images[photo.id]}
@@ -423,23 +427,23 @@ function PhotoReportEditor({
                                     }}
                                 />
                             ) : null}
-                            {'\n\n'}
-                            Observations:
+                            {'\n'}
+                            <b>Observations:</b>
                             {'\n'}
                             {photo.analysis.observation.map((obs, i) => `• ${obs}\n`).join('')}
                             {'\n'}
-                            Recommandations:
+                            <b>Recommandations:</b>
                             {'\n'}
                             {photo.analysis.recommendation.map((rec, i) => `• ${rec}\n`).join('')}
                             {'\n'}
-                            🏛️ Références:
+                            <b>🏛️ Références:</b>
                             {'\n'}
                             {photo.analysis.references.map((ref, i) => `• ${ref}\n`).join('')}
                             {'\n'}
-                            💬 Commentaires du coordonnateur:
+                            <b>💬 Commentaires du coordonnateur:</b>
                             {'\n'}
                             {photo.comment || ''}
-                            {'\n\n'}
+                            {'\n'}
                         </div>
                     ))}
 

@@ -745,13 +745,13 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
   };
 
   const handleSave = async () => {
-    const editedContent = generateEditedContent(photos);
+    const updatedContent = generateEditedContent(photos);
 
     console.log('Photos:', photos);
     console.log('Header:', editedHeader);
     console.log('Content:', editedContent);
     console.log('Footer:', editedFooter);
-
+    setEditedContent(updatedContent);
     // Sauvegarder dans votre backend
     setIsEditing(false);
     await handleSaveEdits();
