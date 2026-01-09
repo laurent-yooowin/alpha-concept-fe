@@ -128,7 +128,7 @@ export default function Dashboard() {
             </div>
             <TrendingUp className="w-5 h-5 text-green-600" />
           </div>
-          <p className="text-sm font-medium text-slate-600 mb-1">Missions totales</p>
+          <p className="text-sm font-medium text-slate-600 mb-1">Chantiers totals</p>
           <p className="text-3xl font-bold text-slate-900">{stats.totalMissions}</p>
           <p className="text-sm text-slate-500 mt-2">
             {stats.pendingMissions} en attente
@@ -141,7 +141,7 @@ export default function Dashboard() {
               <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
           </div>
-          <p className="text-sm font-medium text-slate-600 mb-1">Missions terminées</p>
+          <p className="text-sm font-medium text-slate-600 mb-1">Chantiers terminés</p>
           <p className="text-3xl font-bold text-slate-900">{stats.completedMissions}</p>
           <p className="text-sm text-slate-500 mt-2">
             {stats.totalMissions > 0 ? Math.round((stats.completedMissions / stats.totalMissions) * 100) : 0}% du total
@@ -179,7 +179,7 @@ export default function Dashboard() {
             <div className="p-2 bg-slate-100 rounded-lg">
               <BarChart3 className="w-5 h-5 text-slate-700" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900">Missions par mois</h2>
+            <h2 className="text-lg font-bold text-slate-900">Chantiers par mois</h2>
           </div>
 
           {monthlyMissions.length > 0 ? (
@@ -251,7 +251,7 @@ export default function Dashboard() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-slate-700 truncate">{item.name}</span>
-                    <span className="text-sm font-bold text-slate-900 ml-2 flex-shrink-0">{item.count} missions</span>
+                    <span className="text-sm font-bold text-slate-900 ml-2 flex-shrink-0">{item.count} chantiers</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2">
                     <div

@@ -21,6 +21,7 @@ export interface Mission {
   endDate: string;
   refClient: string;
   refBusiness: string;
+  reportId?: string;
   visits: any[]
 }
 

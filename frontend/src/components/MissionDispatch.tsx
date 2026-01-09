@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { missionsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { UserPlus, Send, X, MapPin, Calendar, CheckCircle, Clock } from 'lucide-react';
+import { UserPlus, Send, X, MapPin, Calendar, CheckCircle, Clock, Search } from 'lucide-react';
 
 interface Mission {
   id: string;
@@ -13,6 +13,8 @@ interface Mission {
   type: string;
   status: string;
   userId: string;
+  refClient: string;
+  refBusiness: string;
   user?: {
     firstName: string;
     lastName: string;
@@ -30,11 +32,13 @@ interface Coordinator {
 export default function MissionDispatch() {
   const { profile: currentUser } = useAuth();
   const [missions, setMissions] = useState < Mission[] > ([]);
+  const [filtredMissions, setFiltredMissions] = useState < Mission[] > ([]);
   const [coordinators, setCoordinators] = useState < Coordinator[] > ([]);
   const [loading, setLoading] = useState(true);
   const [selectedMission, setSelectedMission] = useState < Mission | null > (null);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedCoordinator, setSelectedCoordinator] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
 
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
 
@@ -53,11 +57,11 @@ export default function MissionDispatch() {
         usersAPI.getAll(),
       ]);
 
-      const pendingMissions = missionsData.filter(
-        (m: Mission) => m.status === 'planifiee' || m.status === 'assignee' || m.status === 'refusee'
-      );
-      setMissions(pendingMissions);
-
+      // const pendingMissions = missionsData.filter(
+      //   (m: Mission) => m.status === 'planifiee' || m.status === 'assignee' || m.status === 'refusee'
+      // );
+      setMissions(missionsData);
+      filterMissions({ target: { value: searchTerm } }, missionsData);
       const activeCoordinators = usersData.filter(
         (u: any) => u.role === 'ROLE_USER' && u.isActive
       );
@@ -85,7 +89,7 @@ export default function MissionDispatch() {
       setSelectedCoordinator('');
       fetchData();
     } catch (error) {
-      console.error('Error assigning mission:', error);
+      console.error('Error assigning chantier:', error);
       alert('Erreur lors de l\'attribution');
     }
   };
@@ -116,6 +120,31 @@ export default function MissionDispatch() {
     }
   };
 
+  const filterMissions = (e: any, missionsData = []) => {
+    const value = e.target.value;
+    setSearchTerm(value);
+    if (value === '' || !value) {
+      if (missionsData && missionsData.length > 0) {
+        setFiltredMissions(missionsData);
+        return;
+      }
+      setFiltredMissions(missions);
+      return;
+    }
+    const filtredMissions = missions.filter(mission => {
+      const matchesSearch =
+        mission.title?.toLowerCase().includes(value.toLowerCase()) ||
+        mission.client?.toLowerCase().includes(value.toLowerCase()) ||
+        mission.address?.toLowerCase().includes(value.toLowerCase()) ||
+        mission.refClient?.toLowerCase().includes(value.toLowerCase()) ||
+        mission.refBusiness?.toLowerCase().includes(value.toLowerCase());
+
+      return matchesSearch;
+    });
+    setFiltredMissions(filtredMissions);
+  }
+
+
   if (!isAdmin) {
     return (
       <div className="text-center py-12">
@@ -130,16 +159,27 @@ export default function MissionDispatch() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Attribution des missions</h1>
+      <div className="mb-3">
+        <h1 className="text-3xl font-bold text-slate-900">Attribution des chantiers</h1>
         <p className="text-slate-600 mt-1">
-          {missions.length} mission(s) en attente d'attribution
+          {missions.length} chantier(s) en attente d'attribution
         </p>
+      </div>
+      <div className="flex-1 relative mb-2">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Rechercher par titre, client, adresse..."
+          value={searchTerm}
+          onChange={(e) => filterMissions(e)}
+          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {missions.map((mission) => (
+        {filtredMissions.map((mission) => (
           <div
+            style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
             key={mission.id}
             className="bg-white rounded-xl border border-slate-200 p-6 hover:shadow-md transition-shadow"
           >
@@ -209,7 +249,7 @@ export default function MissionDispatch() {
         {missions.length === 0 && (
           <div className="col-span-full text-center py-12">
             <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-4" />
-            <p className="text-slate-600">Aucune mission en attente d'attribution</p>
+            <p className="text-slate-600">Aucun chantier en attente d'attribution</p>
           </div>
         )}
       </div>
@@ -218,7 +258,7 @@ export default function MissionDispatch() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-2xl w-full">
             <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-slate-900">Affecter la mission</h2>
+              <h2 className="text-2xl font-bold text-slate-900">Affecter le chantier</h2>
               <button
                 onClick={() => {
                   setShowAssignModal(false);

@@ -107,7 +107,7 @@ export default function HomeScreen() {
             ...mission,
             hasVisit: hasVisit,
             hasReport: hasReport,
-            title: mission.title?.toUpperCase() || 'MISSION SANS TITRE',
+            title: mission.title?.toUpperCase() || 'CHANTIER SANS TITRE',
             client: mission.client || 'Client non renseigné',
             status: mission.status === 'en_cours' ? 'aujourdhui' :
               mission.status === 'terminee' ? 'planifiees' :
@@ -140,7 +140,7 @@ export default function HomeScreen() {
         setTodayMissions([]);
       }
     } catch (error) {
-      console.log('Erreur lors du chargement des missions:', error);
+      console.log('Erreur lors du chargement des chantiers:', error);
       setTodayMissions([]);
     }
   };
@@ -270,9 +270,9 @@ export default function HomeScreen() {
     }
   };
 
-  // Toutes les missions peuvent maintenant avoir un bouton visite
+  // Toutes les chantiers peuvent maintenant avoir un bouton visite
   const canStartVisit = (status: string) => {
-    return status != 'terminée'; // Toutes les missions peuvent démarrer une visite
+    return status != 'terminée'; // Tous les chantiers peuvent démarrer une visite
   };
 
   const handleClickVisits = (mission: any) => {
@@ -289,7 +289,9 @@ export default function HomeScreen() {
       visits: []
     }
     if (mission.visits && mission.visits.length > 0) {
-      mission.visits.unshift(createVisit);
+      if (!mission.visits.some(v => !v.id)) {
+        mission.visits.unshift(createVisit);
+      }
       setMissionVisits({ visits: mission.visits, mission: missionParam });
     } else {
       const visits: any = [];
@@ -543,7 +545,7 @@ export default function HomeScreen() {
       }
       // } else {
       if (!isBackendMission) {
-        // Mettre à jour localement pour les missions mock
+        // Mettre à jour localement pour les chantiers mock
         const updatedMission = {
           ...selectedMission,
           title: editedMission.title.toUpperCase(),
@@ -653,10 +655,10 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Today's Missions */}
+        {/* Today's Chantier */}
         <View style={styles.missionsSection}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>MISSIONS D'AUJOURD'HUI</Text>
+            <Text style={styles.sectionTitle}>CHANTIERS D'AUJOURD'HUI</Text>
           </View>
 
           {todayMissions.length === 0 ? (
@@ -666,7 +668,7 @@ export default function HomeScreen() {
                 style={styles.emptyStateGradient}
               >
                 <Calendar size={48} color="#64748B" />
-                <Text style={styles.emptyStateTitle}>AUCUNE MISSION</Text>
+                <Text style={styles.emptyStateTitle}>AUCUN CHANTIER</Text>
               </LinearGradient>
             </View>
           ) : (
@@ -830,7 +832,7 @@ export default function HomeScreen() {
                   </View>
                   <View style={styles.coordinatorStat}>
                     <Text style={styles.coordinatorStatValue}>{missionsCount}</Text>
-                    <Text style={styles.coordinatorStatLabel}>missions réalisées</Text>
+                    <Text style={styles.coordinatorStatLabel}>chantiers réalisés</Text>
                   </View>
                 </View>
               </>
@@ -852,7 +854,7 @@ export default function HomeScreen() {
                   </View>
                   <View style={styles.coordinatorStat}>
                     <Text style={styles.coordinatorStatValue}>{missionsCount}</Text>
-                    <Text style={styles.coordinatorStatLabel}>missions réalisées</Text>
+                    <Text style={styles.coordinatorStatLabel}>chantiers réalisés</Text>
                   </View>
                 </View>
               </>
@@ -874,7 +876,7 @@ export default function HomeScreen() {
                 >
                   <View style={styles.modalHeader}>
                     <Text style={styles.modalTitle}>
-                      {isEditing ? 'MODIFIER LA MISSION' : 'FICHE DE MISSION'}
+                      {isEditing ? 'MODIFIER LE CHANTIER' : 'FICHE DE CHANTIER'}
                     </Text>
                     <View style={styles.modalHeaderButtons}>
                       {selectedMission?.status != 'terminee' && (!isEditing ? (
@@ -922,7 +924,7 @@ export default function HomeScreen() {
                   >
                     {/* Titre de la mission */}
                     <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
+                      <Text style={styles.inputLabel}>TITRE DU CHANTIER *</Text>
                       <View style={styles.inputContainer}>
                         <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                         {isEditing ? (
@@ -1083,7 +1085,7 @@ export default function HomeScreen() {
 
                     {/* Type de mission */}
                     <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
+                      <Text style={styles.inputLabel}>TYPE DE CHANTIER</Text>
                       {isEditing ? (
                         <View style={styles.typeSelector}>
                           {missionTypes.map((type, index) => (
@@ -1323,18 +1325,18 @@ export default function HomeScreen() {
                         onPress={() => startVisitForMission(visit.id, missionVisits.mission?.id)}
                       >
                         <LinearGradient
-                          colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#64748B', '#475569'])}
+                          colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#c53062ff', '#EC407A'])}
                           style={styles.missionSelectorItemGradient}
                         >
                           <View style={styles.missionSelectorItemContent}>
                             <View style={styles.missionSelectorItemLeft}>
-                              <Text style={styles.missionSelectorItemTitle}>{visit.id ? missionVisits.mission.title + ' -- ' + formatDisplayDate(visit.visitDate) : "Créer une nouvelle visite -- " + missionVisits.mission.title}</Text>
-                              <Text style={styles.missionSelectorItemClient}>{missionVisits.mission.client}</Text>
-                              <Text style={styles.missionSelectorItemLocation}>{missionVisits.mission.location}</Text>
+                              <Text style={styles.missionSelectorItemTitle}>{visit.id ? missionVisits.mission?.title + ' -- ' + formatDisplayDate(visit.visitDate) : "Créer une nouvelle visite -- " + missionVisits.mission.title}</Text>
+                              <Text style={styles.missionSelectorItemClient}>{missionVisits.mission?.client}</Text>
+                              <Text style={styles.missionSelectorItemLocation}>{missionVisits.mission?.location}</Text>
                             </View>
                             <View style={styles.missionSelectorItemRight}>
-                              <Text style={styles.missionSelectorItemType}>{missionVisits.mission.type}</Text>
-                              <ArrowRight size={16} color="#94A3B8" />
+                              <Text style={styles.missionSelectorItemType}>{missionVisits.mission?.type}</Text>
+                              <ArrowRight size={16} color="#eceff2ff" />
                             </View>
                           </View>
                         </LinearGradient>
@@ -1376,18 +1378,18 @@ export default function HomeScreen() {
                         onPress={() => openReportDetails(visit.report?.id, missionVisits.mission?.id)}
                       >
                         <LinearGradient
-                          colors={['#374151', '#4B5563']}
+                          colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#c53062ff', '#EC407A'])}
                           style={styles.missionSelectorItemGradient}
                         >
-                          <View style={styles.missionSelectorItemContent}>
+                          <View style={visit.id ? styles.missionSelectorItemContent : [styles.missionSelectorItemContent, { borderRadius: 20, borderWidth: 5, borderColor: '#10B981' }]}>
                             <View style={styles.missionSelectorItemLeft}>
-                              <Text style={styles.missionSelectorItemTitle}>{visit.report?.id ? missionVisits.mission.title + ' -- ' + formatDisplayDate(visit.report.createdAt) : "Créer une nouvelle visite"}</Text>
+                              <Text style={styles.missionSelectorItemTitle}>{visit.report ? missionVisits.mission.title + ' -- ' + formatDisplayDate(visit.report.createdAt) : missionVisits.mission.title}</Text>
                               <Text style={styles.missionSelectorItemClient}>{missionVisits.mission.client}</Text>
                               <Text style={styles.missionSelectorItemLocation}>{missionVisits.mission.location}</Text>
                             </View>
                             <View style={styles.missionSelectorItemRight}>
                               <Text style={styles.missionSelectorItemType}>{missionVisits.mission.type}</Text>
-                              <ArrowRight size={16} color="#94A3B8" />
+                              <ArrowRight size={16} color="#eceff2ff" />
                             </View>
                           </View>
                         </LinearGradient>
@@ -2550,13 +2552,13 @@ const styles = StyleSheet.create({
   missionSelectorItemClient: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: 'rgba(0, 0, 0, 0.5)',
+    color: '#FFFFFF',
     marginBottom: 2,
   },
   missionSelectorItemLocation: {
     fontSize: 11,
     fontFamily: 'Inter-Regular',
-    color: '#afb3b9ff',
+    color: '#eceff2ff',
   },
   missionSelectorItemRight: {
     flex: 1,
@@ -2568,7 +2570,7 @@ const styles = StyleSheet.create({
   missionSelectorItemType: {
     fontSize: 10,
     fontFamily: 'Inter-Medium',
-    color: '#94A3B8',
+    color: '#eceff2ff',
     textAlign: 'right',
   },
   modalVisitsCloseButton: {

@@ -57,7 +57,7 @@ export default function RapportsScreen() {
   const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
   const [selection, setSelection] = useState({ start: 2, end: 2 });
 
-  // Recharger UNIQUEMENT si la mission change
+  // Recharger UNIQUEMENT si la chantier change
   useFocusEffect(
     useCallback(() => {
       if (params.mission) {
@@ -65,14 +65,14 @@ export default function RapportsScreen() {
         try {
           missionData = JSON.parse(params.mission as string);
           console.log('Params missionData >>> : ', missionData);
-          loadReports(missionData); // Filtre par mission
+          loadReports(missionData); // Filtre par chantier
         } catch (error) {
-          console.error('Erreur parsing mission:', error);
+          console.error('Erreur parsing chantier:', error);
         }
       } else {
         loadReports();
       }
-    }, [params.mission]) // Ajoute params.mission comme dépendance    
+    }, [params.mission]) // Ajoute params.chantier comme dépendance    
   );
 
 
@@ -114,7 +114,7 @@ export default function RapportsScreen() {
             const reportRet = {
               ...report,
               title: report.title,
-              mission: report.mission?.title || 'Mission inconnue',
+              mission: report.mission?.title || 'Chantier inconnu',
               missionData: report.mission,
               client: report.mission?.client || 'Client inconnu',
               date: new Date(report.createdAt).toISOString().split('T')[0],
@@ -146,7 +146,7 @@ export default function RapportsScreen() {
                 phone: report.mission.contactPhone,
               }
             };
-            if (missionData && report.mission.id == missionData.id) {
+            if (missionData && report.mission.id == missionData.id && missionData.reportId == report.id) {
               missionExists = true;
               setSelectedReport(reportRet);
               selectedReportMission = reportRet;
@@ -341,9 +341,9 @@ export default function RapportsScreen() {
       if (reports.some(r => r.missionId == selectedReport.missionId && r.status != "envoye_au_client")) {
         Alert.alert(
           'Attention !',
-          `La mission ${selectedReport.missionData?.title} a un ou plusieurs rapports non envoyé, voulez-vous tout de même la clôturer ?
+          `Le chantier ${selectedReport.missionData?.title} a un ou plusieurs rapports non envoyé, voulez-vous tout de même le clôturer ?
   
-Si vous clôturer la mission les rapports non envoyé seron annulés.
+Si vous clôturer le chantier les rapports non envoyé seron annulés.
             ` ,
           [
             {
@@ -355,8 +355,8 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
                 });
 
                 Alert.alert(
-                  `La mission ${selectedReport.missionData?.title} est clôturée.`,
-                  `La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`
+                  `Le chantier ${selectedReport.missionData?.title} est clôturée.`,
+                  `La gestion et la modification des rapports ne sont plus autorisées pour ce chantier.`
                 );
                 await loadReports();
               }
@@ -376,8 +376,8 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
         });
 
         Alert.alert(
-          `La mission ${selectedReport.missionData?.title} est clôturée.`,
-          `La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`
+          `Le chantier ${selectedReport.missionData?.title} est clôturée.`,
+          `La gestion et la modification des rapports ne sont plus autorisées pour ce chantier.`
         );
         await loadReports();
       }
@@ -404,9 +404,9 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
 
       Alert.alert(
         'Rapport envoyé au client',
-        `Souhaitez-vous clôturer la mission ${selectedReport.missionData?.title} ?
+        `Souhaitez-vous clôturer le chantier ${selectedReport.missionData?.title} ?
   
-⚠️ Une fois la mission clôturée, il ne sera plus possible de créer, modifier ou envoyer des rapports.
+⚠️ Une fois le chantier clôturé, il ne sera plus possible de créer, modifier ou envoyer des rapports.
         ` ,
         [
           {
@@ -531,7 +531,7 @@ Si vous clôturer la mission les rapports non envoyé seron annulés.
       const body = `Bonjour ${selectedReport?.contact.firstName},
 Veuillez trouver ci-joint le rapport de visite suivant:
 
-Mission: ${selectedReport?.title}
+Chantier: ${selectedReport?.title}
 Date d'attribution: ${selectedReport.dateMission} à ${selectedReport.timeMission}
 Date de visite: ${new Date(visitResponse?.data?.createdAt || '').toLocaleString('fr-FR')}
 Adresse chantier: ${selectedReport.location} 
@@ -1402,7 +1402,7 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Loading Mission Modal */}
+      {/* Loading Chantier Modal */}
       <Modal visible={loadingReport} animationType="fade" transparent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

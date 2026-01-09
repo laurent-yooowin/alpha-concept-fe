@@ -81,10 +81,10 @@ export default function MissionsScreen() {
   const [showReportsModal, setShowReportsModal] = useState(false);
 
   const filters = [
-    { id: 'toutes', label: 'Toutes les missions', count: 15, color: '#8B5CF6', icon: FileText },
-    { id: 'aujourdhui', label: 'Missions d\'aujourd\'hui', count: 3, color: '#3B82F6', icon: Clock },
-    { id: 'en_retard', label: 'Missions en retard', count: 2, color: '#EF4444', icon: AlertTriangle },
-    { id: 'planifiees', label: 'Missions planifiées', count: 10, color: '#10B981', icon: Calendar },
+    { id: 'toutes', label: 'Touts les chantiers', count: 15, color: '#8B5CF6', icon: FileText },
+    { id: 'aujourdhui', label: 'Chantiers d\'aujourd\'hui', count: 3, color: '#3B82F6', icon: Clock },
+    { id: 'en_retard', label: 'Chantiers en retard', count: 2, color: '#EF4444', icon: AlertTriangle },
+    { id: 'planifiees', label: 'Chantiers planifiés', count: 10, color: '#10B981', icon: Calendar },
   ];
 
   const missionTypes = [
@@ -93,8 +93,8 @@ export default function MissionsScreen() {
     'Divers'
   ];
 
-  // Initialize date and time for new mission
-  // Charger les missions depuis le backend
+  // Initialize date and time for new chantier
+  // Charger les chantiers depuis le backend
   useFocusEffect(
     useCallback(() => {
       const today = new Date();
@@ -234,7 +234,7 @@ export default function MissionsScreen() {
             ...mission,
             hasVisit: hasVisit,
             hasReport: hasReport,
-            title: mission.title?.toUpperCase() || 'MISSION SANS TITRE',
+            title: mission.title?.toUpperCase() || 'CHANTIER SANS TITRE',
             client: mission.client || 'Client non renseigné',
             status: mission.status === 'en_cours' ? 'aujourdhui' :
               mission.status === 'terminee' ? 'planifiees' :
@@ -267,7 +267,7 @@ export default function MissionsScreen() {
         setMissions([]);
       }
     } catch (error) {
-      console.log('Erreur lors du chargement des missions:', error);
+      console.log('Erreur lors du chargement des chantiers:', error);
       setMissions([]);
     }
   };
@@ -391,7 +391,7 @@ export default function MissionsScreen() {
 
   const startVisitForMission = (visitId: string, missionId: string) => {
     const mission = missions.find(m => m.id === missionId);
-    // Encoder les données de la mission pour les passer en paramètres
+    // Encoder les données du chantier pour les passer en paramètres
     const missionData = encodeURIComponent(JSON.stringify({
       ...mission,
       id: mission.id,
@@ -431,7 +431,7 @@ export default function MissionsScreen() {
   const openReportDetails = (reportId: string, missionId: string) => {
     if (!missionId) return;
     const mission = missions.find(m => m.id === missionId);
-    // Encoder les données de la mission pour les passer en paramètres
+    // Encoder les données du chantier pour les passer en paramètres
     const missionData = encodeURIComponent(JSON.stringify({
       ...mission,
       id: mission.id,
@@ -448,9 +448,9 @@ export default function MissionsScreen() {
     router.push(`/rapports?mission=${missionData}`);
   };
 
-  // Toutes les missions peuvent maintenant avoir un bouton visite
+  // Tous les chantiers peuvent maintenant avoir un bouton visite
   const canStartVisit = (status: string) => {
-    // return status != 'terminée'; // Toutes les missions peuvent démarrer une visite
+    // return status != 'terminée'; // Tous les chantiers peuvent démarrer une visite
     return true;
   };
 
@@ -464,7 +464,7 @@ export default function MissionsScreen() {
     filtermissions(missions, filterId);
   };
 
-  // Fonction pour ouvrir la fiche de mission
+  // Fonction pour ouvrir la fiche de chantier
   const openMissionDetail = async (mission: any) => {
     try {
       setEditSelectedDate(null);
@@ -569,8 +569,8 @@ export default function MissionsScreen() {
       setShowMissionDetail(true);
       setIsEditing(false);
     } catch (error) {
-      console.log('Erreur lors du chargement de la mission:', error);
-      Alert.alert('Erreur', 'Impossible de charger les détails de la mission');
+      console.log('Erreur lors du chargement du chantier:', error);
+      Alert.alert('Erreur', 'Impossible de charger les détails du chantier');
     }
   };
 
@@ -649,7 +649,7 @@ export default function MissionsScreen() {
   const handleSaveMission = async () => {
     // Validation des champs obligatoires
     if (!editedMission.title.trim()) {
-      Alert.alert('Erreur', 'Le titre de la mission est obligatoire');
+      Alert.alert('Erreur', 'Le titre du chantier est obligatoire');
       return;
     }
     if (!editedMission.client.trim()) {
@@ -705,7 +705,7 @@ export default function MissionsScreen() {
       const response = await missionService.updateMission(selectedMission.id, updateData);
 
       if (response.data) {
-        Alert.alert('Succès', 'La mission a été mise à jour avec succès');
+        Alert.alert('Succès', 'Le chantier a été mis à jour avec succès');
         setIsEditing(false);
         loadMissions();
         setShowMissionDetail(false);
@@ -714,7 +714,7 @@ export default function MissionsScreen() {
       }
       // } else {
       if (!isBackendMission) {
-        // Mettre à jour localement pour les missions mock
+        // Mettre à jour localement pour les chantiers mock
         const updatedMission = {
           ...selectedMission,
           title: editedMission.title.toUpperCase(),
@@ -738,11 +738,11 @@ export default function MissionsScreen() {
 
         setSelectedMission(updatedMission);
         setIsEditing(false);
-        Alert.alert('Succès', 'La mission a été mise à jour avec succès');
+        Alert.alert('Succès', 'Le chantier a été mis à jour avec succès');
       }
     } catch (error) {
       console.log('Erreur lors de la sauvegarde:', error);
-      Alert.alert('Erreur', 'Erreur lors de la sauvegarde de la mission');
+      Alert.alert('Erreur', 'Erreur lors de la sauvegarde du chantier');
     }
   };
 
@@ -763,11 +763,11 @@ export default function MissionsScreen() {
     }
   };
 
-  // Fonction pour supprimer une mission
+  // Fonction pour supprimer un chantier
   const handleDeleteMission = async () => {
     Alert.alert(
-      'Supprimer la mission',
-      'Êtes-vous sûr de vouloir supprimer cette mission ? Cette action est irréversible.',
+      'Supprimer le chantier',
+      'Êtes-vous sûr de vouloir supprimer ce chantier ? Cette action est irréversible.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -786,19 +786,19 @@ export default function MissionsScreen() {
                   return;
                 }
 
-                Alert.alert('Succès', 'La mission a été supprimée avec succès');
+                Alert.alert('Succès', 'Le chantier a été supprimé avec succès');
                 setShowMissionDetail(false);
                 loadMissions();
               } else {
-                // Supprimer localement pour les missions mock
+                // Supprimer localement pour les chantiers mock
                 const updatedMissions = missions.filter(m => m.id !== selectedMission.id);
                 setMissions(updatedMissions);
-                Alert.alert('Succès', 'La mission a été supprimée avec succès');
+                Alert.alert('Succès', 'Le chantier a été supprimé avec succès');
                 setShowMissionDetail(false);
               }
             } catch (error) {
               console.log('Erreur lors de la suppression:', error);
-              Alert.alert('Erreur', 'Erreur lors de la suppression de la mission');
+              Alert.alert('Erreur', 'Erreur lors de la suppression du chantier');
             }
           },
         },
@@ -857,7 +857,7 @@ export default function MissionsScreen() {
 
   const handleCreateMission = async () => {
     if (!newMission.title.trim()) {
-      Alert.alert('Erreur', 'Le titre de la mission est obligatoire');
+      Alert.alert('Erreur', 'Le titre du chantier est obligatoire');
       return;
     }
     if (!newMission.client.trim()) {
@@ -914,8 +914,8 @@ export default function MissionsScreen() {
       resetForm();
 
       Alert.alert(
-        'Mission créée !',
-        `La mission "${newMission.title}" a été programmée avec succès pour le ${newMission.date} à ${newMission.time}.\n\nContact: ${newMission.contactFirstName} ${newMission.contactLastName}\nEmail: ${newMission.contactEmail}`,
+        'Chantier créé !',
+        `Le chantier "${newMission.title}" a été programmé avec succès pour le ${newMission.date} à ${newMission.time}.\n\nContact: ${newMission.contactFirstName} ${newMission.contactLastName}\nEmail: ${newMission.contactEmail}`,
         [
           {
             text: 'OK',
@@ -928,7 +928,7 @@ export default function MissionsScreen() {
     } catch (error: any) {
       Alert.alert(
         'Erreur',
-        error.message || 'Impossible de créer la mission. Veuillez réessayer.'
+        error.message || 'Impossible de créer le chantier. Veuillez réessayer.'
       );
     } finally {
       setIsCreatingMission(false);
@@ -945,7 +945,7 @@ export default function MissionsScreen() {
     <SafeAreaView style={styles.container} edges={['top']} >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>MES MISSIONS</Text>
+        <Text style={styles.headerTitle}>MES CHANTIERS</Text>
       </View>
 
       {/* Search Bar */}
@@ -954,7 +954,7 @@ export default function MissionsScreen() {
           <Search size={20} color="#64748B" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher une mission..."
+            placeholder="Rechercher un chantier..."
             placeholderTextColor="#64748B"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -979,7 +979,7 @@ export default function MissionsScreen() {
                 </View>
                 <View style={styles.filterDropdownTextContainer}>
                   <Text style={styles.filterDropdownText} numberOfLines={1}>{activeFilterData?.label}</Text>
-                  <Text style={styles.filterDropdownCount}>{filteredMissions.length} mission{filteredMissions.length > 1 ? 's' : ''}</Text>
+                  <Text style={styles.filterDropdownCount}>{filteredMissions.length} chantier{filteredMissions.length > 1 ? 's' : ''}</Text>
                 </View>
               </View>
               <ChevronDown size={20} color="#FFFFFF" />
@@ -988,7 +988,7 @@ export default function MissionsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Missions List */}
+      {/* Chantiers List */}
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {filteredMissions.length === 0 ? (
           <View style={styles.emptyState}>
@@ -997,11 +997,11 @@ export default function MissionsScreen() {
               style={styles.emptyStateGradient}
             >
               <Calendar size={48} color="#64748B" />
-              <Text style={styles.emptyStateTitle}>AUCUNE MISSION</Text>
+              <Text style={styles.emptyStateTitle}>AUCUN CHANTIER</Text>
               <Text style={styles.emptyStateText}>
                 {activeFilter === 'toutes'
-                  ? 'Aucune mission ne correspond à votre recherche'
-                  : `Aucune mission ${activeFilter === 'aujourdhui' ? 'prévue aujourd\'hui' :
+                  ? 'Aucun chantier ne correspond à votre recherche'
+                  : `Aucun chantier ${activeFilter === 'aujourdhui' ? 'prévue aujourd\'hui' :
                     activeFilter === 'en_retard' ? 'en retard' :
                       activeFilter === 'planifiees' ? 'planifiée' : ''
                   }`
@@ -1133,7 +1133,7 @@ export default function MissionsScreen() {
         )}
       </ScrollView>
 
-      {/* Mission Detail Modal */}
+      {/* Chantier Detail Modal */}
       <Modal visible={showMissionDetail} animationType="slide" transparent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1147,7 +1147,7 @@ export default function MissionsScreen() {
               >
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>
-                    {isEditing ? 'MODIFIER LA MISSION' : 'FICHE DE MISSION'}
+                    {isEditing ? 'MODIFIER LE CHANTIER' : 'FICHE DE CHANTIER'}
                   </Text>
                   <View style={styles.modalHeaderButtons}>
                     {selectedMission?.status != 'terminee' && (!isEditing ? (
@@ -1193,9 +1193,9 @@ export default function MissionsScreen() {
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.modalScrollContent}
                 >
-                  {/* Titre de la mission */}
+                  {/* Titre du chantier */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
+                    <Text style={styles.inputLabel}>TITRE DU CHANTIER *</Text>
                     <View style={styles.inputContainer}>
                       <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                       {isEditing ? (
@@ -1354,9 +1354,9 @@ export default function MissionsScreen() {
                     </View>
                   </View>
 
-                  {/* Type de mission */}
+                  {/* Type de chantier */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
+                    <Text style={styles.inputLabel}>TYPE DE CHANTIER</Text>
                     {isEditing ? (
                       <View style={styles.typeSelector}>
                         {missionTypes.map((type, index) => (
@@ -1527,7 +1527,7 @@ export default function MissionsScreen() {
                       {isEditing ? (
                         <TextInput
                           style={[styles.textInput, styles.textArea]}
-                          placeholder="Détails sur la mission, points particuliers à vérifier..."
+                          placeholder="Détails sur le chantier, points particuliers à vérifier..."
                           placeholderTextColor="#64748B"
                           value={editedMission?.description || ''}
                           onChangeText={(text) => setEditedMission(prev => ({ ...prev, description: text }))}
@@ -1616,7 +1616,7 @@ export default function MissionsScreen() {
                 style={styles.filterMenuGradient}
               >
                 <View style={styles.filterMenuHeader}>
-                  <Text style={styles.filterMenuTitle}>FILTRER LES MISSIONS</Text>
+                  <Text style={styles.filterMenuTitle}>FILTRER LES CHANTIERS</Text>
                   <TouchableOpacity
                     style={styles.closeButton}
                     onPress={() => setShowFilterMenu(false)}
@@ -1650,7 +1650,7 @@ export default function MissionsScreen() {
                               </View>
                               <View style={styles.filterMenuTextContainer}>
                                 <Text style={styles.filterMenuItemTextActive} numberOfLines={1}>{filter.label}</Text>
-                                <Text style={styles.filterMenuItemSubtextActive}>{filter.count} mission{filter.count > 1 ? 's' : ''}</Text>
+                                <Text style={styles.filterMenuItemSubtextActive}>{filter.count} chantier{filter.count > 1 ? 's' : ''}</Text>
                               </View>
                             </View>
                             <View style={styles.filterMenuBadgeActive}>
@@ -1666,7 +1666,7 @@ export default function MissionsScreen() {
                             </View>
                             <View style={styles.filterMenuTextContainer}>
                               <Text style={styles.filterMenuItemText} numberOfLines={1}>{filter.label}</Text>
-                              <Text style={styles.filterMenuItemSubtext}>{filter.count} mission{filter.count > 1 ? 's' : ''}</Text>
+                              <Text style={styles.filterMenuItemSubtext}>{filter.count} chantier{filter.count > 1 ? 's' : ''}</Text>
                             </View>
                           </View>
                           <View style={styles.filterMenuBadge}>
@@ -1702,7 +1702,7 @@ export default function MissionsScreen() {
         </LinearGradient>
       </TouchableOpacity>
 
-      {/* Create Mission Modal */}
+      {/* Create chantier Modal */}
       <Modal visible={showCreateModal} animationType="slide" transparent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1715,7 +1715,7 @@ export default function MissionsScreen() {
                 style={styles.missionDetailModalGradient}
               >
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>NOUVELLE MISSION</Text>
+                  <Text style={styles.modalTitle}>NOUVEAU CHANTIER</Text>
                   <TouchableOpacity
                     style={styles.modalCloseButton}
                     onPress={handleCancelButton}
@@ -1729,9 +1729,9 @@ export default function MissionsScreen() {
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.modalScrollContent}
                 >
-                  {/* Titre de la mission */}
+                  {/* Titre du chantier */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TITRE DE LA MISSION *</Text>
+                    <Text style={styles.inputLabel}>TITRE DU CHANTIER *</Text>
                     <View style={styles.inputContainer}>
                       <Building size={16} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
@@ -1858,9 +1858,9 @@ export default function MissionsScreen() {
                     </View>
                   </View>
 
-                  {/* Type de mission */}
+                  {/* Type de chantier */}
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>TYPE DE MISSION</Text>
+                    <Text style={styles.inputLabel}>TYPE DE CHANTIER</Text>
                     <View style={styles.typeSelector}>
                       {missionTypes.map((type, index) => (
                         <TouchableOpacity
@@ -2045,7 +2045,7 @@ export default function MissionsScreen() {
                       <Description size={16} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
                         style={[styles.textInput, styles.textArea]}
-                        placeholder="Détails sur la mission, points particuliers à vérifier..."
+                        placeholder="Détails sur le chantier, points particuliers à vérifier..."
                         placeholderTextColor="#64748B"
                         value={newMission.description}
                         onChangeText={(text) => setNewMission(prev => ({ ...prev, description: text }))}
@@ -2097,7 +2097,7 @@ export default function MissionsScreen() {
                       ) : (
                         <>
                           <Plus size={16} color="#FFFFFF" />
-                          <Text style={styles.saveButtonText}>CRÉER LA MISSION</Text>
+                          <Text style={styles.saveButtonText}>CRÉER LE CHANTIER</Text>
                         </>
                       )}
                     </LinearGradient>
@@ -2138,7 +2138,7 @@ export default function MissionsScreen() {
                       onPress={() => startVisitForMission(visit.id, missionVisits.mission?.id)}
                     >
                       <LinearGradient
-                        colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#64748B', '#475569'])}
+                        colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#c53062ff', '#EC407A'])}
                         style={styles.missionSelectorItemGradient}
                       >
                         <View style={styles.missionSelectorItemContent}>
@@ -2149,7 +2149,7 @@ export default function MissionsScreen() {
                           </View>
                           <View style={styles.missionSelectorItemRight}>
                             <Text style={styles.missionSelectorItemType}>{missionVisits.mission.type}</Text>
-                            <ArrowRight size={16} color="#94A3B8" />
+                            <ArrowRight size={16} color="#eceff2ff" />
                           </View>
                         </View>
                       </LinearGradient>
@@ -2191,7 +2191,7 @@ export default function MissionsScreen() {
                       onPress={() => openReportDetails(visit.report?.id, missionVisits.mission?.id)}
                     >
                       <LinearGradient
-                        colors={['#374151', '#4B5563']}
+                        colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#c53062ff', '#EC407A'])}
                         style={styles.missionSelectorItemGradient}
                       >
                         <View style={styles.missionSelectorItemContent}>
@@ -2499,7 +2499,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
   },
-  // Mission Detail Modal styles
+  // Chantier Detail Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
@@ -3203,7 +3203,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Mission Selector Modal styles
+  // Chantier Selector Modal styles
   missionSelectorOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
@@ -3284,13 +3284,13 @@ const styles = StyleSheet.create({
   missionSelectorItemClient: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: 'rgba(0, 0, 0, 0.5)',
+    color: '#FFFFFF',
     marginBottom: 2,
   },
   missionSelectorItemLocation: {
     fontSize: 11,
     fontFamily: 'Inter-Regular',
-    color: '#afb3b9ff',
+    color: '#eceff2ff',
   },
   missionSelectorItemRight: {
     flex: 1,
@@ -3302,7 +3302,7 @@ const styles = StyleSheet.create({
   missionSelectorItemType: {
     fontSize: 10,
     fontFamily: 'Inter-Medium',
-    color: '#94A3B8',
+    color: '#eceff2ff',
     textAlign: 'right',
   },
 });

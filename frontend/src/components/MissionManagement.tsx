@@ -110,8 +110,8 @@ export default function MissionManagement() {
       resetForm();
       fetchData();
     } catch (error) {
-      console.error('Error creating mission:', error);
-      alert('Erreur lors de la création de la mission');
+      console.error('Error creating chantier:', error);
+      alert('Erreur lors de la création du chantier');
     }
   };
 
@@ -168,7 +168,7 @@ export default function MissionManagement() {
         fetchData();
       }
     } catch (error: any) {
-      console.error('Error importing missions:', error);
+      console.error('Error importing chantiers:', error);
       setImportResult({
         success: false,
         message: error.message || 'Erreur lors de l\'import du fichier',
@@ -243,17 +243,17 @@ export default function MissionManagement() {
 
       Swal.fire({
         icon: 'success',
-        title: 'Mission modifiée',
-        text: 'La mission a été modifiée avec succès',
+        title: 'Chantier modifié',
+        text: 'Le chantier a été modifié avec succès',
         timer: 2000,
         showConfirmButton: false,
       });
     } catch (error) {
-      console.error('Error updating mission:', error);
+      console.error('Error updating chantier:', error);
       Swal.fire({
         icon: 'error',
         title: 'Erreur',
-        text: 'Erreur lors de la modification de la mission',
+        text: 'Erreur lors de la modification du chantier',
       });
     }
   };
@@ -267,7 +267,7 @@ export default function MissionManagement() {
 
     const result = await Swal.fire({
       title: 'Confirmer la suppression',
-      html: `Êtes-vous sûr de vouloir supprimer la mission :<br/><strong>${mission.title}</strong> ?`,
+      html: `Êtes-vous sûr de vouloir supprimer le chantier :<br/><strong>${mission.title}</strong> ?`,
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#dc2626',
@@ -283,17 +283,17 @@ export default function MissionManagement() {
 
         Swal.fire({
           icon: 'success',
-          title: 'Mission supprimée',
-          text: 'La mission a été supprimée avec succès',
+          title: 'Chantier supprimée',
+          text: 'Le chantier a été supprimé avec succès',
           timer: 2000,
           showConfirmButton: false,
         });
       } catch (error) {
-        console.error('Error deleting mission:', error);
+        console.error('Error deleting chantier:', error);
         Swal.fire({
           icon: 'error',
           title: 'Erreur',
-          text: 'Erreur lors de la suppression de la mission',
+          text: 'Erreur lors de la suppression du chantier',
         });
       }
     }
@@ -327,13 +327,13 @@ export default function MissionManagement() {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'assignee': return 'Assignée';
-      case 'planifiee': return 'Planifiée';
-      case 'affectee': return 'Affectée';
-      case 'refusee': return 'Refusée';
+      case 'assignee': return 'Assigné';
+      case 'planifiee': return 'Planifié';
+      case 'affectee': return 'Affecté';
+      case 'refusee': return 'Refusé';
       case 'en_cours': return 'En cours';
-      case 'terminee': return 'Terminée';
-      case 'annulee': return 'Annulée';
+      case 'terminee': return 'Terminé';
+      case 'annulee': return 'Annulé';
       default: return status;
     }
   };
@@ -346,8 +346,8 @@ export default function MissionManagement() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Gestion des missions</h1>
-          <p className="text-slate-600 mt-1">{missions.length} mission(s) au total</p>
+          <h1 className="text-3xl font-bold text-slate-900">Gestion des chantiers</h1>
+          <p className="text-slate-600 mt-1">{missions.length} chantier(s) au total</p>
         </div>
         {isAdmin && (
           <div className="flex gap-3">
@@ -356,7 +356,7 @@ export default function MissionManagement() {
               className="flex items-center gap-2 bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 transition-colors"
             >
               <Upload className="w-5 h-5" />
-              Importer missions
+              Importer chantiers
             </button>
             <button
               onClick={() => {
@@ -366,7 +366,7 @@ export default function MissionManagement() {
               className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors"
             >
               <Plus className="w-5 h-5" />
-              Nouvelle mission
+              Nouveau chantier
             </button>
           </div>
         )}
@@ -392,12 +392,12 @@ export default function MissionManagement() {
               className="pl-10 pr-8 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none appearance-none bg-white"
             >
               <option value="all">Tous les statuts</option>
-              <option value="planifiee">Planifiée</option>
-              <option value="affectee">Affectée</option>
+              <option value="planifiee">Planifié</option>
+              <option value="affectee">Affecté</option>
               <option value="en_cours">En cours</option>
-              <option value="terminee">Terminée</option>
-              <option value="refusee">Refusée</option>
-              <option value="annulee">Annulée</option>
+              <option value="terminee">Terminé</option>
+              <option value="refusee">Refusé</option>
+              <option value="annulee">Annulé</option>
             </select>
           </div>
         </div>
@@ -406,7 +406,7 @@ export default function MissionManagement() {
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Mission</th>
+                <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Chantier</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Client</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Date & Heure</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Type</th>
@@ -455,7 +455,16 @@ export default function MissionManagement() {
                         </span>
                       </div>
                     ) : (
-                      <span className="text-sm text-slate-400">Non affecté</span>
+                      currentUser?.role == 'ROLE_USER' ? (
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm text-slate-700">
+                            {currentUser.firstName} {currentUser.lastName}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-slate-400">Non affecté</span>
+                      )
                     )}
                   </td>
                   <td className="px-6 py-4">
@@ -467,7 +476,7 @@ export default function MissionManagement() {
                         <button
                           onClick={(e) => handleDeleteMission(mission, e)}
                           className="p-2 hover:bg-red-100 rounded-lg transition-colors group"
-                          title="Supprimer la mission"
+                          title="Supprimer le chantier"
                         >
                           <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-red-600" />
                         </button>
@@ -485,12 +494,12 @@ export default function MissionManagement() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900">Nouvelle mission</h2>
+              <h2 className="text-2xl font-bold text-slate-900">Nouveau chantier</h2>
             </div>
 
             <form onSubmit={handleCreateMission} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Titre de la mission *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Titre du chantier *</label>
                 <input
                   type="text"
                   value={formData.title}
@@ -521,7 +530,7 @@ export default function MissionManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Type de mission *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Type de chantier *</label>
                   <select
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value })}
@@ -672,7 +681,7 @@ export default function MissionManagement() {
                   type="submit"
                   className="flex-1 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
                 >
-                  Créer la mission
+                  Créer le chantier
                 </button>
               </div>
             </form>
@@ -684,7 +693,7 @@ export default function MissionManagement() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-slate-900">Importer des missions</h2>
+              <h2 className="text-2xl font-bold text-slate-900">Importer des chantiers</h2>
               <button
                 onClick={closeImportModal}
                 className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
@@ -702,7 +711,7 @@ export default function MissionManagement() {
                       Formats acceptés : CSV, Excel (.xlsx, .xls)
                     </p>
                     <p className="text-sm text-blue-800">
-                      Le fichier doit contenir les colonnes nécessaires pour créer les missions.
+                      Le fichier doit contenir les colonnes nécessaires pour créer les chantiers.
                     </p>
                   </div>
 
@@ -811,11 +820,11 @@ export default function MissionManagement() {
 
                       {importResult.data.ignoredMissions && importResult.data.ignoredMissions.length > 0 && (
                         <div className="border border-amber-200 rounded-lg p-4 bg-amber-50">
-                          <h4 className="font-semibold text-amber-900 mb-2">Missions ignorées</h4>
+                          <h4 className="font-semibold text-amber-900 mb-2">Chantiers ignorés</h4>
                           <div className="space-y-2 max-h-40 overflow-y-auto">
                             {importResult.data.ignoredMissions.map((ignored: any, index: number) => (
                               <div key={index} className="text-sm text-amber-800 bg-white rounded p-2">
-                                {ignored.title || `Mission ${index + 1}`}: {ignored.reason}
+                                {ignored.title || `Chantier ${index + 1}`}: {ignored.reason}
                               </div>
                             ))}
                           </div>
@@ -845,7 +854,7 @@ export default function MissionManagement() {
             <div className="p-6 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Edit className="w-6 h-6 text-prosps-blue" />
-                <h2 className="text-2xl font-bold text-slate-900">Modifier la mission</h2>
+                <h2 className="text-2xl font-bold text-slate-900">Modifier le chantier</h2>
               </div>
               <button
                 onClick={() => {
@@ -861,7 +870,7 @@ export default function MissionManagement() {
 
             <form onSubmit={handleUpdateMission} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Titre de la mission *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Titre du chantier *</label>
                 <input
                   type="text"
                   value={formData.title}
@@ -892,7 +901,7 @@ export default function MissionManagement() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Type de mission *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Type de chantier *</label>
                   <select
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value })}
@@ -1047,7 +1056,7 @@ export default function MissionManagement() {
                   type="submit"
                   className="flex-1 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
                 >
-                  Modifier la mission
+                  Modifier le chantier
                 </button>
               </div>
             </form>

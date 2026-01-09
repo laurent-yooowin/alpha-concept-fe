@@ -6,6 +6,7 @@ import { generatePdfService } from '../services/generatePdfService';
 import { visitService } from '../services/visitService';
 import { filesService } from '../services/filesService';
 import Swal from 'sweetalert2';
+import PhotoReportEditor from './PhotoReportEditor';
 
 interface Report {
   id: string;
@@ -54,6 +55,7 @@ export default function ReportManagement() {
   const [adminRemarks, setAdminRemarks] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [cursorPos, setCursorPos] = useState(null);
+  const [photos, setPhotos] = useState([]);
 
   const editedContentRef = useRef(null);
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
@@ -143,7 +145,7 @@ export default function ReportManagement() {
 
         return {
           'Statut': report.status,
-          'Mission': mission?.title || '',
+          'Chantier': mission?.title || '',
           'Client': mission?.client || '',
           'Référence Client': mission?.refClient || '',
           'Adresse': mission?.address || '',
@@ -204,6 +206,7 @@ export default function ReportManagement() {
 
   const openViewModal = (report: Report) => {
     setSelectedReport(report);
+    setPhotos(report.visit?.photos || []);
     setEditedContent(report.content || '');
     setEditedHeader(report.header || '');
     setEditedFooter(report.footer || '');
@@ -254,9 +257,9 @@ export default function ReportManagement() {
       if (hasUnsentReports) {
         const result = await Swal.fire({
           title: 'Attention !',
-          text: `La mission ${selectedReport?.mission} a un ou plusieurs rapports non envoyés.
+          text: `Le chantier ${selectedReport?.mission} a un ou plusieurs rapports non envoyés.
 
-Si vous clôturez la mission, les rapports non envoyés seront annulés.`,
+Si vous clôturez le chantier, les rapports non envoyés seront annulés.`,
           icon: 'warning',
           showCancelButton: true,
           confirmButtonText: 'Oui',
@@ -278,9 +281,9 @@ Si vous clôturez la mission, les rapports non envoyés seront annulés.`,
 
           // Succès
           await Swal.fire({
-            title: 'Mission clôturée',
-            text: `La mission ${selectedReport?.mission} est clôturée.
-La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`,
+            title: 'Chantier clôturé',
+            text: `Le chantier ${selectedReport?.mission} est clôturé.
+La gestion et la modification des rapports ne sont plus autorisées pour ce chantier.`,
             icon: 'success',
           });
         }
@@ -293,9 +296,9 @@ La gestion et la modification des rapports ne sont plus autorisées pour cette m
 
         // Succès
         await Swal.fire({
-          title: 'Mission clôturée',
-          text: `La mission ${selectedReport?.mission} est clôturée.
-La gestion et la modification des rapports ne sont plus autorisées pour cette mission.`,
+          title: 'Chantier clôturé',
+          text: `Le chantier ${selectedReport?.mission} est clôturé.
+La gestion et la modification des rapports ne sont plus autorisées pour ce chantier.`,
           icon: 'success',
         });
       }
@@ -307,7 +310,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour cette m
       await terminateReportFn();
       await Swal.fire({
         title: 'Erreur',
-        text: "Une erreur est survenue lors de la clôture de la mission. Veuillez réessayer.",
+        text: "Une erreur est survenue lors de la clôture du chantier. Veuillez réessayer.",
         icon: 'error',
       });
     }
@@ -323,9 +326,9 @@ La gestion et la modification des rapports ne sont plus autorisées pour cette m
 
       Swal.fire({
         title: 'Rapport envoyé au client',
-        text: `Souhaitez-vous clôturer la mission ${selectedReport?.mission} ?
+        text: `Souhaitez-vous clôturer le chantier ${selectedReport?.mission} ?
 
-⚠️ Une fois la mission clôturée, il ne sera plus possible de créer, modifier ou envoyer des rapports.`,
+⚠️ Une fois le chantier clôturé, il ne sera plus possible de créer, modifier ou envoyer des rapports.`,
         icon: 'success',
         showCancelButton: true,
         confirmButtonText: 'Oui',
@@ -432,7 +435,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour cette m
         const message = `Bonjour ${selectedReport?.contactFirstName},
 Veuillez trouver ci-joint le rapport de visite suivant:
 
-Mission: ${selectedReport?.mission}
+Chantier: ${selectedReport?.mission}
 Date d'attribution: ${selectedReport.missionDate} ${selectedReport.missionTime && selectedReport.missionTime.trim() != '' ? ' à ' + selectedReport.missionTime : ''}
 Date de visite: ${new Date(selectedReport?.visit?.createdAt || '').toLocaleDateString('fr-FR')}
 Adresse chantier: ${selectedReport.address} 
@@ -575,16 +578,17 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
       setEditedContent(value);
     }
   };
+
   const handleSaveEdits = async () => {
     if (!selectedReport) return;
-    let photos = [];
+    // let photos = [];
 
     try {
-      const visitResponse = await visitService.getVisit(selectedReport.visitId);
-      // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
-      if (visitResponse && visitResponse.photos) {
-        photos = updatePhotosFromEditedContent(visitResponse.photos);
-      }
+      // const visitResponse = await visitService.getVisit(selectedReport.visitId);
+      // // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
+      // if (visitResponse && visitResponse.photos) {
+      //   photos = updatePhotosFromEditedContent(visitResponse.photos);
+      // }
       const respReport = await reportsAPI.update(selectedReport.id, {
         content: editedContent,
         header: editedHeader,
@@ -593,7 +597,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
         remarquesAdmin: adminRemarks,
       });
 
-      const respVisit = await visitService.update(visitResponse.id, {
+      const respVisit = await visitService.update(selectedReport.visit?.id, {
         photos: photos
       });
 
@@ -700,6 +704,58 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
     a.remove();
     window.URL.revokeObjectURL(url);
   }
+
+  const downloadImages = async (url) => {
+    try {
+      const response = await filesService.downloadFile(url, 'reports', true);
+      // console.log('response for download >>> : ', response);
+      // const blob = await response.data.data.blob();
+      // const url = window.URL.createObjectURL(blob);
+      const { base64, contentType, fileName } = response.data;
+      return base64;
+    } catch (error) {
+      console.error('Erreur lors du téléchargement de l\'image:', error);
+    }
+
+  }
+
+  const generateEditedContent = (photosData) => {
+    let content = 'OBSERVATIONS PRINCIPALES:\n';
+
+    photosData.forEach((photo, index) => {
+      const getRiskLevel = (level) => {
+        const levels = { 'eleve': 'HIGH', 'moyen': 'MEDIUM', 'faible': 'LOW' };
+        return levels[level] || level.toUpperCase();
+      };
+
+      content += '━'.repeat(25) + '\n';
+      content += `Photo ${index + 1} - Niveau de risque: ${getRiskLevel(photo.analysis.riskLevel)}\n`;
+      content += `📸 Photo: ${photo.s3Url}\n\n`;
+      content += 'Observations:\n';
+      content += photo.analysis.observation.map(obs => `• ${obs}`).join('\n') + '\n\n';
+      content += 'Recommandations:\n';
+      content += photo.analysis.recommendation.map(rec => `• ${rec}`).join('\n') + '\n\n';
+      content += '🏛️ Références:\n';
+      content += photo.analysis.references.map(ref => `• ${ref}`).join('\n') + '\n\n';
+      content += '💬 Commentaires du coordonnateur:\n';
+      content += (photo.comment || '') + '\n\n';
+    });
+
+    return content;
+  };
+
+  const handleSave = async () => {
+    const editedContent = generateEditedContent(photos);
+
+    console.log('Photos:', photos);
+    console.log('Header:', editedHeader);
+    console.log('Content:', editedContent);
+    console.log('Footer:', editedFooter);
+
+    // Sauvegarder dans votre backend
+    setIsEditing(false);
+    await handleSaveEdits();
+  };
 
   if (loading) {
     return <div className="text-center py-12">Chargement...</div>;
@@ -850,7 +906,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                 <label className="block text-sm font-medium text-slate-700 mb-2">Contenu du rapport</label>
                 {isEditing ? (
                   <>
-                    <p className="mb-1 text-sm text-slate-500">En-tête</p>
+                    {/* <p className="mb-1 text-sm text-slate-500">En-tête</p>
                     <textarea
                       value={editedHeader}
                       onChange={(e) => setEditedHeader(e.target.value)}
@@ -873,12 +929,31 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                       onChange={(e) => setEditedFooter(e.target.value)}
                       rows={10}
                       className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                    /> */}
+
+                    <PhotoReportEditor
+                      initialPhotos={selectedReport.visit?.photos || []}
+                      downloadImages={downloadImages}
+                      isEditing={isEditing}
+                      editedFooter={editedFooter}
+                      editedHeader={editedHeader}
+                      onPhotosChange={setPhotos}
+                      onHeaderChange={setEditedHeader}
+                      onFooterChange={setEditedFooter}
                     />
                   </>
                 ) : (
-                  <div className="p-4 bg-slate-50 rounded-lg whitespace-pre-wrap text-slate-900">
-                    {editedHeader + '\n' + editedContent + '\n' + editedFooter}
-                  </div>
+                  // <div className="p-4 bg-slate-50 rounded-lg whitespace-pre-wrap text-slate-900">
+                  //   {editedHeader + '\n' + editedContent + '\n' + editedFooter}
+                  // </div>
+                  <PhotoReportEditor
+                    initialPhotos={selectedReport.visit?.photos || []}
+                    downloadImages={downloadImages}
+                    onSave={handleSave}
+                    isEditing={isEditing}
+                    editedFooter={editedFooter}
+                    editedHeader={editedHeader}
+                  />
                 )}
               </div>
 
@@ -957,7 +1032,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                         Annuler
                       </button>
                       <button
-                        onClick={handleSaveEdits}
+                        onClick={handleSave}
                         className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
                       >
                         <CheckCircle className="w-4 h-4" />

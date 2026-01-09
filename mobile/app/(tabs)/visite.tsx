@@ -146,7 +146,7 @@ export default function VisiteScreen() {
           selectMission(missionData, missionData.visitId, true);
           // setMission(missionData);
         } catch (error) {
-          console.error('Erreur parsing mission:', error);
+          console.error('Erreur parsing chantier:', error);
         }
       } else {
         loadAvailableMissions();
@@ -176,7 +176,7 @@ export default function VisiteScreen() {
           const missionStatusInfo = getMissionStatusInfo(mission.status);
           const newMission = {
             id: mission.id,
-            title: mission.title?.toUpperCase() || 'MISSION SANS TITRE',
+            title: mission.title?.toUpperCase() || 'CHANTIER SANS TITRE',
             client: mission.client || 'Client non renseigné',
             status: mission.status === 'en_cours' ? 'aujourdhui' :
               mission.status === 'terminee' ? 'planifiees' :
@@ -215,7 +215,7 @@ export default function VisiteScreen() {
         return [];
       }
     } catch (error) {
-      console.log('Erreur lors du chargement des missions:', error);
+      console.log('Erreur lors du chargement des chantiers:', error);
       // setMissions([]);
       return [];
     } finally {
@@ -228,27 +228,30 @@ export default function VisiteScreen() {
       if (!userProfile) {
         await loadUserProfile();
       }
-      // Charger les missions utilisateur depuis AsyncStorage
+      // Charger les chantiers utilisateur depuis AsyncStorage
       // const userMissions = await AsyncStorage.getItem('userMissions');
       // const parsedUserMissions = userMissions ? JSON.parse(userMissions) : [];
       const parsedUserMissions = await loadMissions();
       setAvailableMissions(prev => parsedUserMissions);
+      return parsedUserMissions;
     } catch (error) {
-      console.error('Erreur chargement missions:', error);
+      console.error('Erreur chargement chantiers:', error);
+      return [];
     }
   };
 
-  const selectMission = async (selectedMission: any, visitId?: string | null, isInitVisit?: boolean) => {
+  const selectMission = async (selectedMissionParam: any, visitId?: string | null, isInitVisit?: boolean) => {
+    const parsedUserMissions = await loadAvailableMissions();
     if (isInitVisit) {
-      await loadAvailableMissions();
-      await selectVisit(selectedMission, visitId);
+      await selectVisit(selectedMissionParam, visitId);
     } else {
       const createVisit = {
         id: null,
-        missionId: selectedMission.id,
+        missionId: selectedMissionParam.id,
         visitDate: new Date().toLocaleDateString('fr-FR'),
-        userId: selectedMission.userId
+        userId: selectedMissionParam.userId
       };
+      const selectedMission = parsedUserMissions.find(m => m.id === selectedMissionParam.id);
       if (selectedMission && selectedMission.visits?.length > 0 && selectedMission.status != 'terminee') {
         if (!selectedMission.visits.some(v => !v.id)) {
           selectedMission.visits.unshift(createVisit);
@@ -316,7 +319,7 @@ export default function VisiteScreen() {
             setReportSended(true);
           }
           setHasExistingVisit(true);
-          setExistingVisitId(visit?.id);
+          setExistingVisitId(visitId);
           // const reportsResponse = await reportService.getReports();
           if (visit && visit.report) {
             setExistingReportId(visit.report.id);
@@ -408,9 +411,13 @@ export default function VisiteScreen() {
           if (visit && visit.reportGenerated) {
             setReportValidated(true);
           }
+        } else {
+          setExistingVisitId(null);
+          setHasExistingVisit(false);
         }
       } else {
         setReportStatus('brouillon')
+        setReportSended(false);
         setHasExistingVisit(false);
         setExistingVisitId(null);
         setExistingReportId(null);
@@ -853,7 +860,7 @@ export default function VisiteScreen() {
   // Sauvegarder la visite
   const saveVisit = async (photosParam = []) => {
     if (!mission) {
-      Alert.alert('Erreur', 'Veuillez sélectionner une mission');
+      Alert.alert('Erreur', 'Veuillez sélectionner un chantier');
       return;
     }
 
@@ -888,7 +895,7 @@ export default function VisiteScreen() {
 
       let visitResponse;
       let visitId = existingVisitId;
-      // Check if visit already exists for this mission
+      // Check if visit already exists for this chantier
       if (existingVisitId) {
         // Update existing visit
         visitResponse = await visitService.updateVisit(existingVisitId, {
@@ -951,7 +958,7 @@ export default function VisiteScreen() {
 
   const saveReportAndVisit = async () => {
     if (!mission) {
-      Alert.alert('Erreur', 'Veuillez sélectionner une mission');
+      Alert.alert('Erreur', 'Veuillez sélectionner un chantier');
       return;
     }
 
@@ -1011,17 +1018,17 @@ export default function VisiteScreen() {
     setGeneratingReport(true);
     setReportSaved(false);
     setReportSended(false);
-
+    const location = mission.address ? mission.address : (mission.location || 'N/A');
     const validatedPhotos = photos.filter(p => p.validated);
     const totalRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length;
     const mediumRisks = photos.filter(p => p.aiAnalysis?.riskLevel === 'medium').length;
     const header = `RAPPORT DE VISITE SPS
-${mission?.title || 'Mission'}
+${mission?.title || 'Chantier sans nom'}
 
 CLIENT: ${mission?.client || 'N/A'}
-LIEU: ${mission?.location || 'N/A'}
+LIEU: ${location}
 DATE: ${new Date().toLocaleDateString('fr-FR')}
-COORDONNATEUR: Pierre Dupont
+COORDONNATEUR: ${userProfile.firstName} ${userProfile.lastName}
 
 RÉSUMÉ DE LA VISITE:
 ${photos.length} photos prises et analysées
@@ -1268,7 +1275,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
       return;
     }
     if (mission?.status == 'terminee') {
-      Alert.alert(`La mission ${mission?.title} est terminée !`, 'Vous ne pouvez pas modifier ni envoyer le rapport.');
+      Alert.alert(`Le chantier ${mission?.title} est terminé !`, 'Vous ne pouvez pas modifier ni envoyer le rapport.');
       return;
     }
 
@@ -1311,7 +1318,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
       let visitResponse;
       let visitId = existingVisitId;
 
-      // Check if visit already exists for this mission
+      // Check if visit already exists for this chantier
       if (existingVisitId) {
         // Update existing visit
         visitResponse = await visitService.updateVisit(existingVisitId, {
@@ -1413,7 +1420,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
       const newReport = {
         id: Date.now(),
         title: `RAPPORT VISITE - ${mission?.title}`,
-        mission: mission?.title || 'Mission inconnue',
+        mission: mission?.title || 'Chantier inconnu',
         client: mission?.client || 'Client inconnu',
         date: new Date().toISOString().split('T')[0],
         status: 'envoyes',
@@ -1603,7 +1610,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
 
   const openReportDetails = () => {
     if (!existingReportId || !mission) return;
-    // Encoder les données de la mission pour les passer en paramètres
+    // Encoder les données du chantier pour les passer en paramètres
     const missionData = encodeURIComponent(JSON.stringify({
       ...mission,
       id: mission.id,
@@ -1627,11 +1634,11 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         <View style={styles.header}>
           <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>VISITE SPS</Text>
-            <Text style={styles.headerSubtitle}>Sélectionnez une mission</Text>
+            <Text style={styles.headerSubtitle}>Sélectionnez un chantier</Text>
           </View>
         </View>
 
-        {/* Mission Selector Modal */}
+        {/* Chantier Selector Modal */}
         <Modal visible={showMissionSelector} animationType="slide" transparent>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -1644,7 +1651,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                   style={styles.missionSelectorGradient}
                 >
                   <View style={styles.missionSelectorHeader}>
-                    <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UNE MISSION</Text>
+                    <Text style={styles.missionSelectorTitle}>SÉLECTIONNER UN CHANTIER</Text>
                     <TouchableOpacity
                       style={styles.closeMissionSelectorButton}
                       onPress={async () => {
@@ -1665,7 +1672,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                         onPress={() => selectMission(availableMission)}
                       >
                         <LinearGradient
-                          colors={['#374151', '#4B5563']}
+                          colors={availableMission.status == 'terminee' ? ['#10b981ec', '#10B981'] : ['#3B82F6', '#2563EB']}
                           style={styles.missionSelectorItemGradient}
                         >
                           <View style={styles.missionSelectorItemContent}>
@@ -1676,7 +1683,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                             </View>
                             <View style={styles.missionSelectorItemRight}>
                               <Text style={styles.missionSelectorItemType}>{availableMission.type}</Text>
-                              <ArrowRight size={16} color="#94A3B8" />
+                              <ArrowRight size={16} color="#eceff2ff" />
                             </View>
                           </View>
                         </LinearGradient>
@@ -1695,9 +1702,9 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
             style={styles.noMissionGradient}
           >
             <Clipboard size={64} color="#64748B" />
-            <Text style={styles.noMissionTitle}>AUCUNE MISSION SÉLECTIONNÉE</Text>
+            <Text style={styles.noMissionTitle}>AUCUN CHANTIER SÉLECTIONNÉ</Text>
             <Text style={styles.noMissionText}>
-              Vous devez sélectionner une mission depuis la page "Missions" pour commencer une visite.
+              Vous devez sélectionner un chantier depuis la page "Chantiers" pour commencer une visite.
             </Text>
 
             <TouchableOpacity
@@ -1709,7 +1716,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                 style={styles.selectMissionGradient}
               >
                 <Clipboard size={20} color="#FFFFFF" />
-                <Text style={styles.selectMissionText}>SÉLECTIONNER UNE MISSION</Text>
+                <Text style={styles.selectMissionText}>SÉLECTIONNER UN CHANTIER</Text>
               </LinearGradient>
             </TouchableOpacity>
 
@@ -1717,7 +1724,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
               style={styles.goToMissionsButton}
               onPress={() => router.push('/missions')}
             >
-              <Text style={styles.goToMissionsText}>Aller à mes missions</Text>
+              <Text style={styles.goToMissionsText}>Aller à mes chantiers</Text>
               <ArrowRight size={16} color="#3B82F6" />
             </TouchableOpacity>
           </LinearGradient>
@@ -1798,7 +1805,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         )}
       </View>
 
-      {/* Mission Info */}
+      {/* Chantier Info */}
       <View style={styles.missionInfo}>
         <LinearGradient
           colors={['#1E293B', '#374151']}
@@ -2427,50 +2434,50 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                       <Text style={styles.reportText}>{reportFooter}</Text>
                     </View>
                   )}
-                </ScrollView>                                
-                  <View style={styles.reportModalFooter}>
-                    <TouchableOpacity
-                      style={[
-                        styles.validateReportButton,
-                        reportSaved && styles.validateReportButtonActive
-                      ]}
-                      onPress={saveReportAndVisit}
-                      disabled={isSavingReport || reportSended || reportSaved}
-                    >
-                      <View style={styles.validateReportContent}>
-                        {isSavingReport ? (
-                          <ActivityIndicator size={20} color={reportSaved ? "#ffffffff" : "#3B82F6"} />
-                        ) : reportSaved ? (
-                          <CheckCircle size={20} color="#FFFFFF" />
-                        ) : (
-                          <Save size={20} color="#3B82F6" />
-                        )}
-                        <Text style={[
-                          styles.validateReportText,
-                          reportSaved && styles.validateReportTextActive
-                        ]}>
-                          {isSavingReport ? 'Enregistrement...' : 'Enregistrer le rapport'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
+                </ScrollView>
+                <View style={styles.reportModalFooter}>
+                  <TouchableOpacity
+                    style={[
+                      styles.validateReportButton,
+                      reportSaved && styles.validateReportButtonActive
+                    ]}
+                    onPress={saveReportAndVisit}
+                    disabled={isSavingReport || reportSended || reportSaved}
+                  >
+                    <View style={styles.validateReportContent}>
+                      {isSavingReport ? (
+                        <ActivityIndicator size={20} color={reportSaved ? "#ffffffff" : "#3B82F6"} />
+                      ) : reportSaved ? (
+                        <CheckCircle size={20} color="#FFFFFF" />
+                      ) : (
+                        <Save size={20} color="#3B82F6" />
+                      )}
+                      <Text style={[
+                        styles.validateReportText,
+                        reportSaved && styles.validateReportTextActive
+                      ]}>
+                        {isSavingReport ? 'Enregistrement...' : 'Enregistrer le rapport'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={[
-                        styles.sendReportButton,
-                        !reportSaved && styles.sendReportButtonDisabled
-                      ]}
-                      onPress={() => openReportDetails()}
-                      disabled={!reportSaved}
+                  <TouchableOpacity
+                    style={[
+                      styles.sendReportButton,
+                      !reportSaved && styles.sendReportButtonDisabled
+                    ]}
+                    onPress={() => openReportDetails()}
+                    disabled={!reportSaved}
+                  >
+                    <LinearGradient
+                      colors={reportSended ? ['#10b981ec', '#10B981'] : ['#64748B', '#475569']}
+                      style={styles.sendReportGradient}
                     >
-                      <LinearGradient
-                        colors={reportSended ? ['#10b981ec', '#10B981'] : ['#64748B', '#475569']}
-                        style={styles.sendReportGradient}
-                      >
-                        <Send size={20} color="#FFFFFF" />
-                        <Text style={styles.sendReportText}>Rapport</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>                
+                      <Send size={20} color="#FFFFFF" />
+                      <Text style={styles.sendReportText}>Rapport</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
               </LinearGradient>
             </View>
           </View>
@@ -2550,7 +2557,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                       onPress={() => selectVisit(mission, visit.id)}
                     >
                       <LinearGradient
-                        colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#64748B', '#475569'])}
+                        colors={visit.report?.status == 'envoye_au_client' ? ['#10b981ec', '#10B981'] : (visit.report ? ['#3B82F6', '#2563EB'] : ['#c53062ff', '#EC407A'])}
                         style={styles.missionSelectorItemGradient}
                       >
                         <View style={styles.missionSelectorItemContent}>
@@ -2561,7 +2568,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                           </View>
                           <View style={styles.missionSelectorItemRight}>
                             <Text style={styles.missionSelectorItemType}>{mission.type}</Text>
-                            <ArrowRight size={16} color="#94A3B8" />
+                            <ArrowRight size={16} color="#eceff2ff" />
                           </View>
                         </View>
                       </LinearGradient>
@@ -2574,7 +2581,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Loading Mission Modal */}
+      {/* Loading Chantier Modal */}
       <Modal visible={loadingMission} animationType="fade" transparent>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -2589,7 +2596,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                 <ActivityIndicator size={20} color="#FFFFFF" />
                 <Text style={styles.analyzingTitle}>CHARGEMENT EN COURS</Text>
                 <Text style={styles.analyzingSubtitle}>
-                  Chargement des détails de la mission avec les photos en cours ...
+                  Chargement des détails du chantier avec les photos en cours ...
                 </Text>
               </LinearGradient>
             </View>
@@ -2969,7 +2976,7 @@ const styles = StyleSheet.create({
   },
   cameraOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(159, 159, 6, 0.69)',
+    // backgroundColor: 'rgba(159, 159, 6, 0.69)',
     justifyContent: 'space-between',
   },
   cameraHeader: {
@@ -3456,7 +3463,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
 
   },
-  // Mission Selector Modal styles
+  // Chantier Selector Modal styles
   missionSelectorOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
@@ -3538,13 +3545,13 @@ const styles = StyleSheet.create({
   missionSelectorItemClient: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: 'rgba(0, 0, 0, 0.5)',
+    color: '#FFFFFF',
     marginBottom: 2,
   },
   missionSelectorItemLocation: {
     fontSize: 11,
     fontFamily: 'Inter-Regular',
-    color: '#afb3b9ff',
+    color: '#eceff2ff',
   },
   missionSelectorItemRight: {
     flex: 1,
@@ -3556,7 +3563,7 @@ const styles = StyleSheet.create({
   missionSelectorItemType: {
     fontSize: 10,
     fontFamily: 'Inter-Medium',
-    color: '#94A3B8',
+    color: '#eceff2ff',
     textAlign: 'right',
   },
   pdfLoadingOverlay: {

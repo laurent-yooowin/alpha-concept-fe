@@ -40,7 +40,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="missions"
         options={{
-          title: 'MISSIONS',
+          title: 'CHANTIERS',
           tabBarIcon: ({ size, color }) => (
             <Clipboard size={size} color={color} />
           ),

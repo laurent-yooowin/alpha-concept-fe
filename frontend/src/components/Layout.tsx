@@ -29,7 +29,7 @@ export default function Layout() {
 
   const navigation = [
     { path: '/dashboard', name: 'Tableau de bord', icon: LayoutDashboard, show: true },
-    { path: '/missions', name: 'Missions', icon: Briefcase, show: true },
+    { path: '/missions', name: 'Chantiers', icon: Briefcase, show: true },
     { path: '/dispatch', name: 'Attribution', icon: Send, show: isAdmin },
     { path: '/reports', name: 'Rapports', icon: FileText, show: true },
     { path: '/users', name: 'Utilisateurs', icon: Users, show: isAdmin },

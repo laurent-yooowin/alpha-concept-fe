@@ -75,7 +75,7 @@ export default function ActivityLogs() {
       create_mission: 'Création mission',
       update_mission_status: 'Modification statut mission',
       assign_mission: 'Attribution mission',
-      import_missions_csv: 'Import CSV missions',
+      import_missions_csv: 'Import CSV chantiers',
       create_report: 'Création rapport',
       edit_report: 'Modification rapport',
       validate_report: 'Validation rapport',
