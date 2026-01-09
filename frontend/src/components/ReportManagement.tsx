@@ -597,7 +597,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
         remarquesAdmin: adminRemarks,
       });
 
-      const respVisit = await visitService.update(selectedReport.visit?.id, {
+      const respVisit = await visitService.update(selectedReport.visitId, {
         photos: photos
       });
 
