@@ -50,3 +50,5 @@ backend/src/migrations/1765977564376-migrations.ts
 frontend/supabase/migrations/20251020145033_create_sps_admin_schema.sql
 frontend/package-lock.json
 frontend/package.json
+backend/src/ai/ai.service (Copie).ts
+backend/src/migrations/1769525573306-migrations.ts
