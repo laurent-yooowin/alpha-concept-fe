@@ -123,7 +123,7 @@ export class AiService {
           'Authorization': `Bearer ${this.openaiApiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'gpt-4.1',
           messages: [
             {
               role: 'system',
@@ -157,8 +157,9 @@ export class AiService {
               ],
             },
           ],
-          max_tokens: 1000,
-          temperature: 0.7,
+          max_completion_tokens: 3400,
+          // max_tokens: 1000,
+          // temperature: 0.7,
         }),
       });
 
