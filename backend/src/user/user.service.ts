@@ -49,7 +49,7 @@ export class UserService {
     });
   }
 
-  async update(id: string, userData: UpdateUserDto): Promise<User> {
+  async update(id: string, userData: UpdateUserDto | {password: string}): Promise<User> {
     const user = await this.findById(id);
 
     if (userData.password) {
