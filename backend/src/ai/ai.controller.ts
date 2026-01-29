@@ -13,7 +13,7 @@ class AnalyzePhotoDirectivesDto {
   @IsString()
   @IsNotEmpty()
   imageUrl: string;
-  
+
   @IsString()
   @IsNotEmpty()
   userDirectives?: string;
@@ -36,8 +36,8 @@ export class AiController {
   @Post('analyze-photo-directives')
   async analyzePhotoWithDirectives(@Body() analyzePhotoDirectivesDto: AnalyzePhotoDirectivesDto) {
     return this.aiService.analyzePhotoWithDirectives(
-      analyzePhotoDirectivesDto.imageUrl, 
-      analyzePhotoDirectivesDto.userDirectives, 
+      analyzePhotoDirectivesDto.imageUrl,
+      analyzePhotoDirectivesDto.userDirectives,
       analyzePhotoDirectivesDto.previousReport
     );
   }

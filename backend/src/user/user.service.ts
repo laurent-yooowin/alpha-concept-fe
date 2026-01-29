@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
 import * as bcrypt from 'bcrypt';
+import { UpdateUserDto } from './user.dto';
 // import { CreateUserDto } from './user.controller';
 
 @Injectable()
@@ -48,7 +49,7 @@ export class UserService {
     });
   }
 
-  async update(id: string, userData: Partial<User>): Promise<User> {
+  async update(id: string, userData: UpdateUserDto): Promise<User> {
     const user = await this.findById(id);
 
     if (userData.password) {

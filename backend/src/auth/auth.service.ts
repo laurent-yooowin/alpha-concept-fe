@@ -2,22 +2,23 @@ import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/co
 import { JwtService } from '@nestjs/jwt';
 import { UserService } from '../user/user.service';
 import { User } from '../user/user.entity';
+import { RegisterDto } from './auth.dto';
 
 export interface LoginDto {
   email: string;
   password: string;
 }
 
-export interface RegisterDto {
-  email: string;
-  password: string;
-  firstName: string;
-  lastName: string;
-  phone?: string;
-  address?: string;
-  company?: string;
-  experience?: number;
-}
+// export interface RegisterDto {
+//   email: string;
+//   password: string;
+//   firstName: string;
+//   lastName: string;
+//   phone?: string;
+//   address?: string;
+//   company?: string;
+//   experience?: number;
+// }
 
 export interface ForgotPasswordDto {
   email: string;

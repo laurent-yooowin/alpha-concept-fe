@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User, UserRole } from './user.entity';
 import { IsBoolean, IsEmail, IsEnum, IsNumber, IsPhoneNumber, IsString } from 'class-validator';
+import { UpdateUserDto } from './user.dto';
 
 
 @Controller('users')
@@ -27,7 +28,7 @@ export class UserController {
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() userData: Partial<User>) {
+  update(@Param('id') id: string, @Body() userData: UpdateUserDto) {
     return this.userService.update(id, userData);
   }
 

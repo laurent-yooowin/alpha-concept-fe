@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, Edit2, UserX, UserCheck, Search, Filter, Eye, EyeOff } from 'lucide-react';
-import Swal from 'sweetalert2';
 
 interface User {
   id: string;
@@ -12,8 +11,9 @@ interface User {
   phone: string | null;
   role: 'ROLE_ADMIN' | 'ROLE_USER';
   address: string | null;
+  // specialite: string | null;
   company: string | null;
-  experience: number | null;
+  experience: string | null;
   isActive: boolean;
   created_at: string;
 }
@@ -27,9 +27,6 @@ export default function UserManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState < string > ('all');
   const [showPassword, setShowPassword] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [experienceError, setExperienceError] = useState('');
 
   const [formData, setFormData] = useState({
     email: '',
@@ -39,6 +36,7 @@ export default function UserManagement() {
     phone: '',
     role: 'ROLE_USER' as 'ROLE_ADMIN' | 'ROLE_USER',
     address: '',
+    // specialite: '',
     company: '',
     experience: '',
     isActive: true,
@@ -57,208 +55,13 @@ export default function UserManagement() {
       setUsers(data);
     } catch (error) {
       console.error('Error fetching users:', error);
-      Swal.fire({
-        icon: 'error',
-        title: 'Erreur',
-        text: 'Impossible de charger les utilisateurs',
-        confirmButtonColor: '#3b82f6',
-      });
     }
     setLoading(false);
-  };
-
-  const handleApiError = (error: any, defaultMessage: string) => {
-    console.error('API Error:', error);
-
-    // Gérer les erreurs 400 (validation)
-    if (error?.response?.status === 400) {
-      const backendErrors = error?.response?.data?.message;
-
-      // Si c'est un array de messages
-      if (Array.isArray(backendErrors)) {
-        const errorList = backendErrors.map((err: string) => `• ${err}`).join('<br>');
-        Swal.fire({
-          icon: 'error',
-          title: 'Erreurs de validation',
-          html: errorList,
-          confirmButtonColor: '#3b82f6',
-        });
-      } else {
-        // Si c'est un seul message
-        Swal.fire({
-          icon: 'error',
-          title: 'Erreur de validation',
-          text: backendErrors || 'Données invalides',
-          confirmButtonColor: '#3b82f6',
-        });
-      }
-    } else if (error?.response?.status === 409) {
-      // Conflit (email déjà existant)
-      Swal.fire({
-        icon: 'error',
-        title: 'Conflit',
-        text: error?.response?.data?.message || 'Cet email est déjà utilisé',
-        confirmButtonColor: '#3b82f6',
-      });
-    } else if (error?.response?.status === 401) {
-      // Non autorisé
-      Swal.fire({
-        icon: 'error',
-        title: 'Non autorisé',
-        text: 'Vous n\'êtes pas autorisé à effectuer cette action',
-        confirmButtonColor: '#3b82f6',
-      });
-    } else if (error?.response?.status === 403) {
-      // Interdit
-      Swal.fire({
-        icon: 'error',
-        title: 'Accès interdit',
-        text: 'Vous n\'avez pas les permissions nécessaires',
-        confirmButtonColor: '#3b82f6',
-      });
-    } else if (error?.response?.status === 404) {
-      // Non trouvé
-      Swal.fire({
-        icon: 'error',
-        title: 'Non trouvé',
-        text: 'La ressource demandée n\'existe pas',
-        confirmButtonColor: '#3b82f6',
-      });
-    } else {
-      // Autres erreurs
-      Swal.fire({
-        icon: 'error',
-        title: 'Erreur',
-        text: error?.response?.data?.message || defaultMessage,
-        confirmButtonColor: '#3b82f6',
-      });
-    }
-  };
-
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
-    if (!email) {
-      setEmailError('L\'email est requis');
-      return false;
-    }
-
-    if (!emailRegex.test(email)) {
-      setEmailError('Format d\'email invalide');
-      return false;
-    }
-
-    setEmailError('');
-    return true;
-  };
-
-  const validatePassword = (password: string, isRequired: boolean = true): boolean => {
-    // Si le mot de passe est vide et optionnel, c'est valide
-    if (!password && !isRequired) {
-      setPasswordError('');
-      return true;
-    }
-
-    // Si le mot de passe est vide et requis, c'est invalide
-    if (!password && isRequired) {
-      setPasswordError('Le mot de passe est requis');
-      return false;
-    }
-
-    const minLength = 6;
-    const maxLength = 16;
-    const hasUpperCase = /[A-Z]/.test(password);
-    const hasLowerCase = /[a-z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-
-    if (password.length < minLength) {
-      setPasswordError('Le mot de passe doit contenir au moins 6 caractères');
-      return false;
-    }
-    if (password.length > maxLength) {
-      setPasswordError('Le mot de passe ne peut pas dépasser 16 caractères');
-      return false;
-    }
-    if (!hasUpperCase) {
-      setPasswordError('Le mot de passe doit contenir au moins une majuscule');
-      return false;
-    }
-    if (!hasLowerCase) {
-      setPasswordError('Le mot de passe doit contenir au moins une minuscule');
-      return false;
-    }
-    if (!hasNumber) {
-      setPasswordError('Le mot de passe doit contenir au moins un chiffre');
-      return false;
-    }
-
-    setPasswordError('');
-    return true;
-  };
-
-  const validateExperience = (experience: string): boolean => {
-    if (!experience) {
-      setExperienceError('');
-      return true; // Optionnel
-    }
-
-    const expNumber = parseInt(experience, 10);
-
-    if (isNaN(expNumber)) {
-      setExperienceError('L\'expérience doit être un nombre');
-      return false;
-    }
-
-    if (expNumber < 0) {
-      setExperienceError('L\'expérience doit être positive');
-      return false;
-    }
-
-    if (expNumber > 99) {
-      setExperienceError('L\'expérience ne peut pas dépasser 99 ans');
-      return false;
-    }
-
-    setExperienceError('');
-    return true;
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) return;
-
-    // Valider l'email
-    if (!validateEmail(formData.email)) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Email invalide',
-        text: emailError,
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
-
-    // Valider le mot de passe (requis en création)
-    if (!validatePassword(formData.password, true)) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Mot de passe invalide',
-        text: passwordError,
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
-
-    // Valider l'expérience
-    if (formData.experience && !validateExperience(formData.experience)) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Expérience invalide',
-        text: experienceError,
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
 
     try {
       await usersAPI.create({
@@ -269,25 +72,18 @@ export default function UserManagement() {
         phone: formData.phone || null,
         role: formData.role,
         address: formData.address || null,
+        // specialite: formData.specialite || null,
         company: formData.company || null,
-        experience: formData.experience ? parseInt(formData.experience, 10) : null,
+        experience: formData.experience || null,
         isActive: formData.isActive,
       });
 
       setShowModal(false);
       resetForm();
       fetchUsers();
-
-      Swal.fire({
-        icon: 'success',
-        title: 'Succès',
-        text: 'Utilisateur créé avec succès',
-        confirmButtonColor: '#3b82f6',
-        timer: 3000,
-        timerProgressBar: true,
-      });
-    } catch (error: any) {
-      handleApiError(error, 'Erreur lors de la création de l\'utilisateur');
+    } catch (error) {
+      console.error('Error creating user:', error);
+      alert('Erreur lors de la création de l\'utilisateur');
     }
   };
 
@@ -295,104 +91,39 @@ export default function UserManagement() {
     e.preventDefault();
     if (!editingUser || !isAdmin) return;
 
-    // Valider l'expérience si modifiée
-    if (formData.experience && !validateExperience(formData.experience)) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Expérience invalide',
-        text: experienceError,
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
-
-    // Valider le mot de passe seulement s'il est renseigné
-    if (formData.password && !validatePassword(formData.password, false)) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Mot de passe invalide',
-        text: passwordError,
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
-
     try {
-      // Préparer les données à envoyer
-      const updateData: any = {
+      await usersAPI.update(editingUser.id, {
         firstName: formData.firstName,
         lastName: formData.lastName,
         phone: formData.phone || null,
         role: formData.role,
         address: formData.address || null,
+        // specialite: formData.specialite || null,
         company: formData.company || null,
-        experience: formData.experience ? parseInt(formData.experience, 10) : null,
+        experience: formData.experience || null,
         isActive: formData.isActive,
-      };
-
-      // Ajouter le mot de passe seulement s'il est renseigné
-      if (formData.password) {
-        updateData.password = formData.password;
-      }
-
-      await usersAPI.update(editingUser.id, updateData);
+      });
 
       setShowModal(false);
       setEditingUser(null);
       resetForm();
       fetchUsers();
-
-      Swal.fire({
-        icon: 'success',
-        title: 'Succès',
-        text: 'Utilisateur mis à jour avec succès',
-        confirmButtonColor: '#3b82f6',
-        timer: 3000,
-        timerProgressBar: true,
-      });
-    } catch (error: any) {
-      handleApiError(error, 'Erreur lors de la mise à jour');
+    } catch (error) {
+      console.error('Error updating user:', error);
+      alert('Erreur lors de la mise à jour');
     }
   };
 
   const toggleUserStatus = async (user: User) => {
     if (!isAdmin) return;
 
-    const result = await Swal.fire({
-      title: 'Êtes-vous sûr ?',
-      text: `Voulez-vous ${user.isActive ? 'désactiver' : 'activer'} cet utilisateur ?`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#3b82f6',
-      cancelButtonColor: '#d33',
-      confirmButtonText: 'Oui, confirmer',
-      cancelButtonText: 'Annuler',
-    });
-
-    if (result.isConfirmed) {
-      try {
-        await usersAPI.update(user.id, {
-          isActive: !user.isActive,
-        });
-        fetchUsers();
-
-        Swal.fire({
-          icon: 'success',
-          title: 'Succès',
-          text: `Utilisateur ${!user.isActive ? 'activé' : 'désactivé'} avec succès`,
-          confirmButtonColor: '#3b82f6',
-          timer: 2000,
-          timerProgressBar: true,
-        });
-      } catch (error) {
-        console.error('Error toggling user status:', error);
-        Swal.fire({
-          icon: 'error',
-          title: 'Erreur',
-          text: 'Impossible de modifier le statut',
-          confirmButtonColor: '#3b82f6',
-        });
-      }
+    try {
+      await usersAPI.update(user.id, {
+        isActive: !user.isActive,
+      });
+      fetchUsers();
+    } catch (error) {
+      console.error('Error toggling user status:', error);
     }
   };
 
@@ -405,14 +136,11 @@ export default function UserManagement() {
       phone: '',
       role: 'ROLE_USER',
       address: '',
+      // specialite: '',
       company: '',
       experience: '',
       isActive: true,
     });
-    setPasswordError('');
-    setEmailError('');
-    setExperienceError('');
-    setShowPassword(false);
   };
 
   const openEditModal = (user: User) => {
@@ -425,8 +153,9 @@ export default function UserManagement() {
       phone: user.phone || '',
       role: user.role,
       address: user.address || '',
+      // specialite: user.specialite || '',
       company: user.company || '',
-      experience: user.experience ? user.experience.toString() : '',
+      experience: user.experience || '',
       isActive: user.isActive,
     });
     setShowModal(true);
@@ -622,78 +351,56 @@ export default function UserManagement() {
                 </div>
               </div>
 
-              {/* Champ Email - seulement en création */}
               {!editingUser && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => {
-                      setFormData({ ...formData, email: e.target.value });
-                      if (e.target.value) {
-                        validateEmail(e.target.value);
-                      } else {
-                        setEmailError('');
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                    <input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                      required
+                    />
+                  </div>
+                  {/* <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Mot de passe</label>
+                    <input
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                      required
+                      minLength={6}
+                    />
+                  </div> */}
+                  <div className="relative">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Mot de passe
+                    </label>
+
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={formData.password}
+                      onChange={(e) =>
+                        setFormData({ ...formData, password: e.target.value })
                       }
-                    }}
-                    pattern="^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-                    className={`w-full px-4 py-2 border ${emailError ? 'border-red-500' : 'border-slate-300'
-                      } rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none`}
-                    required
-                  />
-                  {emailError && (
-                    <p className="mt-1 text-sm text-red-600">{emailError}</p>
-                  )}
-                </div>
+                      className="w-full px-4 py-2 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                      required
+                      minLength={6}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                      style={{top:'3rem'}}
+                    >
+                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                  </div>
+                </>
               )}
-
-              {/* Champ Mot de passe - toujours affiché mais optionnel en mode édition */}
-              <div className="relative">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Mot de passe {editingUser && <span className="text-slate-500 text-xs">(laisser vide pour ne pas modifier)</span>}
-                </label>
-
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={formData.password}
-                  onChange={(e) => {
-                    setFormData({ ...formData, password: e.target.value });
-                    if (e.target.value) {
-                      validatePassword(e.target.value, !editingUser);
-                    } else {
-                      setPasswordError('');
-                    }
-                  }}
-                  pattern={formData.password ? "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{6,16}$" : undefined}
-                  className={`w-full px-4 py-2 pr-10 border ${passwordError ? 'border-red-500' : 'border-slate-300'
-                    } rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none`}
-                  required={!editingUser}
-                  minLength={formData.password ? 6 : undefined}
-                  maxLength={16}
-                  placeholder={editingUser ? "Nouveau mot de passe (optionnel)" : ""}
-                />
-
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 -translate-y-1/2 text-slate-500 hover:text-slate-700"
-                  style={{ top: '3rem' }}
-                >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
-
-                {passwordError && (
-                  <p className="mt-1 text-sm text-red-600">{passwordError}</p>
-                )}
-
-                <p className="mt-2 text-xs text-slate-500">
-                  {editingUser
-                    ? "Si vous souhaitez modifier le mot de passe, il doit contenir entre 6 et 16 caractères, une majuscule, une minuscule et un chiffre."
-                    : "Le mot de passe doit contenir entre 6 et 16 caractères, une majuscule, une minuscule et un chiffre. Caractères spéciaux autorisés: ! _ - ."
-                  }
-                </p>
-              </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Téléphone</label>
@@ -701,7 +408,7 @@ export default function UserManagement() {
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none"
                 />
               </div>
 
@@ -710,7 +417,7 @@ export default function UserManagement() {
                 <select
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent outline-none"
                   required
                 >
                   <option value="ROLE_USER">Coordonnateur</option>
@@ -718,15 +425,26 @@ export default function UserManagement() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Adresse</label>
-                <input
-                  type="text"
-                  value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Adresse</label>
+                  <input
+                    type="text"
+                    value={formData.address}
+                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                  />
+                </div>
+              {/* <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Spécialité</label>
+                  <input
+                    type="text"
+                    value={formData.specialite}
+                    onChange={(e) => setFormData({ ...formData, specialite: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                  />
+                </div>
+              </div>  */}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -741,29 +459,12 @@ export default function UserManagement() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Expérience</label>
                   <input
-                    type="number"
+                    type="text"
                     value={formData.experience}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setFormData({ ...formData, experience: value });
-                      if (value) {
-                        validateExperience(value);
-                      } else {
-                        setExperienceError('');
-                      }
-                    }}
-                    min="0"
-                    max="99"
-                    className={`w-full px-4 py-2 border ${experienceError ? 'border-red-500' : 'border-slate-300'
-                      } rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none`}
-                    placeholder="Ex: 5"
+                    onChange={(e) => setFormData({ ...formData, experience: e.target.value })}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                    placeholder="Ex: 5 ans"
                   />
-                  {experienceError && (
-                    <p className="mt-1 text-sm text-red-600">{experienceError}</p>
-                  )}
-                  <p className="mt-1 text-xs text-slate-500">
-                    Nombre d'années d'expérience (0-99)
-                  </p>
                 </div>
               </div>
 
