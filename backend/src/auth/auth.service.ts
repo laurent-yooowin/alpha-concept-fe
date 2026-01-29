@@ -42,6 +42,10 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    
+    if (!user.isActive) {
+      throw new UnauthorizedException('User account is inactive');
+    }
 
     const isPasswordValid = await this.userService.validatePassword(
       loginDto.password,

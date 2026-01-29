@@ -40,8 +40,8 @@ export const apiUploadsRequest = async (endpoint: string, options: RequestInit =
 
   if (response.status === 401) {
     clearAccessToken();
-    window.location.href = '/';
-    throw new Error('Unauthorized');
+    // window.location.href = '/';
+    // throw new Error('Unauthorized');
   }
 
   if (!response.ok) {
@@ -71,8 +71,8 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
 
   if (response.status === 401) {
     clearAccessToken();
-    window.location.href = '/';
-    throw new Error('Unauthorized');
+    // window.location.href = '/';
+    // throw new Error('Unauthorized');
   }
 
   if (!response.ok) {

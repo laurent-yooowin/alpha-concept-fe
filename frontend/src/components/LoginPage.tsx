@@ -26,7 +26,11 @@ export default function LoginPage() {
     const { error } = await signIn(email, password);
 
     if (error) {
-      setError('Identifiants incorrects. Veuillez réessayer.');
+      if (error.message === 'User account is inactive') {
+        setError("Votre compte est inactif. Veuillez contacter l'administrateur.");
+      } else {
+        setError('Identifiants incorrects. Veuillez réessayer.');
+      }
       setLoading(false);
     } else {
       navigate('/dashboard');

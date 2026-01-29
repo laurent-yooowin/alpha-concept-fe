@@ -572,12 +572,12 @@ export default function UserManagement() {
                         <button
                           onClick={() => toggleUserStatus(user)}
                           className={`p-2 rounded-lg transition-colors ${user.isActive
-                            ? 'text-red-600 hover:bg-red-50'
-                            : 'text-green-600 hover:bg-green-50'
+                            ? 'text-green-600 hover:bg-green-50'
+                            : 'text-red-600 hover:bg-red-50'
                             }`}
                           title={user.isActive ? 'Désactiver' : 'Activer'}
                         >
-                          {user.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                          {!user.isActive ? <UserX className="w-5 h-5" /> : <UserCheck className="w-5 h-5" />}
                         </button>
                       </div>
                     </td>
