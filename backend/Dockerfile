@@ -32,7 +32,7 @@ RUN mkdir -p /app/logs && chown -R nodejs:nodejs /app
 # Switch to non-root user
 USER nodejs
 
-EXPOSE 3000
+EXPOSE 8089
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/main.js"]
