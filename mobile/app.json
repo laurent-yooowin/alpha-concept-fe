@@ -7,7 +7,6 @@
     "icon": "./assets/images/logo_admin_app.png",
     "scheme": "reportbtp",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.csps.reportbtp",
@@ -26,13 +25,29 @@
       "expo-web-browser",
       "expo-camera",
       [
+        "expo-media-library",
+        {
+          "photosPermission": "L'application a besoin d'accéder à vos photos pour sauvegarder les photos de visite.",
+          "savePhotosPermission": "L'application a besoin de sauvegarder les photos de visite sur votre appareil.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "L'application a besoin d'accéder à vos photos pour sélectionner des images de visite."
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
             "networkSecurityConfig": "./network_security_config.xml"
           }
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-mail-composer"
     ],
     "experiments": {
       "typedRoutes": true
@@ -40,11 +55,20 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "f6d6d71c-5be3-48a0-a510-2d0a153e096e"
+        "projectId": "5f999cfe-4eae-4ee7-8d23-940b93c6571d"
       }
     },
     "android": {
-      "package": "com.csps.reportbtp"
+      "package": "com.csps.reportbtp",
+      "permissions": [
+        "CAMERA",
+        "MEDIA_LIBRARY",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "READ_MEDIA_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     }
   }
 }

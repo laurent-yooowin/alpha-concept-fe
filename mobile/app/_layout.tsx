@@ -16,20 +16,20 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isAuthenticated === null) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
+    const inAuthGroup = segments[0] === 'auth';
 
     if (!isAuthenticated && !inAuthGroup) {
-      router.replace('/(auth)/login');
+      router.replace('/auth/login');
     } else if (isAuthenticated && inAuthGroup) {
-      router.replace('/(tabs)');
+      router.replace('/tabs');
     }
   }, [isAuthenticated, segments]);
 
   return (
     <>
       <Stack screenOptions={{ contentStyle: { backgroundColor: '#fff' } }} >
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="tabs" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
       {/* <StatusBar style="light" backgroundColor="#1E40AF" /> */}

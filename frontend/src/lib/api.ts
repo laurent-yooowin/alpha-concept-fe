@@ -99,10 +99,17 @@ export const authAPI = {
     });
   },
 
-  resetPassword: async (token: string, password: string) => {
+  verifyCode: async (email: string, code: string) => {
+    return apiRequest('/auth/verify-code', {
+      method: 'POST',
+      body: JSON.stringify({ email, code }),
+    });
+  },
+
+  resetPassword: async (token: string, newPassword: string) => {
     return apiRequest('/auth/reset-password', {
       method: 'POST',
-      body: JSON.stringify({ token, password }),
+      body: JSON.stringify({ token, newPassword }),
     });
   },
 };
@@ -236,6 +243,44 @@ export const reportsAPI = {
   delete: async (id: string) => {
     return apiRequest(`/reports/${id}`, {
       method: 'DELETE',
+    });
+  },
+};
+
+export const visitsAPI = {
+  getAll: async (missionId?: string) => {
+    const url = missionId ? `/visits?missionId=${missionId}` : '/visits';
+    return apiRequest(url);
+  },
+
+  getById: async (id: string) => {
+    return apiRequest(`/visits/${id}`);
+  },
+
+  create: async (visitData: any) => {
+    return apiRequest('/visits', {
+      method: 'POST',
+      body: JSON.stringify(visitData),
+    });
+  },
+
+  update: async (id: string, visitData: any) => {
+    return apiRequest(`/visits/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(visitData),
+    });
+  },
+
+  delete: async (id: string) => {
+    return apiRequest(`/visits/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  generateReport: async (visitId: string, options?: { header?: string; footer?: string; notes?: string }) => {
+    return apiRequest(`/visits/${visitId}/generate-report`, {
+      method: 'POST',
+      body: JSON.stringify(options || {}),
     });
   },
 };

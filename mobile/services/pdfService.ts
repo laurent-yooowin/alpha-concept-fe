@@ -104,57 +104,89 @@ export const pdfService = {
     };
 
     if (reportData.photos && reportData.photos.length > 0) {
-      await Promise.all(
-        (reportData.photos || []).map(async (photo, index) => {
-          let base64Img = '';
-          try {
-            // const fileUri = FileSystem.cacheDirectory + `temp_${Math.random()}.jpg`;
-            // const { uri } = await FileSystem.downloadAsync(photo.s3Url, fileUri);
-            // base64Img = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      // Group photos by groupId
+      const photoGroups: { [key: string]: { photos: any[], index: number } } = {};
+      let groupOrder = 0;
+      (reportData.photos || []).forEach((photo) => {
+        const gid = photo.groupId || photo.id || `photo-${Math.random()}`;
+        if (!photoGroups[gid]) {
+          photoGroups[gid] = { photos: [], index: groupOrder++ };
+        }
+        photoGroups[gid].photos.push(photo);
+      });
 
-            const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
-            // console.log('photo.uri Avant >>> : ', photo.uri);
-            if (imgResp && imgResp.data && imgResp.data.data) {
-              // 💾 Sauvegarde localement
-              base64Img = imgResp.data.data.base64;
-            } else {
-              Alert.alert("La photo n'a pas pu être telechargé");
+      await Promise.all(
+        Object.entries(photoGroups).map(async ([groupId, group]) => {
+          try {
+            // Download all photos in the group
+            const photoImagesHtml: string[] = [];
+            for (const photo of group.photos) {
+              let base64Img = '';
+              try {
+                const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
+                if (imgResp && imgResp.data && imgResp.data.data) {
+                  base64Img = imgResp.data.data.base64;
+                }
+              } catch (err) {
+                console.warn('Erreur download photo:', err);
+              }
+              if (base64Img) {
+                photoImagesHtml.push(`<img src="data:image/jpeg;base64,${base64Img}" class="photo-image" />`);
+              }
             }
 
-            const comments = photo.userComments && photo.userComments.trime() != "" ? photo.userComments : photo.comment;
+            const firstPhoto = group.photos[0];
+            const comments = firstPhoto.comment && firstPhoto.comment.trim() !== "" ? firstPhoto.comment : '';
+            const riskColor = getRiskColor(firstPhoto.aiAnalysis?.riskLevel || 'moyen');
+            const riskLabel = getRiskLabel(firstPhoto.aiAnalysis?.riskLevel || 'moyen');
 
-            const riskColor = getRiskColor(photo.aiAnalysis?.riskLevel || 'moyen');
-            const riskLabel = getRiskLabel(photo.aiAnalysis?.riskLevel || 'moyen');
-            // console.log('photo >>> : ', photo);
+            // Build photo grid HTML
+            const photoGridHtml = photoImagesHtml.length > 1
+              ? `<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+                  ${photoImagesHtml.map((img, idx) => `
+                    <div style="width: 48%; position: relative;">
+                      ${img.replace('class="photo-image"', 'style="width: 100%; height: auto; border-radius: 8px; max-height: 300px; object-fit: cover;"')}
+                      <span style="position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,0.6); color: white; border-radius: 8px; padding: 2px 8px; font-size: 11px; font-weight: bold;">#${idx + 1}</span>
+                    </div>
+                  `).join('')}
+                </div>`
+              : photoImagesHtml.length === 1
+                ? `<div class="photo-container">${photoImagesHtml[0]}</div>`
+                : '';
+
+            const isDirectiveOnlyGroup = group.photos.every((p: any) => p.isDirectiveOnly);
+            const photoCountLabel = isDirectiveOnlyGroup
+              ? 'Pas de photo'
+              : `${group.photos.length} photo${group.photos.length > 1 ? 's' : ''}`;
+            const headerIcon = isDirectiveOnlyGroup ? '📝' : '📸';
+
             const divContent = `<div class="photo-section">
                 <div class="photo-header">
-                  <h3 class="photo-title">📸 Photo ${index + 1}</h3>                  
+                  <h3 class="photo-title">${headerIcon} Rapport ${group.index + 1} — ${photoCountLabel}</h3>
                 </div>
 
-                <div class="photo-container">
-                  <img src="data:image/jpeg;base64,${base64Img}" class="photo-image" />
-                </div>
-                ${photo.aiAnalysis ? `
+                ${photoGridHtml}
+                ${firstPhoto.aiAnalysis ? `
                   <div class="analysis-section">
                     <div class="analysis-block">
                       <h4 class="analysis-heading">🔍 Observations</h4>
                       <ul class="analysis-list">
-                        ${photo.aiAnalysis?.observations?.map(obs => `<li>${obs}</li>`).join('')}
+                        ${firstPhoto.aiAnalysis?.observations?.map(obs => `<li>${obs}</li>`).join('')}
                       </ul>
                     </div>
 
                     <div class="analysis-block">
                       <h4 class="analysis-heading">⚠️ Recommandations</h4>
                       <ul class="analysis-list">
-                        ${photo.aiAnalysis?.recommendations?.map(rec => `<li>${rec}</li>`).join('')}
+                        ${firstPhoto.aiAnalysis?.recommendations?.map(rec => `<li>${rec}</li>`).join('')}
                       </ul>
                     </div>
 
-                    ${photo.aiAnalysis.references ? `
+                    ${firstPhoto.aiAnalysis.references ? `
                       <div class="analysis-block">
                         <h4 class="comment-heading">🏛️ Références</h4>
                         <ul class="analysis-list">
-                          ${photo.aiAnalysis?.references?.map(rec => `<li>${rec}</li>`).join('')}
+                          ${firstPhoto.aiAnalysis?.references?.map(rec => `<li>${rec}</li>`).join('')}
                         </ul>                        
                       </div>
                     ` : ''}
@@ -169,11 +201,11 @@ export const pdfService = {
               </div> `;
 
             divs.push({
-              index: index,
+              index: group.index,
               divContent: divContent,
             });
           } catch (err) {
-            console.warn('Erreur conversion image en base64:', err);
+            console.warn('Erreur conversion groupe en base64:', err);
           }
         })
       ).then(() => {
@@ -199,7 +231,7 @@ export const pdfService = {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     @page {
-      margin: 15mm;
+      margin: 8mm 6mm 10mm 6mm;
       size: A4;
     }
 
@@ -214,7 +246,7 @@ export const pdfService = {
       line-height: 1.6;
       color: #1E293B;
       background: #FFFFFF;
-      padding: 20px;
+      padding: 8px 4px;
     }
 
     .report-header {
@@ -479,14 +511,6 @@ export const pdfService = {
     @media print {
       body {
         padding: 0;
-      }
-
-      .photo-section {
-        page-break-inside: avoid;
-      }
-
-      .section-header {
-        page-break-after: avoid;
       }
     }
   </style>

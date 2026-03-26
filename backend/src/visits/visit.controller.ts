@@ -48,4 +48,13 @@ export class VisitController {
     await this.visitService.delete(id, user);
     return { message: 'Visit deleted successfully' };
   }
+
+  @Post(':id/generate-report')
+  async generateReport(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() body: { header?: string; footer?: string; notes?: string },
+  ) {
+    return this.visitService.generateReportFromVisit(id, user, body);
+  }
 }

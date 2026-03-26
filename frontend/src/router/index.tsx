@@ -5,6 +5,7 @@ import UserManagement from '../components/UserManagement';
 import MissionManagement from '../components/MissionManagement';
 import MissionDispatch from '../components/MissionDispatch';
 import ReportManagement from '../components/ReportManagement';
+import VisitManagement from '../components/VisitManagement';
 import ActivityLogs from '../components/ActivityLogs';
 import LoginPage from '../components/LoginPage';
 import Privacy from '../components/privacy';
@@ -46,6 +47,10 @@ export const router = createBrowserRouter([
       {
         path: 'dispatch',
         element: <MissionDispatch />,
+      },
+      {
+        path: 'visits',
+        element: <VisitManagement />,
       },
       {
         path: 'reports',

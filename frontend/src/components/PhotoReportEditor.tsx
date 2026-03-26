@@ -8,8 +8,9 @@ function PhotoReportEditor({
     editedFooter = '',
     onPhotosChange,
     onHeaderChange,
-    onFooterChange
-}) {
+    onFooterChange,
+    onSave,
+}: any) {
     const [photos, setPhotos] = useState(initialPhotos);
     const [base64Images, setBase64Images] = useState({});
     const [loading, setLoading] = useState(true);
@@ -322,11 +323,11 @@ function PhotoReportEditor({
                                             border: '4px solid #f0f0f0',
                                             transition: 'transform 0.3s ease'
                                         }}
-                                        onMouseEnter={(e) => e.target.style.transform = 'scale(1.02)'}
-                                        onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+                                        onMouseEnter={(e) => (e.target as HTMLElement).style.transform = 'scale(1.02)'}
+                                        onMouseLeave={(e) => (e.target as HTMLElement).style.transform = 'scale(1)'}
                                         onError={(e) => {
                                             console.error('Erreur chargement image:', photo.id);
-                                            e.target.style.display = 'none';
+                                            (e.target as HTMLElement).style.display = 'none';
                                         }}
                                     />
                                 ) : (
@@ -356,11 +357,10 @@ function PhotoReportEditor({
                             <div style={{ marginBottom: '25px' }}>
                                 <label style={{
                                     fontWeight: '700',
-                                    display: 'block',
+                                    display: 'flex',
                                     marginBottom: '10px',
                                     fontSize: '16px',
                                     color: '#e74c3c',
-                                    display: 'flex',
                                     alignItems: 'center',
                                     gap: '8px'
                                 }}>
@@ -375,7 +375,6 @@ function PhotoReportEditor({
                                 <textarea
                                     value={editingTexts[`${photo.id}-observation`] || ''}
                                     onChange={(e) => handleTextChange(e, photo.id, 'observation')}
-                                    onBlur={() => handleTextBlur(photo.id, 'observation')}
                                     onKeyDown={(e) => handleKeyDown(e, photo.id, 'observation')}
                                     style={{
                                         width: '100%',
@@ -407,11 +406,10 @@ function PhotoReportEditor({
                             <div style={{ marginBottom: '25px' }}>
                                 <label style={{
                                     fontWeight: '700',
-                                    display: 'block',
+                                    display: 'flex',
                                     marginBottom: '10px',
                                     fontSize: '16px',
                                     color: '#3498db',
-                                    display: 'flex',
                                     alignItems: 'center',
                                     gap: '8px'
                                 }}>
@@ -426,7 +424,6 @@ function PhotoReportEditor({
                                 <textarea
                                     value={editingTexts[`${photo.id}-recommendation`] || ''}
                                     onChange={(e) => handleTextChange(e, photo.id, 'recommendation')}
-                                    onBlur={() => handleTextBlur(photo.id, 'recommendation')}
                                     onKeyDown={(e) => handleKeyDown(e, photo.id, 'recommendation')}
                                     style={{
                                         width: '100%',
@@ -458,11 +455,10 @@ function PhotoReportEditor({
                             <div style={{ marginBottom: '25px' }}>
                                 <label style={{
                                     fontWeight: '700',
-                                    display: 'block',
+                                    display: 'flex',
                                     marginBottom: '10px',
                                     fontSize: '16px',
                                     color: '#9b59b6',
-                                    display: 'flex',
                                     alignItems: 'center',
                                     gap: '8px'
                                 }}>
@@ -477,7 +473,6 @@ function PhotoReportEditor({
                                 <textarea
                                     value={editingTexts[`${photo.id}-references`] || ''}
                                     onChange={(e) => handleTextChange(e, photo.id, 'references')}
-                                    onBlur={() => handleTextBlur(photo.id, 'references')}
                                     onKeyDown={(e) => handleKeyDown(e, photo.id, 'references')}
                                     style={{
                                         width: '100%',
@@ -509,11 +504,10 @@ function PhotoReportEditor({
                             <div style={{ marginBottom: '15px' }}>
                                 <label style={{
                                     fontWeight: '700',
-                                    display: 'block',
+                                    display: 'flex',
                                     marginBottom: '10px',
                                     fontSize: '16px',
                                     color: '#f39c12',
-                                    display: 'flex',
                                     alignItems: 'center',
                                     gap: '8px'
                                 }}>
@@ -693,7 +687,7 @@ function PhotoReportEditor({
                                         }}
                                         onError={(e) => {
                                             console.error('Erreur chargement image lecture:', photo.id);
-                                            e.target.style.display = 'none';
+                                            (e.target as HTMLElement).style.display = 'none';
                                         }}
                                     />
                                 </div>

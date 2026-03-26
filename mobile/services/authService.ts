@@ -51,6 +51,10 @@ export const authService = {
     return api.post('/auth/forgot-password', { email });
   },
 
+  async verifyCode(email: string, code: string) {
+    return api.post<{ resetToken: string; message: string }>('/auth/verify-code', { email, code });
+  },
+
   async resetPassword(token: string, newPassword: string) {
     return api.post('/auth/reset-password', { token, newPassword });
   },

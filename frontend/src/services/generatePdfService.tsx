@@ -42,76 +42,132 @@ export const generatePdfService = {
     };
 
     if (reportData.photos && reportData.photos.length > 0) {
+      // Group photos by groupId (fallback to individual)
+      const photoGroups: { [key: string]: { index: number; photos: any[] } } = {};
+      let groupOrder = 0;
+      (reportData.photos || []).forEach((photo: any, idx: number) => {
+        const gid = photo.groupId || `single_${idx}`;
+        if (!photoGroups[gid]) {
+          photoGroups[gid] = { index: groupOrder++, photos: [] };
+        }
+        photoGroups[gid].photos.push(photo);
+      });
+
+      // Download all images in parallel
+      const photoBase64Map = new Map<number, string>();
       await Promise.all(
-        (reportData.photos || []).map(async (photo, index) => {
-          let base64Img = '';
+        (reportData.photos || []).map(async (photo: any, idx: number) => {
           try {
-            // const fileUri = FileSystem.cacheDirectory + `temp_${Math.random()}.jpg`;
-            // const { uri } = await FileSystem.downloadAsync(photo.s3Url, fileUri);
-
             const pdfData = await filesService.downloadFile(photo.s3Url, 'visits/photos/', true);
-            base64Img = pdfData.data?.base64;
-
-            const riskColor = getRiskColor(photo.aiAnalysis?.riskLevel || 'moyen');
-            const riskLabel = getRiskLabel(photo.aiAnalysis?.riskLevel || 'moyen');
-
-            const comments = photo.userComments && photo.userComments.trime() != "" ? photo.userComments : photo.comment;
-
-            const divContent = `<div class="photo-section">
-                <div class="photo-header">
-                  <h3 class="photo-title">📸 Photo ${index + 1}</h3>                  
-                </div>
-
-                <div class="photo-container">
-                  <img src="data:image/jpeg;base64,${base64Img}" class="photo-image" />
-                </div>
-                ${photo.aiAnalysis ? `
-                  <div class="analysis-section">
-                    <div class="analysis-block">
-                      <h4 class="analysis-heading">🔍 Observations</h4>
-                      <ul class="analysis-list">
-                        ${photo.aiAnalysis?.observations?.map(obs => `<li>${obs}</li>`).join('')}
-                      </ul>
-                    </div>
-
-                    <div class="analysis-block">
-                      <h4 class="analysis-heading">⚠️ Recommandations</h4>
-                      <ul class="analysis-list">
-                        ${photo.aiAnalysis?.recommendations?.map(rec => `<li>${rec}</li>`).join('')}
-                      </ul>
-                    </div>
-
-                    ${photo.aiAnalysis.references ? `
-                      <div class="analysis-block">
-                        <h4 class="comment-heading">🏛️ Références</h4>
-                        <ul class="analysis-list">
-                          ${photo.aiAnalysis?.references?.map(rec => `<li>${rec}</li>`).join('')}
-                        </ul>                        
-                      </div>
-                    ` : ''}
-                  </div>
-                    ` : ''}                    
-                  ${comments ? `
-                    <div class="comment-section">
-                      <h4 class="comment-heading">💬 Commentaires du coordonnateur</h4>
-                      <p class="comment-text">${comments}</p>
-                    </div>
-                  ` : ''}
-              </div> `;
-
-            divs.push({
-              index: index,
-              divContent: divContent,
-            });
+            photoBase64Map.set(idx, pdfData.data?.base64 || '');
           } catch (err) {
             console.warn('Erreur conversion image en base64:', err);
+            photoBase64Map.set(idx, '');
           }
         })
-      ).then(() => {
-        divs.sort((a, b) => a.index - b.index);
-        divs.forEach(div => {
-          reportContent += div.divContent;
-        });
+      );
+
+      // Build HTML for each group
+      const groupEntries = Object.entries(photoGroups).sort((a, b) => a[1].index - b[1].index);
+      let globalPhotoIdx = 0;
+
+      for (const [groupId, groupData] of groupEntries) {
+        const photos = groupData.photos;
+        const groupIdx = groupData.index + 1;
+        const isSinglePhoto = photos.length === 1;
+
+        // Build photo grid
+        let photoGridHtml = '';
+        if (isSinglePhoto) {
+          const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[0])) || '';
+          photoGridHtml = `
+            <div class="photo-grid-single">
+              <div class="photo-container-normalized">
+                <img src="data:image/jpeg;base64,${base64}" class="photo-image-normalized" />
+              </div>
+            </div>`;
+        } else {
+          photoGridHtml = `<div class="photo-grid-multi">`;
+          for (let i = 0; i < photos.length; i++) {
+            const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[i])) || '';
+            photoGridHtml += `
+              <div class="photo-grid-cell">
+                <div class="photo-container-normalized">
+                  <img src="data:image/jpeg;base64,${base64}" class="photo-image-normalized" />
+                  <span class="photo-index-badge">${i + 1}</span>
+                </div>
+              </div>`;
+          }
+          photoGridHtml += `</div>`;
+        }
+
+        // Aggregate analysis from first photo with analysis (group shares one report)
+        const analysisPhoto = photos.find((p: any) => p.aiAnalysis) || photos[0];
+        const analysis = analysisPhoto?.aiAnalysis;
+
+        // Aggregate comments
+        const allComments = photos
+          .map((p: any) => {
+            const c = p.userComments && p.userComments.trim() !== "" ? p.userComments : p.comment;
+            return c;
+          })
+          .filter((c: string) => c && c.trim() !== '');
+        const commentsHtml = allComments.length > 0
+          ? allComments.map((c: string) => `<p class="comment-text">${c}</p>`).join('')
+          : '';
+
+        const isDirectiveOnlyGroup = photos.every((p: any) => p.isDirectiveOnly);
+        const photoCountLabel = isDirectiveOnlyGroup
+          ? 'Pas de photo'
+          : `${photos.length} photo(s)`;
+        const headerIcon = isDirectiveOnlyGroup ? '📝' : '📸';
+
+        const divContent = `<div class="photo-section">
+            <div class="photo-header">
+              <h3 class="photo-title">${headerIcon} Rapport ${groupIdx} — ${photoCountLabel}</h3>
+            </div>
+
+            ${photoGridHtml}
+
+            ${analysis ? `
+              <div class="analysis-section">
+                <div class="analysis-block">
+                  <h4 class="analysis-heading">🔍 Observations</h4>
+                  <ul class="analysis-list">
+                    ${analysis.observations?.map((obs: string) => `<li>${obs}</li>`).join('') || ''}
+                  </ul>
+                </div>
+                <div class="analysis-block">
+                  <h4 class="analysis-heading">⚠️ Recommandations</h4>
+                  <ul class="analysis-list">
+                    ${analysis.recommendations?.map((rec: string) => `<li>${rec}</li>`).join('') || ''}
+                  </ul>
+                </div>
+                ${analysis.references && analysis.references.length > 0 ? `
+                  <div class="analysis-block">
+                    <h4 class="comment-heading">🏛️ Références</h4>
+                    <ul class="analysis-list">
+                      ${analysis.references.map((ref: string) => `<li>${ref}</li>`).join('')}
+                    </ul>
+                  </div>
+                ` : ''}
+              </div>
+            ` : ''}
+
+            ${commentsHtml ? `
+              <div class="comment-section">
+                <h4 class="comment-heading">💬 Commentaires du coordonnateur</h4>
+                ${commentsHtml}
+              </div>
+            ` : ''}
+          </div>`;
+
+        divs.push({ index: groupData.index, divContent });
+      }
+
+      divs.sort((a, b) => a.index - b.index);
+      divs.forEach(div => {
+        reportContent += div.divContent;
       });
     }
 
@@ -321,6 +377,67 @@ export const generatePdfService = {
           object-fit: contain;
           background: #F8FAFC;
         }
+
+        /* Grid layouts for grouped photos */
+        .photo-grid-single {
+          margin-top: 15px;
+        }
+
+        .photo-grid-multi {
+          display: flex;
+          flex-direction: row;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 15px;
+        }
+
+        .photo-grid-cell {
+          width: calc(50% - 5px);
+          flex-shrink: 0;
+          flex-grow: 0;
+        }
+
+        .photo-container-normalized {
+          position: relative;
+          width: 100%;
+          /* 9:6 aspect ratio = 2:3 width:height → padding-top 66.67% */
+          padding-top: 66.67%;
+          border-radius: 8px;
+          overflow: hidden;
+          background: #F1F5F9;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .photo-grid-single .photo-container-normalized {
+          /* Full width single photo, still 9x6 ratio */
+          max-width: 648px; /* 9in * 72dpi */
+        }
+
+        .photo-image-normalized {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+
+        .photo-index-badge {
+          position: absolute;
+          top: 8px;
+          left: 8px;
+          background: rgba(30, 41, 59, 0.75);
+          color: #FFFFFF;
+          font-size: 11px;
+          font-weight: bold;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
     
         .logo-image {
           width: 200px;
@@ -410,14 +527,6 @@ export const generatePdfService = {
           body {
             padding: 0;
           }
-    
-          .photo-section {
-            page-break-inside: avoid;
-          }
-    
-          .section-header {
-            page-break-after: avoid;
-          }
         }
       </style>
     </head>
@@ -502,9 +611,9 @@ export const generatePdfService = {
       const options = {
         margin: 10,
         filename: 'report.pdf',
-        image: { type: 'jpeg', quality: 0.98 },
+        image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: { scale: 2 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
       };
 
       // Générer le PDF en Blob

@@ -36,6 +36,7 @@ export class AiService {
     photoConformity: boolean;
     photoConformityMessage: string | any;
     references: string[];
+    unreadableSections: string[];
   }> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
@@ -107,6 +108,7 @@ export class AiService {
     photoConformity: boolean;
     photoConformityMessage: string | any;
     references: string[];
+    unreadableSections: string[];
   }> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
@@ -182,6 +184,287 @@ export class AiService {
     }
   }
 
+  /**
+   * Analyze text-only directives (no photo) using LLM to generate a structured CSPS report.
+   */
+  async analyzeDirectives(userDirectives: string, missionContext?: {
+    title?: string;
+    client?: string;
+    address?: string;
+    type?: string;
+  }, previousReport?: string): Promise<{
+    nonConformities: string[];
+    recommendations: string[];
+    riskLevel: 'faible' | 'moyen' | 'eleve';
+    confidence: number;
+    photoConformity: boolean;
+    photoConformityMessage: string | any;
+    references: string[];
+    unreadableSections: string[];
+  }> {
+    if (!this.openaiApiKey) {
+      throw new BadRequestException('OpenAI API key not configured');
+    }
+
+    if (!userDirectives?.trim()) {
+      throw new BadRequestException('Directives text is required');
+    }
+
+    try {
+      const prompt = this.buildDirectivesPrompt();
+
+      const contextInfo = missionContext
+        ? `\n\nContexte de la mission :\n- Titre : ${missionContext.title || 'N/A'}\n- Client : ${missionContext.client || 'N/A'}\n- Adresse : ${missionContext.address || 'N/A'}\n- Type : ${missionContext.type || 'N/A'}`
+        : '';
+
+      const previousReportText = previousReport?.trim()
+        ? `\n\n### RAPPORT PRÉCÉDENT (première génération, à utiliser comme référence pour enrichir et améliorer) :\n${previousReport}`
+        : '';
+
+      const response = await fetch(this.openaiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-5.1',
+          messages: [
+            {
+              role: 'system',
+              content: prompt,
+            },
+            {
+              role: 'user',
+              content: `Analysez les directives suivantes du coordonnateur CSPS et produisez un rapport structuré avec les observations, non-conformités potentielles, recommandations et références réglementaires applicables.${contextInfo}${previousReportText}\n\n### Directives du coordonnateur :\n${userDirectives}\n\nToujours fournir la réponse sous format JSON valide.`,
+            },
+          ],
+          max_completion_tokens: 3400,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`OpenAI API error: ${JSON.stringify(error)}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+
+      return this.parseAIResponse(content);
+    } catch (error) {
+      console.error('Error analyzing directives:', error);
+      throw new BadRequestException(`Failed to analyze directives: ${error.message}`);
+    }
+  }
+
+  async analyzeBatchPhotos(imageUrls: string[], userDirectives?: string, previousReport?: string): Promise<{
+    nonConformities: string[];
+    recommendations: string[];
+    riskLevel: 'faible' | 'moyen' | 'eleve';
+    confidence: number;
+    photoConformity: boolean;
+    photoConformityMessage: string | any;
+    references: string[];
+    unreadableSections: string[];
+  }> {
+    if (!this.openaiApiKey) {
+      throw new BadRequestException('OpenAI API key not configured');
+    }
+
+    if (!imageUrls || imageUrls.length === 0) {
+      throw new BadRequestException('At least one image URL is required');
+    }
+
+    try {
+      // Download all images as base64
+      const imageContents = await Promise.all(
+        imageUrls.map(async (url) => {
+          const imgBase64 = await this.uploadService.downloadFile(url, '', true);
+          return {
+            type: 'image_url' as const,
+            image_url: {
+              url: `data:image/jpeg;base64,${imgBase64.data}`,
+            },
+          };
+        })
+      );
+
+      const prompt = this.buildCSPSPrompt();
+      const directivesText = userDirectives?.trim()
+        ? `\n\n### Directives du coordonnateur :\n${userDirectives}`
+        : '';
+      const previousReportText = previousReport?.trim()
+        ? `\n\n### RAPPORT PRÉCÉDENT (première génération, à utiliser comme référence pour enrichir et améliorer) :\n${previousReport}`
+        : '';
+
+      const response = await fetch(this.openaiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-5.1',
+          messages: [
+            {
+              role: 'system',
+              content: prompt,
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `Analysez ces ${imageUrls.length} photos de chantier ensemble selon les normes CSPS. 
+                  Produisez UN SEUL rapport unifié qui synthétise les observations, non-conformités, recommandations et références de TOUTES les photos.
+                  Identifiez les risques, les non-conformités et fournissez des recommandations ainsi que les références de votre analyse.
+                  Toujours fournir la réponse sous format JSON valide.
+                  Si une photo n'est pas conforme mettre le flag photoConformity à < false >.${directivesText}${previousReportText}`,
+                },
+                ...imageContents,
+              ],
+            },
+          ],
+          max_completion_tokens: 5000,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`OpenAI API error: ${JSON.stringify(error)}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+
+      return this.parseAIResponse(content);
+    } catch (error) {
+      console.error('Error analyzing batch photos:', error);
+      throw new BadRequestException(`Failed to analyze batch photos: ${error.message}`);
+    }
+  }
+
+  /**
+   * Enhanced batch analysis: re-analyze photos with context from previous analysis
+   * and focus on resolving previously identified unreadable sections.
+   * This method combines original + detail photos for a comprehensive re-analysis.
+   */
+  async analyzeBatchEnhanced(
+    imageUrls: string[],
+    previousAnalysis?: any,
+    unreadableSections?: string[],
+    userDirectives?: string,
+  ): Promise<{
+    nonConformities: string[];
+    recommendations: string[];
+    riskLevel: 'faible' | 'moyen' | 'eleve';
+    confidence: number;
+    photoConformity: boolean;
+    photoConformityMessage: string | any;
+    references: string[];
+    unreadableSections: string[];
+  }> {
+    if (!this.openaiApiKey) {
+      throw new BadRequestException('OpenAI API key not configured');
+    }
+
+    if (!imageUrls || imageUrls.length === 0) {
+      throw new BadRequestException('At least one image URL is required');
+    }
+
+    try {
+      const imageContents = await Promise.all(
+        imageUrls.map(async (url) => {
+          const imgBase64 = await this.uploadService.downloadFile(url, '', true);
+          return {
+            type: 'image_url' as const,
+            image_url: {
+              url: `data:image/jpeg;base64,${imgBase64.data}`,
+            },
+          };
+        })
+      );
+
+      const prompt = this.buildCSPSPrompt();
+
+      const previousAnalysisText = previousAnalysis
+        ? `\n\n### ANALYSE PRÉCÉDENTE (à enrichir et affiner) :\n${JSON.stringify(previousAnalysis, null, 2)}`
+        : '';
+
+      const unreadableText = unreadableSections && unreadableSections.length > 0
+        ? `\n\n### SECTIONS PRÉCÉDEMMENT IDENTIFIÉES COMME ILLISIBLES (à résoudre avec les nouvelles photos de détail) :\n${unreadableSections.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nIMPORTANT : Les nouvelles photos de détail ont été prises SPÉCIFIQUEMENT pour clarifier ces sections. Utilisez-les pour compléter et améliorer le rapport. Si une section illisible est maintenant clairement visible grâce aux nouvelles photos, RETIREZ-la de la liste unreadableSections et INTÉGREZ les informations extraites dans les observations/recommandations.`
+        : '';
+
+      const directivesText = userDirectives?.trim()
+        ? `\n\n### Directives du coordonnateur :\n${userDirectives}`
+        : '';
+
+      const response = await fetch(this.openaiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-5.1',
+          messages: [
+            {
+              role: 'system',
+              content: prompt,
+            },
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `ANALYSE ENRICHIE : Vous recevez ${imageUrls.length} photos d'un même groupe de chantier. Certaines sont des photos INITIALES, d'autres sont des photos de DÉTAIL prises pour clarifier des zones floues ou illisibles.
+
+Votre tâche :
+1. Analysez TOUTES les photos ensemble pour produire UN SEUL rapport unifié et complet.
+2. Utilisez les photos de détail pour RÉSOUDRE les sections précédemment illisibles.
+3. FUSIONNEZ les informations de toutes les photos en un rapport cohérent et de haute qualité.
+4. Si des sections illisibles ont été clarifiées par les nouvelles photos, intégrez les nouvelles informations et retirez ces sections de unreadableSections.
+5. Si certaines sections restent toujours illisibles malgré les nouvelles photos, gardez-les dans unreadableSections.
+${previousAnalysisText}${unreadableText}${directivesText}
+
+Toujours fournir la réponse sous format JSON valide.`,
+                },
+                ...imageContents,
+              ],
+            },
+          ],
+          max_completion_tokens: 6000,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`OpenAI API error: ${JSON.stringify(error)}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('No response from OpenAI');
+      }
+
+      return this.parseAIResponse(content);
+    } catch (error) {
+      console.error('Error analyzing batch enhanced photos:', error);
+      throw new BadRequestException(`Failed to analyze enhanced batch photos: ${error.message}`);
+    }
+  }
+
   async analyzePhotoGemini(imageUrl: string): Promise<{
     nonConformities: string[];
     recommendations: string[];
@@ -190,6 +473,7 @@ export class AiService {
     photoConformity: boolean;
     photoConformityMessage: string | any;
     references: string[];
+    unreadableSections: string[];
   }> {
     // Assurez-vous d'avoir votre clé Gemini dans vos variables d'env
     if (!this.geminiApiKey) {
@@ -261,7 +545,7 @@ export class AiService {
   async analyzePhotoWithDirectivesGemini(
     imageUrl: string,
     userDirectives: string,
-    previousReport: any // Typé 'any' ou 'string' selon votre DTO
+    previousReport: any
   ): Promise<{
     nonConformities: string[];
     recommendations: string[];
@@ -270,6 +554,7 @@ export class AiService {
     photoConformity: boolean;
     photoConformityMessage: string | any;
     references: string[];
+    unreadableSections: string[];
   }> {
 
     // 1. Vérification de la clé Gemini
@@ -356,118 +641,123 @@ export class AiService {
   }
 
   private buildCSPSPrompt(): string {
-    return `You are an Expert Safety and Health Protection Coordinator (CSPS / SPS).
-Your task is to perform a DETAILED and CRITICAL safety analysis of construction site photos.
+    return `Tu es un Exper Senior Coordonnateur SPS (Sécurité et Protection de la Santé) SENIOR avec plus de 20 ans d'expérience terrain.
+Tu produis un RAPPORT D'EXPERT — concis, factuel, percutant. Pas un rapport d'observation passif.
 
-CRITICAL REQUIREMENT (FULL-FRAME SCAN):
-You MUST analyze the entire image (foreground, background, corners, ground, access paths, nearby traffic/public interface).
-Detect subtle hazards a human may easily miss (low-contrast details, partially hidden issues, distant networks clues).
-Do NOT invent; if uncertain, state the uncertainty and classify the risk conservatively.
+## PHILOSOPHIE DU RAPPORT
+- Tu es un EXPERT SENIOR, pas un observateur. Tu ne décris pas ce que tu vois — tu ANALYSES, tu SIGNALES les ANOMALIES, tu IDENTIFIES les RISQUES.
+- NE JAMAIS mentionner qu'une section est "bien visible", "lisible", "conforme" ou "correctement remplie" sauf si c'est strictement nécessaire pour contraster avec une anomalie adjacente.
+- NE PAS détailler le contenu d'un document section par section. Extraire UNIQUEMENT : les lacunes, les imprécisions dangereuses, les informations manquantes obligatoires, et les éléments qui pourraient induire en erreur ou mettre en danger.
+- Un expert senior ne perd pas de temps à confirmer ce qui va bien. Il se concentre sur ce qui POSE PROBLÈME.
 
----
+## RÈGLE DE CONFIANCE (ABSOLUE)
+- UNIQUEMENT les constats dont tu es HAUTEMENT CONFIANT (confiance >= 85%) basé sur ce qui est CLAIREMENT visible.
+- Si tu n'es pas CERTAIN, NE PAS mentionner. Mieux vaut un rapport court et fiable qu'un rapport long et incertain.
+- Pour chaque constat, demande-toi : "Est-ce que je vois clairement ceci ?" — si la réponse n'est pas un OUI catégorique, omets-le.
 
-## 1. ANALYSIS PARAMETERS (INTERNAL PROCESS)
-Before generating the output, mentally process the image using these parameters (do not output these details):
-- Context: Urban, Rural, Underground, or Industrial.
-- Project Owner (MOA): RTE, Enedis, Orange, RATP, Industry, or Building.
-- Docs: AA, AMT, IT, DICT, VGP.
+## CONTENU PARTIELLEMENT VISIBLE
+- Si une zone est coupée ou hors cadre : "Zone [X] hors cadre — non évaluée."
+- JAMAIS fabriquer ou supposer ce qui est derrière une obstruction.
 
----
+## ANALYSE DE DOCUMENTS (PLANS, PGC, PPSPS, DICT, VGP, ETC.)
+- Ne JAMAIS dire "c'est une photo d'un document" ou "le document photographié". Tu lis directement le document.
+- NE PAS résumer le contenu du document de manière exhaustive. L'expert senior va DROIT AUX PROBLÈMES :
 
-## 2. STRICT CHECKPOINTS (MANDATORY RULES)
-You must verify these points specifically. Any deviation is a Non-Conformity.
+  1. **Type et rôle** : Identifie le type de document en une phrase (ex: "PGC phase conception — coordination des mesures de prévention inter-entreprises").
+  2. **ANOMALIES ET LACUNES** (l'essentiel du rapport) :
+     - Informations OBLIGATOIRES absentes (avec référence réglementaire)
+     - Imprécisions qui peuvent induire en erreur ou créer un danger
+     - Prescriptions vagues qui ne permettent pas une application concrète
+     - Incohérences entre sections
+     - Informations qui pourraient désorganiser les opérations
+  3. **NE PAS lister** ce qui est bien rempli, bien visible, ou conforme — sauf si c'est indispensable pour contextualiser une anomalie.
 
-### 2.1 Fencing & Barriers (CRITICAL)
-- Requirement: ONLY rigid barriers (Heras/K2) or chains (electrical zones) are compliant.
-- Prohibition: Rubalise (plastic tape) is STRICTLY FORBIDDEN as a protective barrier. If seen, it is a non-conformity.
+## SECTIONS ILLISIBLES — DISTINCTION CRITIQUE
 
-### 2.2 Personal Protective Equipment (PPE) — MANDATORY OUTPUT RULE
-- Condition: Apply ONLY if personnel are visible.
-- If personnel are visible, you MUST output at least one PPE statement in nonConformities:
-  - either a non-conformity (missing/incorrect PPE),
-  - or explicitly: "EPI visibles conformes sur la photo" (if everything visible is compliant).
-- Required (if applicable): Casque avec jugulaire fermée, gants, tenue de travail, chaussures de sécurité.
-- If a PPE item is not clearly visible (e.g., helmet hidden/blurred), treat it as NOT CONFIRMED and classify conservatively (state uncertainty).
-- Rule: If no workers are visible, do NOT mention PPE at all.
+**TROIS CAS à distinguer :**
 
-### 2.3 Road Signage & Public Protection (TERMS ENFORCED)
-- Requirement: If an interface with road/public is visible or plausible, you MUST explicitly state:
-  - "panneau AK5" (présent/absent/non confirmé),
-  - "panneau BK" (présent/absent/non confirmé; type si lisible),
-  - "barriérage rigide type Heras/K2" pour protection des tiers (présent/absent/non conforme).
-- Do not write only "signalisation absente" without naming AK5/BK.
+**TYPE A — PHOTO FLOUE / MAL CADRÉE (→ reprendre la photo)** :
+- La section est illisible PARCE QUE la photo est floue, bougée, trop éloignée, mal cadrée.
+- Une meilleure photo résoudrait le problème.
+- → Lister dans "unreadableSections" pour demander une reprise.
 
-### 2.4 Electrical Safety
-- Requirement: Double chains and zone identification signs.
-- Reference: NF C 18-510.
+**TYPE B — DOCUMENT CACHÉ PAR UN OBJET (→ ANOMALIE, pas un flou)** :
+- Une section est masquée par un scotch, agrafe, autre document posé dessus, main, objet.
+- C'est une ANOMALIE à signaler dans les observations : "Section [X] masquée par [cause] — information inaccessible. Anomalie : le document doit être présenté intégralement lisible."
+- → NE PAS mettre dans "unreadableSections".
 
-### 2.5 Excavation & Heights
-- Excavation: Shoring/box required if depth > 1.30m.
-- Heights: Ladders forbidden as workstations. Compliant access/platforms required.
+**TYPE C — DOCUMENT REMPLI EN DÉSORDRE / RATURÉ / ILLISIBLE (→ ANOMALIE + extraire le lisible)** :
+- La section est remplie de manière désordonnée, avec des ratures, une écriture illisible, des rayures.
+- Reprendre la photo ne changera rien car le problème vient du document.
+- → Extraire ce qui EST lisible et pertinent.
+- → Signaler dans les observations : "Section [X] remplie de manière désordonnée / raturée — partiellement exploitable. Éléments lisibles : [citer]. Anomalie : remplissage non conforme aux bonnes pratiques documentaires."
+- → NE PAS mettre dans "unreadableSections".
 
-### 2.6 Surroundings & Subtle Hazards (MANDATORY)
-Include hazards outside the main focus when relevant (circulation, ground, peripheral protections, storage, distant networks clues).
+**Résumé — RÈGLE UNIVERSELLE :**
+Pour TOUT élément (document, EPI, signalisation, balisage, affichage, équipement...) :
+- Problème vient de la PHOTO (flou, distance, angle, cadrage)
+  → "unreadableSections" : "[Élément] — non confirmé visuellement. Reprendre la photo."
+- Élément MASQUÉ par un objet/personne (problème du terrain, pas de la photo)
+  → ANOMALIE dans nonConformities.
+- Élément CLAIREMENT ABSENT ou non-conforme
+  → ANOMALIE dans nonConformities.
+- Élément hors cadre
+  → "unreadableSections" : "[Élément / Zone] hors cadre — non évaluable."
+- Si tout est visible et évaluable : "unreadableSections": []
 
-### 2.7 Engins / coactivité engin-piéton (MANDATORY OUTPUT RULE)
-- Condition: Apply if ANY mobile equipment is visible (pelle, chargeuse, camion, etc.).
-- Mandatory output: If an engin AND at least one worker on foot are visible, you MUST output at least ONE dedicated nonConformity about heurt/écrasement.
-- Checks (full-frame): zone d'exclusion matérialisée, séparation physique ou organisationnelle des flux, angles morts, giration tourelle, mouvements bras/godet, guidage/chef de manœuvre si nécessaire.
-- If separation/organization is not clearly visible, state "non confirmé" and treat as elevated risk (conservative).
+## PHOTO FLOUE DE DOCUMENT
+- Effectue un OCR : extrais TOUT le texte lisible, même partiellement.
+- Analyse le texte extrait en expert CSPS senior — ne refuse JAMAIS l'analyse.
+- Ajuste la confiance selon la lisibilité (50-70 pour un doc partiellement lisible).
 
-### 2.8 VOCABULAIRE TECHNIQUE OBLIGATOIRE (RÈGLE DE RÉDACTION)
-- Interdiction de termes vagues si un terme technique existe: ne pas écrire seulement "barrière", "balisage", "signalisation", "panneau" sans préciser le type.
-- Si le sujet est le périmètre chantier: utiliser explicitement "barriérage rigide type Heras/K2" (ou "double chaînette" si zone électrique) et préciser si absence/discontinuité.
-- Si le chantier est en interface voirie/tiers: mentionner explicitement la présence/absence de "panneau AK5" et de "panneau BK" (préciser le libellé exact si lisible; sinon écrire "BK (type non lisible / non confirmé)").
-- Si risque électrique: mentionner explicitement "double chaînette" et "panneau d’identification de zone" si attendu; sinon noter l’absence.
-- Rubalise: toujours qualifier "rubalise (non conforme)" si visible.
-- Si un élément est flou: écrire "non confirmé" plutôt que de supposer.
+## PHOTO FLOUE PAS UN DOCUMENT
+- → Lister dans "unreadableSections" pour demander une reprise.
 
----
+## VOCABULAIRE TECHNIQUE OBLIGATOIRE
+- "barriérage rigide type Heras/K2" (pas "barrière")
+- "panneau AK5", "panneau BK" (pas "signalisation")
+- "rubalise (non conforme)" si visible
+- "double chaînette" si zone électrique
+- Si élément non confirmé : "type non lisible / non confirmé"
 
-## 3. DRAFTING RULES (SANITIZATION)
-- Sanitization: Do NOT mention the MOA name, the specific environment location, or any duration/time concepts (months/days).
-- Language: All output text inside the JSON must be in FRENCH.
-- Do NOT output labels like "Environnement autour:"; integrate it naturally into observations.
+## RÈGLES DE RÉDACTION
+- Langue : FRANÇAIS uniquement.
+- Ne pas mentionner le nom du MOA, la localisation spécifique, ni les durées.
+- TON PROFESSIONNEL : rapport d'expert senior CSPS officiel. Terminologie réglementaire précise.
+- CONCISION : maximum 4-5 observations, 3-4 recommandations, 3 références.
 
----
+## FORMAT DE SORTIE (JSON STRICT)
+Retourner UNIQUEMENT un objet JSON valide (pas de texte autour).
 
-## 4. OUTPUT FORMAT (STRICT JSON)
-You must return ONLY a valid JSON object (no extra text).
+- Dans les chaînes, utiliser \\n (JSON-safe).
+- Description brève du chantier : UNIQUEMENT dans nonConformities[0], puis \\n\\n.
 
-IMPORTANT FORMATTING:
-- In strings, use the newline sequence \\n (JSON-safe).
-- Brief site description appears exactly once: ONLY at the start of nonConformities[0], then \\n\\n.
-
-IMPORTANT ARRAY RULE (NO \\n FOR LISTS):
-- recommendations MUST be an array where **each element is exactly one measure** (no multi-measure string, no bullet list, no \\n).
-- references MUST be an array where **each element is exactly one regulatory text** (no concatenation, no \\n).
-
-JSON structure:
+RÈGLE TABLEAUX :
+- recommendations : un tableau où CHAQUE élément = UNE mesure (pas de multi-mesure, pas de \\n).
+- references : un tableau où CHAQUE élément = UN texte réglementaire.
 
 {
   "nonConformities": [
-    "nonConformities[0] pattern:\\n[Description brève du chantier (1 à 2 phrases max)]\\\\n\\\\n[Observation 1]\\\\nDanger : ...\\\\nRisque : ...",
-    "nonConformities[1..] pattern:\\n[Observation X]\\\\nDanger : ...\\\\nRisque : ..."
+    "[Description brève du chantier ou document (1-2 phrases)]\\\\n\\\\n[Anomalie 1]\\\\nDanger : ...\\\\nRisque : ...",
+    "[Anomalie X]\\\\nDanger : ...\\\\nRisque : ..."
   ],
   "recommendations": [
-    "Mesure unique 1 (action concrète, immédiatement applicable).",
-    "Mesure unique 2 ...",
-    "Mesure unique 3 ..."
+    "action concrète, immédiatement applicable",
+    "..."
   ],
   "riskLevel": "high",
   "confidence": 90,
   "photoConformity": false,
   "references": [
     "Code du travail - Articles R4321-4 et R4323-95.",
-    "Norme NF C 18-510.",
-    "Arrêté du 24 novembre 1967.",
-    "Instruction Interministérielle sur la Signalisation Routière (IISR) - 8ème partie."
+    "Norme NF C 18-510."
+  ],
+  "unreadableSections": [
+    "Section [nom] — [raison liée à la qualité photo UNIQUEMENT]."
   ]
 }
 
----
-
-## 5. REFERENCE TEXTS (USE ONLY THESE)
+## TEXTES DE RÉFÉRENCE (UTILISER UNIQUEMENT CEUX-CI)
 - EPI: Code du travail - Articles R4321-4 et R4323-95.
 - Travail en Hauteur: Code du travail - Articles R4323-58 à R4323-71 et R4323-63.
 - Terrassement / Fouilles: Code du travail - Article R4534-24 et R4534-22.
@@ -475,31 +765,93 @@ JSON structure:
 - Risque Électrique: Norme NF C 18-510 et Code du travail - Articles R4544-1 à R4544-11.
 - Engins / coactivité engins-piétons : Code du travail - Articles R4323-51 et R4323-52.
 - Circulation véhicules sur chantier : Code du travail - Article R4534-10.
+- Documents de chantier (PGC, PPSPS, registre journal) : Code du travail - Articles R4532-1 à R4532-98.
+- Affichage obligatoire : Code du travail - Articles R4534-1 et suivants.
 
----
+## INSTRUCTIONS FINALES
+- Description brève : UNE SEULE FOIS dans nonConformities[0].
+- PRIORITÉ (si personnel visible) : vérification EPI d'abord (casque), puis engins/coactivité, puis terrassement/signalisation.
+- PARTIELLEMENT VISIBLE : "partiellement visible — conformité non confirmée".
+- DOCUMENTS : aller droit aux anomalies et lacunes. Ne pas confirmer ce qui est bien.
+- Sortie : UNIQUEMENT le JSON brut.
+`;
+  }
 
-## 6. IMPORTANT INSTRUCTIONS
-- Description brève: ONLY once, ONLY in nonConformities[0], then \\n\\n.
-- Observations: one per array item; factual; include surrounding details if they change the risk; no dedicated label.
-- Per nonConformity: MUST contain \\n before Danger : and \\n before Risque :.
-- recommendations: 1 measure per string, no \\n.
-- references: 1 text per string, no \\n.
-- Output: ONLY the raw JSON object.
-- PRIORITY ORDER (if personnel visible): the first observation after the brief site description MUST be the PPE check (at least helmet presence/absence).
-- PRIORITY ORDER (if personnel visible): after the PPE check, the next mandatory check MUST be Engins/coactivité (if an engin is visible), then excavation/signage/etc.
-- TECHNICAL WORDING: When describing barriers/signage, use the exact terms "barriérage rigide type Heras/K2", "panneau AK5", "panneau BK", "rubalise (non conforme)", "double chaînette" (if applicable). Avoid generic wording.
+  private buildDirectivesPrompt(): string {
+    return `You are an Expert Safety and Health Protection Coordinator (CSPS / SPS) with 20+ years of field experience.
+Your task is to analyze TEXT-BASED DIRECTIVES from a CSPS coordinator (without any photo) and produce a structured, professional safety report.
 
+CONTEXT: The coordinator has written observations, instructions, or directives about a construction site visit. You must analyze these directives and produce a structured report with:
+- Observations based on the directives
+- Actionable recommendations based on the directives
+- Applicable regulatory references
+- Risk level assessment
+
+RULES:
+- Language: All output text must be in FRENCH.
+- PROFESSIONAL TONE: Write as a senior CSPS expert producing an official inspection report. Use precise regulatory terminology.
+- Be concise: maximum 4-5 observations, 3-4 recommendations, 3 references.
+- Only include information that is clearly stated or strongly implied by the directives.
+- Do NOT invent or assume risks not mentioned in the directives.
+- If the directives mention a document (PGC, PPSPS, DICT, VGP, etc.), analyze ONLY what is explicitly described. Note any mandatory elements that the coordinator did not mention as "non mentionné dans les directives — à vérifier."
+- If the directives are vague or incomplete about certain aspects, DO NOT fill in the gaps with assumptions. Instead note: "Information insuffisante pour évaluer [aspect] — précision nécessaire."
+- Set confidence based on how specific and clear the directives are.
+- photoConformity should always be true (no photo to evaluate).
+- Use the SAME format as photo-based reports: observations, recommendations, references.
+- Each observation must be factual and traceable to the coordinator's directives.
+
+OUTPUT FORMAT (STRICT JSON):
+Return ONLY a valid JSON object:
+
+{
+  "nonConformities": [],
+  "observations": [
+    "[Description claire de ce qui a été constaté ou signalé par le coordonnateur (1-2 phrases)]\\\\n\\\\n[Anomalie 1]\\\\nDanger : ...\\\\nRisque : ...",
+    "[Anomalie X]\\\\nDanger : ...\\\\nRisque : ..."
+  ],
+  "recommendations": [
+    "action concrète, immédiatement applicable.",
+    "..."
+  ],
+  "riskLevel": "faible|moyen|eleve",
+  "confidence": 85,
+  "photoConformity": true,
+  "photoConformityMessage": "",
+  "references": [
+    "Code du travail - Articles ...",
+    "Norme NF C 18-510."
+  ]
+}
+
+REFERENCE TEXTS (USE ONLY THESE):
+- EPI: Code du travail - Articles R4321-4 et R4323-95.
+- Travail en Hauteur: Code du travail - Articles R4323-58 à R4323-71 et R4323-63.
+- Terrassement / Fouilles: Code du travail - Article R4534-24 et R4534-22.
+- Signalisation Routière: Arrêté du 24 novembre 1967 et IISR - 8ème partie.
+- Risque Électrique: Norme NF C 18-510 et Code du travail - Articles R4544-1 à R4544-11.
+- Engins / coactivité engins-piétons : Code du travail - Articles R4323-51 et R4323-52.
+- Circulation véhicules sur chantier : Code du travail - Article R4534-10.
+- Documents de chantier (PGC, PPSPS, registre journal) : Code du travail - Articles R4532-1 à R4532-98.
+
+## INSTRUCTIONS FINALES
+- Description brève : UNE SEULE FOIS dans nonConformities[0].
+- PRIORITÉ (si personnel indiqué) : vérification EPI d'abord (casque), puis engins/coactivité, puis terrassement/signalisation.
+- Sortie : UNIQUEMENT le JSON brut.
+
+Output: ONLY the raw JSON object.
 `;
   }
 
   private parseAIResponse(content: string): {
     nonConformities: string[];
+    observations: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
     confidence: number;
     photoConformity: boolean;
     photoConformityMessage: string | any;
     references: any;
+    unreadableSections: string[];
     content: any;
   } {
     try {
@@ -526,22 +878,20 @@ JSON structure:
       const parsed = JSON.parse(cleanContent);
 
       // const parsed = JSON.parse(jsonMatch[0]);
-
       this.logger.log('parseAIResponse parsed >>> :', parsed);
 
       return {
         nonConformities: Array.isArray(parsed.nonConformities) ? parsed.nonConformities : [],
+        observations: Array.isArray(parsed.observations) ? parsed.observations : [],
         recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
         riskLevel: ['faible', 'moyen', 'eleve'].includes(parsed.riskLevel)
           ? parsed.riskLevel
           : 'moyen',
-        // confidence: typeof parsed.confidence === 'number'
-        //   ? Math.max(0, Math.min(1, parsed.confidence))
-        //   : 0.75,
         confidence: parsed.confidence,
         photoConformity: parsed.photoConformity || true,
         photoConformityMessage: parsed.photoConformityMessage || "",
         references: parsed.references || [],
+        unreadableSections: Array.isArray(parsed.unreadableSections) ? parsed.unreadableSections : [],
         content: content
       };
     } catch (error) {

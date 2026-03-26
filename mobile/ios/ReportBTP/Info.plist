@@ -36,6 +36,31 @@
     <string>1</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+      <string>airmail</string>
+      <string>message</string>
+      <string>bluemail</string>
+      <string>canary</string>
+      <string>edisonmail</string>
+      <string>szn-email</string>
+      <string>fastmail</string>
+      <string>x-gmxmail-netid-v1</string>
+      <string>googlegmail</string>
+      <string>mailrumail</string>
+      <string>ms-outlook</string>
+      <string>protonmail</string>
+      <string>ctxmail</string>
+      <string>readdle-spark</string>
+      <string>superhuman</string>
+      <string>telekommail</string>
+      <string>tutanota</string>
+      <string>x-webdemail-netid-v1</string>
+      <string>ymail</string>
+      <string>yandexmail</string>
+      <string>appcenter-f45b4c0b-75c9-2d01-7ab6-41f6a6015be2</string>
+      <string>mymail-mailto</string>
+    </array>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>LSRequiresIPhoneOS</key>
@@ -51,6 +76,10 @@
     <string>Allow $(PRODUCT_NAME) to access your camera</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>L'application a besoin de sauvegarder les photos de visite sur votre appareil.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>L'application a besoin d'accéder à vos photos pour sauvegarder les photos de visite.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

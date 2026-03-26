@@ -448,7 +448,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
 `;
         const subject = `Rapport CSPS – ${pdfData.mission} – ${pdfData.date}`;
 
-        const pdfUrl = resp?.url;
+        const pdfUrl = (resp as any)?.url;
 
         const confirm = await Swal.fire({
           title: 'Confirmer l’envoi du rapport',

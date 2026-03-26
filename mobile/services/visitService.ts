@@ -64,4 +64,8 @@ export const visitService = {
   async deleteVisit(id: string) {
     return api.delete(`/visits/${id}`);
   },
+
+  async generateReport(visitId: string, options?: { header?: string; footer?: string; notes?: string }) {
+    return api.post(`/visits/${visitId}/generate-report`, options || {});
+  },
 };

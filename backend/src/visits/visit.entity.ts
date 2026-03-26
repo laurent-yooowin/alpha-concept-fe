@@ -55,6 +55,12 @@ export class Visit {
   photos: {
     id: string;
     uri: string;
+    s3Url?: string;
+    groupId?: string;
+    isDirectiveOnly?: boolean;
+    isDetailPhoto?: boolean;
+    isReadabilityPhoto?: boolean;
+    detailContext?: string;
     analysis: {
       observation: string;
       recommendation: string;
@@ -63,6 +69,7 @@ export class Visit {
       photoConformity?: boolean;
       photoConformityMessage?: string;
       references?: string;
+      unreadableSections?: string[];
     };
     comment?: string;
     userDirectives?: string;

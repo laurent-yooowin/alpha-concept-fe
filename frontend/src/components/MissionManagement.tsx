@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { missionsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Search, Filter, Calendar, MapPin, User, Clock, Upload, X, CheckCircle, AlertCircle, Trash2, Edit } from 'lucide-react';
+import { Plus, Search, Filter, Calendar, MapPin, User, Clock, Upload, X, CheckCircle, AlertCircle, Trash2, Edit, Eye, FileText, Camera } from 'lucide-react';
 import Swal from 'sweetalert2';
+import MissionVisitsModal from './MissionVisitsModal';
+import MissionReportModal from './MissionReportModal';
 
 interface Mission {
   id: string;
@@ -42,6 +44,11 @@ export default function MissionManagement() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState < any > (null);
   const [selectedMission, setSelectedMission] = useState < Mission | null > (null);
+  const [showVisitsModal, setShowVisitsModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [visitsModalMission, setVisitsModalMission] = useState < Mission | null > (null);
+  const [reportModalMission, setReportModalMission] = useState < Mission | null > (null);
+  const [updatingStatus, setUpdatingStatus] = useState < string | null > (null);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -325,6 +332,33 @@ export default function MissionManagement() {
     }
   };
 
+  const handleStatusChange = async (mission: Mission, newStatus: string, e: React.MouseEvent | React.ChangeEvent) => {
+    e.stopPropagation();
+    if (!isAdmin) return;
+    setUpdatingStatus(mission.id);
+    try {
+      await missionsAPI.update(mission.id, { status: newStatus });
+      fetchData();
+      Swal.fire({ icon: 'success', title: 'Statut mis à jour', timer: 1500, showConfirmButton: false });
+    } catch (error) {
+      console.error('Error updating status:', error);
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la mise à jour du statut' });
+    }
+    setUpdatingStatus(null);
+  };
+
+  const openVisitsModal = (mission: Mission, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setVisitsModalMission(mission);
+    setShowVisitsModal(true);
+  };
+
+  const openReportModal = (mission: Mission, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setReportModalMission(mission);
+    setShowReportModal(true);
+  };
+
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'assignee': return 'Assigné';
@@ -412,6 +446,9 @@ export default function MissionManagement() {
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Type</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Coordonnateur</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Statut</th>
+                <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Changer statut</th>
+                <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Visites</th>
+                <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Rapports</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -468,11 +505,11 @@ export default function MissionManagement() {
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-8">
+                    <div className="flex items-center gap-2">
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(mission.status)}`}>
                         {getStatusLabel(mission.status)}
                       </span>
-                      {isAdmin && mission.status != 'terminee' && mission.status != 'en_cours' && !mission.assigned && (
+                      {isAdmin && mission.status != 'terminee' && mission.status != 'en_cours' && !(mission as any).assigned && (
                         <button
                           onClick={(e) => handleDeleteMission(mission, e)}
                           className="p-2 hover:bg-red-100 rounded-lg transition-colors group"
@@ -482,6 +519,47 @@ export default function MissionManagement() {
                         </button>
                       )}
                     </div>
+                  </td>
+                  {/* Status change column */}
+                  <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                    {isAdmin && (
+                      <select
+                        value={mission.status}
+                        onChange={(e) => handleStatusChange(mission, e.target.value, e)}
+                        disabled={updatingStatus === mission.id}
+                        className="text-xs px-2 py-1.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none bg-white disabled:opacity-50 w-full"
+                      >
+                        <option value="planifiee">Planifié</option>
+                        <option value="assignee">Assigné</option>
+                        <option value="affectee">Affecté</option>
+                        <option value="en_cours">En cours</option>
+                        <option value="terminee">Terminé</option>
+                        <option value="refusee">Refusé</option>
+                        <option value="annulee">Annulé</option>
+                      </select>
+                    )}
+                  </td>
+                  {/* Visits column */}
+                  <td className="px-4 py-4 text-center">
+                    <button
+                      onClick={(e) => openVisitsModal(mission, e)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition-colors text-xs font-medium border border-emerald-200"
+                      title="Voir les visites"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      Visites
+                    </button>
+                  </td>
+                  {/* Reports column */}
+                  <td className="px-4 py-4 text-center">
+                    <button
+                      onClick={(e) => openReportModal(mission, e)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-xs font-medium border border-blue-200"
+                      title="Voir les rapports"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      Rapports
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1062,6 +1140,20 @@ export default function MissionManagement() {
             </form>
           </div>
         </div>
+      )}
+
+      {showVisitsModal && visitsModalMission && (
+        <MissionVisitsModal
+          mission={visitsModalMission}
+          onClose={() => { setShowVisitsModal(false); setVisitsModalMission(null); }}
+        />
+      )}
+
+      {showReportModal && reportModalMission && (
+        <MissionReportModal
+          mission={reportModalMission}
+          onClose={() => { setShowReportModal(false); setReportModalMission(null); }}
+        />
       )}
     </div>
   );
