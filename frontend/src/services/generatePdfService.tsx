@@ -53,10 +53,14 @@ export const generatePdfService = {
         photoGroups[gid].photos.push(photo);
       });
 
-      // Download all images in parallel
+      // Download all images in parallel (skip directive-only photos)
       const photoBase64Map = new Map<number, string>();
       await Promise.all(
         (reportData.photos || []).map(async (photo: any, idx: number) => {
+          if (photo.isDirectiveOnly) {
+            photoBase64Map.set(idx, '');
+            return;
+          }
           try {
             const pdfData = await filesService.downloadFile(photo.s3Url, 'visits/photos/', true);
             photoBase64Map.set(idx, pdfData.data?.base64 || '');
@@ -76,29 +80,33 @@ export const generatePdfService = {
         const groupIdx = groupData.index + 1;
         const isSinglePhoto = photos.length === 1;
 
-        // Build photo grid
+        const isDirectiveOnlyGroup = photos.every((p: any) => p.isDirectiveOnly);
+
+        // Build photo grid — skip entirely for directive-only groups
         let photoGridHtml = '';
-        if (isSinglePhoto) {
-          const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[0])) || '';
-          photoGridHtml = `
-            <div class="photo-grid-single">
-              <div class="photo-container-normalized">
-                <img src="data:image/jpeg;base64,${base64}" class="photo-image-normalized" />
-              </div>
-            </div>`;
-        } else {
-          photoGridHtml = `<div class="photo-grid-multi">`;
-          for (let i = 0; i < photos.length; i++) {
-            const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[i])) || '';
-            photoGridHtml += `
-              <div class="photo-grid-cell">
-                <div class="photo-container-normalized">
+        if (!isDirectiveOnlyGroup) {
+          if (isSinglePhoto) {
+            const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[0])) || '';
+            photoGridHtml = `
+              <div class="photo-grid-single" style="display:flex;justify-content:center;">
+                <div class="photo-container-normalized" style="max-width:400px;">
                   <img src="data:image/jpeg;base64,${base64}" class="photo-image-normalized" />
-                  <span class="photo-index-badge">${i + 1}</span>
                 </div>
               </div>`;
+          } else {
+            photoGridHtml = `<div class="photo-grid-multi">`;
+            for (let i = 0; i < photos.length; i++) {
+              const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[i])) || '';
+              photoGridHtml += `
+                <div class="photo-grid-cell">
+                  <div class="photo-container-normalized">
+                    <img src="data:image/jpeg;base64,${base64}" class="photo-image-normalized" />
+                    <span class="photo-index-badge">${i + 1}</span>
+                  </div>
+                </div>`;
+            }
+            photoGridHtml += `</div>`;
           }
-          photoGridHtml += `</div>`;
         }
 
         // Aggregate analysis from first photo with analysis (group shares one report)
@@ -116,7 +124,6 @@ export const generatePdfService = {
           ? allComments.map((c: string) => `<p class="comment-text">${c}</p>`).join('')
           : '';
 
-        const isDirectiveOnlyGroup = photos.every((p: any) => p.isDirectiveOnly);
         const photoCountLabel = isDirectiveOnlyGroup
           ? 'Pas de photo'
           : `${photos.length} photo(s)`;

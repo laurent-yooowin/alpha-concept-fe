@@ -13,6 +13,7 @@ export enum MissionStatus {
   IN_PROGRESS = 'en_cours',
   TERMINATED = 'terminee',
   VALIDATED = 'validee',
+  ARCHIVED = 'archivee',
 }
 
 export class CreateMissionDto {

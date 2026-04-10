@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             text: 'Se reconnecter',
             onPress: () => {
               logout();
-              router.replace('/login');
+              router.replace('/auth/login');
             }
           }
         ],

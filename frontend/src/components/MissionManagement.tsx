@@ -49,6 +49,7 @@ export default function MissionManagement() {
   const [visitsModalMission, setVisitsModalMission] = useState < Mission | null > (null);
   const [reportModalMission, setReportModalMission] = useState < Mission | null > (null);
   const [updatingStatus, setUpdatingStatus] = useState < string | null > (null);
+  const BLOCKED_STATUSES = ['terminee', 'archivee', 'annulee', 'refusee'];
 
   const [formData, setFormData] = useState({
     title: '',
@@ -195,7 +196,7 @@ export default function MissionManagement() {
   const handleRowClick = (mission: Mission) => {
     if (!isAdmin) return;
 
-    if (mission.status == 'terminee') return;
+    if (mission.status == 'terminee' || mission.status == 'archivee') return;
 
     setSelectedMission(mission);
     setFormData({
@@ -222,7 +223,7 @@ export default function MissionManagement() {
     e.preventDefault();
     if (!isAdmin || !selectedMission) return;
 
-    if (selectedMission.status == 'terminee') return;
+    if (selectedMission.status == 'terminee' || selectedMission.status == 'archivee') return;
 
     try {
       await missionsAPI.update(selectedMission.id, {
@@ -270,7 +271,7 @@ export default function MissionManagement() {
 
     if (!isAdmin) return;
 
-    if (mission.status == 'terminee') return;
+    if (mission.status == 'terminee' || mission.status == 'archivee') return;
 
     const result = await Swal.fire({
       title: 'Confirmer la suppression',
@@ -327,6 +328,7 @@ export default function MissionManagement() {
       case 'refusee': return 'bg-red-100 text-red-700 border-red-200';
       case 'en_cours': return 'bg-amber-100 text-amber-700 border-amber-200';
       case 'terminee': return 'bg-green-100 text-green-700 border-green-200';
+      case 'archivee': return 'bg-purple-100 text-purple-700 border-purple-200';
       case 'annulee': return 'bg-slate-100 text-slate-700 border-slate-200';
       default: return 'bg-slate-100 text-slate-700 border-slate-200';
     }
@@ -367,6 +369,7 @@ export default function MissionManagement() {
       case 'refusee': return 'Refusé';
       case 'en_cours': return 'En cours';
       case 'terminee': return 'Terminé';
+      case 'archivee': return 'Archivé';
       case 'annulee': return 'Annulé';
       default: return status;
     }
@@ -430,6 +433,7 @@ export default function MissionManagement() {
               <option value="affectee">Affecté</option>
               <option value="en_cours">En cours</option>
               <option value="terminee">Terminé</option>
+              <option value="archivee">Archivé</option>
               <option value="refusee">Refusé</option>
               <option value="annulee">Annulé</option>
             </select>
@@ -509,7 +513,7 @@ export default function MissionManagement() {
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(mission.status)}`}>
                         {getStatusLabel(mission.status)}
                       </span>
-                      {isAdmin && mission.status != 'terminee' && mission.status != 'en_cours' && !(mission as any).assigned && (
+                      {isAdmin && mission.status != 'terminee' && mission.status != 'archivee' && mission.status != 'en_cours' && !(mission as any).assigned && (
                         <button
                           onClick={(e) => handleDeleteMission(mission, e)}
                           className="p-2 hover:bg-red-100 rounded-lg transition-colors group"
@@ -534,6 +538,7 @@ export default function MissionManagement() {
                         <option value="affectee">Affecté</option>
                         <option value="en_cours">En cours</option>
                         <option value="terminee">Terminé</option>
+                        <option value="archivee">Archivé</option>
                         <option value="refusee">Refusé</option>
                         <option value="annulee">Annulé</option>
                       </select>
@@ -1146,6 +1151,16 @@ export default function MissionManagement() {
         <MissionVisitsModal
           mission={visitsModalMission}
           onClose={() => { setShowVisitsModal(false); setVisitsModalMission(null); }}
+          onNavigateToReports={(reportId?: string) => {
+            setShowVisitsModal(false);
+            setVisitsModalMission(null);
+            // Navigate to reports page - use window.location for simplicity with createBrowserRouter
+            if (reportId) {
+              window.location.href = `/reports?reportId=${reportId}`;
+            } else {
+              window.location.href = '/reports';
+            }
+          }}
         />
       )}
 

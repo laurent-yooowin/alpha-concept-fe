@@ -67,7 +67,7 @@ export class VisitService {
 
     return this.visitRepository.find({
       where,
-      relations: ['mission', 'user'],
+      relations: ['mission', 'user', 'report'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -94,7 +94,7 @@ export class VisitService {
 
     const visit = await this.visitRepository.findOne({
       where,
-      relations: ['mission', 'user'],
+      relations: ['mission', 'user', 'report'],
     });
 
     if (!visit) {

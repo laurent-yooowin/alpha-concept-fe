@@ -41,9 +41,10 @@ interface Report {
 interface MissionReportModalProps {
   mission: { id: string; title: string; client: string; address: string };
   onClose: () => void;
+  initialReportId?: string;
 }
 
-export default function MissionReportModal({ mission, onClose }: MissionReportModalProps) {
+export default function MissionReportModal({ mission, onClose, initialReportId }: MissionReportModalProps) {
   const { profile: currentUser } = useAuth();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +59,7 @@ export default function MissionReportModal({ mission, onClose }: MissionReportMo
   const [adminRemarks, setAdminRemarks] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
+  const [initialReportOpened, setInitialReportOpened] = useState(false);
 
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
 
@@ -65,15 +67,26 @@ export default function MissionReportModal({ mission, onClose }: MissionReportMo
     fetchReports();
   }, []);
 
+  // Auto-open initial report detail when reports are loaded
+  useEffect(() => {
+    if (initialReportId && !initialReportOpened && !loading && reports.length > 0) {
+      setInitialReportOpened(true);
+      const target = reports.find(r => r.id === initialReportId);
+      if (target) {
+        openReportDetail(target);
+      }
+    }
+  }, [initialReportId, loading, reports]);
+
   const fetchReports = async () => {
     setLoading(true);
     try {
       const allReports = await reportsAPI.getAll();
       const missionReports = Array.isArray(allReports)
         ? allReports.filter((r: Report) => {
-            const reportMissionId = r.missionId || (r.mission as any)?.id;
-            return reportMissionId === mission.id;
-          })
+          const reportMissionId = r.missionId || (r.mission as any)?.id;
+          return reportMissionId === mission.id;
+        })
         : [];
       // Process reports
       const processed = missionReports.map((report: any) => {
@@ -277,18 +290,8 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
           title: 'Rapport envoyé',
           text: `Le rapport a été envoyé au client avec succès.`,
           icon: 'success',
-          showCancelButton: true,
-          confirmButtonText: 'Clôturer le chantier',
-          cancelButtonText: 'Fermer',
-        }).then(async (result) => {
-          if (result.isConfirmed) {
-            try {
-              await missionsAPI.update(mission.id, { status: 'terminee' });
-              Swal.fire({ icon: 'success', title: 'Chantier clôturé', timer: 2000, showConfirmButton: false });
-            } catch (error) {
-              Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la clôture du chantier' });
-            }
-          }
+          confirmButtonText: 'OK',
+        }).then(async () => {
           setSelectedReport(null);
           await fetchReports();
         });
@@ -383,7 +386,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
             <div>
               <button
                 onClick={() => { setSelectedReport(null); setIsEditing(false); }}
-                className="text-sm text-prosps-blue hover:underline mb-4 flex items-center gap-1"
+                className="text-s text-prosps-blue hover:underline mb-4 flex items-center gap-1"
               >
                 ← Retour à la liste
               </button>
@@ -396,17 +399,17 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                     {selectedReport.reportFileUrl && (
                       <button
                         onClick={() => downloadReportFile(selectedReport.reportFileUrl!)}
-                        className="flex items-center gap-1 text-sm text-red-600 hover:underline"
+                        className="flex items-center gap-1 text-s text-red-600 hover:underline"
                       >
                         <Download className="w-4 h-4" /> PDF
                       </button>
                     )}
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(selectedReport.status)}`}>
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-s font-medium border ${getStatusColor(selectedReport.status)}`}>
                       {getStatusLabel(selectedReport.status)}
                     </span>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-s">
                   <div>
                     <span className="text-slate-500">Client:</span>
                     <span className="ml-1 font-medium text-slate-900">{selectedReport.client || mission.client}</span>
@@ -432,7 +435,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
               {/* Report content with PhotoReportEditor */}
               <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Contenu du rapport</label>
+                <label className="block text-s font-medium text-slate-700 mb-2">Contenu du rapport</label>
                 <PhotoReportEditor
                   initialPhotos={selectedReport.visit?.photos || []}
                   downloadImages={downloadImages}
@@ -447,7 +450,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
               {/* Observations */}
               <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Observations</label>
+                <label className="block text-s font-medium text-slate-700 mb-2">Observations</label>
                 {isEditing ? (
                   <textarea
                     value={editedObservations}
@@ -456,7 +459,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
                   />
                 ) : (
-                  <div className="p-4 bg-slate-50 rounded-lg whitespace-pre-wrap text-slate-900 text-sm">
+                  <div className="p-4 bg-slate-50 rounded-lg whitespace-pre-wrap text-slate-900 text-s">
                     {editedObservations || 'Aucune observation'}
                   </div>
                 )}
@@ -465,10 +468,10 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
               {/* Admin remarks */}
               {selectedReport.remarquesAdmin && !isEditing && (
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <label className="block text-s font-medium text-slate-700 mb-2 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-500" /> Remarques admin
                   </label>
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 whitespace-pre-wrap">
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-s text-amber-800 whitespace-pre-wrap">
                     {selectedReport.remarquesAdmin}
                   </div>
                 </div>
@@ -477,12 +480,12 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
               {/* Validated / Sent info */}
               {selectedReport.validatedAt && (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
-                  <p className="text-sm text-green-900"><strong>Validé le:</strong> {new Date(selectedReport.validatedAt).toLocaleDateString('fr-FR')}</p>
+                  <p className="text-s text-green-900"><strong>Validé le:</strong> {new Date(selectedReport.validatedAt).toLocaleDateString('fr-FR')}</p>
                 </div>
               )}
               {selectedReport.sentToClientAt && (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg mb-4">
-                  <p className="text-sm text-emerald-900"><strong>Envoyé au client le:</strong> {new Date(selectedReport.sentToClientAt).toLocaleDateString('fr-FR')}</p>
+                  <p className="text-s text-emerald-900"><strong>Envoyé au client le:</strong> {new Date(selectedReport.sentToClientAt).toLocaleDateString('fr-FR')}</p>
                 </div>
               )}
 
@@ -522,7 +525,17 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                           <Edit2 className="w-4 h-4" />
                           Modifier
                         </button>
-                        {!isAdmin && (
+                        {!isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
+                          <button
+                            onClick={handleSendToClient}
+                            disabled={sendingToClient}
+                            className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium disabled:opacity-50"
+                          >
+                            <Send className="w-4 h-4" />
+                            {sendingToClient ? 'Envoi...' : 'Envoyer au client'}
+                          </button>
+                        )}
+                        {isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
                           <button
                             onClick={handleSendToClient}
                             disabled={sendingToClient}
@@ -545,12 +558,13 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                 <div
                   key={report.id}
                   onClick={() => openReportDetail(report)}
-                  className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 cursor-pointer transition-colors"
+                  className={"border rounded-lg p-4 hover:bg-slate-50 cursor-pointer transition-colors" +
+                    (report?.status == 'envoye_au_client' ? ' border-green-400' : (report?.status == 'annule' ? ' border-red-400' : ' border-blue-400'))}
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="font-medium text-slate-900">{report.title || mission.title}</h3>
-                      <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
+                      <div className="flex items-center gap-4 mt-2 text-s text-slate-500">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3.5 h-3.5" />
                           {new Date(report.createdAt).toLocaleDateString('fr-FR')}
@@ -576,10 +590,10 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                           <FileText className="w-4 h-4" />
                         </button>
                       )}
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(report.status)}`}>
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-s font-medium border ${getStatusColor(report.status)}`}>
                         {getStatusLabel(report.status)}
                       </span>
-                      <span className="text-sm text-prosps-blue font-medium">Détails →</span>
+                      <span className="text-s text-prosps-blue font-medium">Détails →</span>
                     </div>
                   </div>
                 </div>

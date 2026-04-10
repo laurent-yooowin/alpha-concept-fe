@@ -23,16 +23,16 @@ function RootLayoutNav() {
     } else if (isAuthenticated && inAuthGroup) {
       router.replace('/tabs');
     }
-  }, [isAuthenticated, segments]);
+  }, [isAuthenticated]);
 
   return (
     <>
       <Stack screenOptions={{ contentStyle: { backgroundColor: '#fff' } }} >
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="tabs" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
-      {/* <StatusBar style="light" backgroundColor="#1E40AF" /> */}
     </>
   );
 }

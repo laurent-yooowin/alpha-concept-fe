@@ -15,18 +15,26 @@ import {
 } from 'lucide-react';
 
 export default function Layout() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, loading, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    if (!user) {
+    if (!loading && !user) {
       navigate('/login');
     }
-  }, [user, navigate]);
+  }, [user, loading, navigate]);
 
   const isAdmin = profile?.role === 'ROLE_ADMIN';
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-slate-500">Chargement...</div>
+      </div>
+    );
+  }
 
   const navigation = [
     { path: '/dashboard', name: 'Tableau de bord', icon: LayoutDashboard, show: true },
@@ -82,7 +90,7 @@ export default function Layout() {
           <p className="text-m text-white/90 mt-1">Plateforme de gestion SPS</p>
         </div>
 
-        <nav className="p-4 space-y-1">
+        <nav className="p-4 space-y-1 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px - 120px)' }}>
           {navigation.filter(item => item.show).map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
@@ -91,13 +99,13 @@ export default function Layout() {
                 key={item.path}
                 to={item.path}
                 onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
+                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors text-sm ${isActive
                   ? 'bg-white text-prosps-blue'
                   : 'text-white hover:bg-white/10'
                   }`}
               >
-                <Icon className="w-5 h-5" />
-                <span className="font-medium">{item.name}</span>
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                <span className="font-medium truncate">{item.name}</span>
               </Link>
             );
           })}

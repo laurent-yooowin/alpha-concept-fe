@@ -104,7 +104,11 @@ export class UploadController {
   }
 
   @Post('report-pdf')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', {
+    limits: {
+      fileSize: 50 * 1024 * 1024, // 50 MB
+    },
+  }))
   async uploadVReportPdf(@UploadedFile() file: Express.Multer.File) {
 
     if (!file) {

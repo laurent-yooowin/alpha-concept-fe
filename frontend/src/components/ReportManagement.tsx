@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { missionsAPI, reportsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText } from 'lucide-react';
+import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText, FileCheck, Clock, Loader2 } from 'lucide-react';
 import { generatePdfService } from '../services/generatePdfService';
 import { visitService } from '../services/visitService';
 import { filesService } from '../services/filesService';
@@ -56,6 +56,7 @@ export default function ReportManagement() {
   const [isEditing, setIsEditing] = useState(false);
   const [cursorPos, setCursorPos] = useState(null);
   const [photos, setPhotos] = useState([]);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   const editedContentRef = useRef(null);
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
@@ -227,12 +228,93 @@ export default function ReportManagement() {
         status: 'valide',
       });
 
+      Swal.fire({ icon: 'success', title: 'Rapport validé', timer: 1500, showConfirmButton: false });
       setShowViewModal(false);
       setSelectedReport(null);
       await fetchReports();
     } catch (error) {
       console.error('Error validating report:', error);
-      alert('Erreur lors de la validation');
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la validation' });
+    }
+  };
+
+  const handleSubmitReport = async () => {
+    if (!selectedReport) return;
+    const confirm = await Swal.fire({
+      title: 'Soumettre le rapport',
+      text: 'Voulez-vous soumettre ce rapport pour validation ?',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Soumettre',
+      cancelButtonText: 'Annuler',
+    });
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await reportsAPI.update(selectedReport.id, {
+        content: editedContent,
+        header: editedHeader,
+        footer: editedFooter,
+        observations: editedObservations,
+        status: 'envoye',
+      });
+
+      Swal.fire({ icon: 'success', title: 'Rapport soumis', timer: 1500, showConfirmButton: false });
+      setShowViewModal(false);
+      setSelectedReport(null);
+      await fetchReports();
+    } catch (error) {
+      console.error('Error submitting report:', error);
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la soumission' });
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!selectedReport) return;
+    setGeneratingPdf(true);
+    try {
+      const visitPhotos = selectedReport.visit?.photos || [];
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const riskLevelMap: { [key: string]: string } = {
+          'faible': 'low', 'moyen': 'medium', 'eleve': 'high',
+          'low': 'low', 'medium': 'medium', 'high': 'high'
+        };
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const pdfData = {
+        title: selectedReport.title,
+        mission: selectedReport.mission,
+        client: selectedReport.client,
+        date: selectedReport.createdAt || '',
+        conformity: selectedReport.conformityPercentage,
+        header: selectedReport.header || editedHeader || '',
+        content: selectedReport.content || editedContent || '',
+        footer: selectedReport.footer || editedFooter || '',
+        observations: selectedReport.observations || editedObservations || '',
+        photos: photosForPdf,
+      };
+
+      await generatePdfService.generateReportPDF(pdfData);
+      Swal.fire({ icon: 'success', title: 'PDF généré', text: 'Le PDF a été ouvert dans un nouvel onglet', timer: 2000, showConfirmButton: false });
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+    } finally {
+      setGeneratingPdf(false);
     }
   };
 
@@ -326,20 +408,11 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
 
       Swal.fire({
         title: 'Rapport envoyé au client',
-        text: `Souhaitez-vous clôturer le chantier ${selectedReport?.mission} ?
-
-⚠️ Une fois le chantier clôturé, il ne sera plus possible de créer, modifier ou envoyer des rapports.`,
+        text: `Le rapport a été envoyé au client avec succès.`,
         icon: 'success',
-        showCancelButton: true,
-        confirmButtonText: 'Oui',
-        cancelButtonText: 'Non',
-        reverseButtons: true,
-      }).then(async (result) => {
-        if (result.isConfirmed) {
-          terminateMision();
-        } else {
-          await terminateReportFn();
-        }
+        confirmButtonText: 'OK',
+      }).then(async () => {
+        await terminateReportFn();
       });
 
     } catch (error) {
@@ -355,7 +428,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
 
   const handleSendToClient = async () => {
     if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
-      selectedReport.missionStatus == 'terminee') return;
+      selectedReport.missionStatus == 'terminee' || selectedReport.missionStatus == 'archivee') return;
 
     let photos: any[] = [];
     try {
@@ -383,6 +456,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
             const refs = Array.isArray(refText) ? refText : refText.split('. ');
 
             const ret = {
+              ...photo,
               id: photo.id || `photo-${Date.now()}-${Math.random()}`,
               uri: photo.uri || photo.s3Url,
               s3Url: photo.s3Url,
@@ -799,6 +873,9 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
               className="pl-10 pr-8 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none appearance-none bg-white"
             >
               <option value="all">Tous les statuts</option>
+              <option value="brouillon">Brouillon</option>
+              <option value="envoye">Soumis</option>
+              <option value="valide">Validé</option>
               <option value="envoye_au_client">Envoyé au client</option>
               <option value="annule">Annulé</option>
             </select>
@@ -973,8 +1050,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                 )}
               </div>
 
-              {false && (
-                <div>
+              {/* {<div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Remarques administrateur</label>
                   {isEditing ? (
                     <textarea
@@ -989,8 +1065,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                       {adminRemarks || 'Aucune remarque'}
                     </div>
                   )}
-                </div>
-              )}
+                </div>} */}
 
               {selectedReport.validatedAt && (
                 <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
@@ -1009,7 +1084,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
               )}
             </div>
 
-            <div className="p-6 border-t border-slate-200 flex gap-3">
+            <div className="p-6 border-t border-slate-200 flex flex-wrap gap-3">
               <button
                 onClick={() => {
                   setShowViewModal(false);
@@ -1021,62 +1096,86 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                 Fermer
               </button>
 
-              {true && (
+              {/* PDF Download - always available */}
+              <button
+                onClick={handleDownloadPdf}
+                disabled={generatingPdf}
+                className="flex items-center gap-2 bg-slate-700 text-white px-6 py-3 rounded-lg hover:bg-slate-800 transition-colors font-medium disabled:opacity-50"
+              >
+                {generatingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {generatingPdf ? 'Génération...' : 'Télécharger PDF'}
+              </button>
+
+              {isEditing ? (
                 <>
-                  {isEditing ? (
-                    <>
+                  <button
+                    onClick={() => setIsEditing(false)}
+                    className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Enregistrer
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Modifier - when not sent/terminated/cancelled */}
+                  {selectedReport && selectedReport.status !== 'envoye_au_client' &&
+                    selectedReport.status !== 'annule' &&
+                    selectedReport.missionStatus !== 'terminee' &&
+                    selectedReport.missionStatus !== 'archivee' &&
+                    selectedReport.missionStatus !== 'annulee' && (
                       <button
-                        onClick={() => setIsEditing(false)}
-                        className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                        onClick={() => setIsEditing(true)}
+                        className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition-colors font-medium"
                       >
-                        Annuler
+                        <Edit2 className="w-4 h-4" />
+                        Modifier
                       </button>
+                    )}
+
+                  {/* Soumettre - for brouillon status */}
+                  {/* {selectedReport && selectedReport.status === 'brouillon' &&
+                    selectedReport.missionStatus !== 'terminee' && (
                       <button
-                        onClick={handleSave}
+                        onClick={handleSubmitReport}
+                        className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                      >
+                        <FileCheck className="w-4 h-4" />
+                        Soumettre
+                      </button>
+                    )} */}
+
+                  {/* Valider - admin only, for envoye status */}
+                  {selectedReport && selectedReport.status === 'envoye' && isAdmin && (
+                    <button
+                      onClick={handleValidateReport}
+                      className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Valider
+                    </button>
+                  )}
+
+                  {/* Envoyer au client */}
+                  {selectedReport &&
+                    selectedReport.status !== 'envoye_au_client' &&
+                    selectedReport.missionStatus !== 'terminee' &&
+                    selectedReport.missionStatus !== 'archivee' &&
+                    selectedReport.status !== 'annule' && (
+                      <button
+                        onClick={handleSendToClient}
                         className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
                       >
-                        <CheckCircle className="w-4 h-4" />
-                        Enregistrer
+                        <Send className="w-4 h-4" />
+                        Envoyer au client
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      {selectedReport && selectedReport.status !== 'envoye_au_client' &&
-                        selectedReport.status !== 'annule' &&
-                        selectedReport.missionStatus !== 'terminee' && (
-                          <button
-                            onClick={() => setIsEditing(true)}
-                            className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition-colors font-medium"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                            Modifier
-                          </button>
-                        )}
-
-                      {/* {selectedReport.status === 'envoye' && isAdmin && false && (
-                        <button
-                          onClick={handleValidateReport}
-                          className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          Valider
-                        </button>
-                      )} */}
-
-                      {selectedReport && !isAdmin &&
-                        selectedReport.status !== 'envoye_au_client' &&
-                        selectedReport.missionStatus !== 'terminee' &&
-                        selectedReport.status !== 'annule' && (
-                          <button
-                            onClick={handleSendToClient}
-                            className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
-                          >
-                            <Send className="w-4 h-4" />
-                            Envoyer au client
-                          </button>
-                        )}
-                    </>
-                  )}
+                    )}
                 </>
               )}
             </div>

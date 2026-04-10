@@ -1,4 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Trash2 } from 'lucide-react';
+
+// Group photos by groupId
+interface PhotoGroup {
+    groupId: string;
+    photos: any[];
+    isDirectiveOnly: boolean;
+    analysis: any;
+    comment: string;
+    directives: string;
+}
 
 function PhotoReportEditor({
     initialPhotos,
@@ -17,75 +28,114 @@ function PhotoReportEditor({
     const [header, setHeader] = useState(editedHeader);
     const [footer, setFooter] = useState(editedFooter);
 
-    // État local pour le texte brut pendant l'édition
-    const [editingTexts, setEditingTexts] = useState({});
+    // Block-based editing state (keyed by groupId)
+    const [blockItems, setBlockItems] = useState<Record<string, string[]>>({});
 
-    useEffect(() => {
-        loadImages();
-    }, []);
+    useEffect(() => { loadImages(); }, []);
+    useEffect(() => { setHeader(editedHeader); }, [editedHeader]);
+    useEffect(() => { setFooter(editedFooter); }, [editedFooter]);
 
-    useEffect(() => {
-        setHeader(editedHeader);
-    }, [editedHeader]);
-
-    useEffect(() => {
-        setFooter(editedFooter);
-    }, [editedFooter]);
-
-    useEffect(() => {
-        setPhotos(initialPhotos);
-        // Initialiser les textes d'édition
-        const texts = {};
-        initialPhotos.forEach(photo => {
-            texts[`${photo.id}-observation`] = formatArrayToBullets(photo.analysis.observation);
-            texts[`${photo.id}-recommendation`] = formatArrayToBullets(photo.analysis.recommendation);
-            texts[`${photo.id}-references`] = formatArrayToBullets(photo.analysis.references);
+    // Build photo groups
+    const photoGroups = useMemo((): PhotoGroup[] => {
+        const groups: Record<string, any[]> = {};
+        (photos || []).forEach((photo: any) => {
+            const gid = photo.groupId || photo.id;
+            if (!groups[gid]) groups[gid] = [];
+            groups[gid].push(photo);
         });
-        setEditingTexts(texts);
-    }, [initialPhotos]);
-
-    // Notifier le parent des changements
-    useEffect(() => {
-        if (onPhotosChange) {
-            onPhotosChange(photos);
-        }
+        return Object.entries(groups).map(([groupId, groupPhotos]) => {
+            const first = groupPhotos[0];
+            const toArr = (val: any) => { if (!val) return []; return Array.isArray(val) ? val : [val]; };
+            return {
+                groupId,
+                photos: groupPhotos,
+                isDirectiveOnly: first?.isDirectiveOnly || false,
+                analysis: first?.analysis ? {
+                    observation: toArr(first.analysis.observation),
+                    recommendation: toArr(first.analysis.recommendation),
+                    references: toArr(first.analysis.references),
+                    riskLevel: first.analysis.riskLevel,
+                    confidence: first.analysis.confidence,
+                } : null,
+                comment: first?.comment || '',
+                directives: first?.userDirectives || '',
+            };
+        });
     }, [photos]);
 
     useEffect(() => {
-        if (onHeaderChange) {
-            onHeaderChange(header);
-        }
-    }, [header]);
+        setPhotos(initialPhotos);
+        // Initialize block items by group
+        const items: Record<string, string[]> = {};
+        const groups: Record<string, any[]> = {};
+        (initialPhotos || []).forEach((photo: any) => {
+            const gid = photo.groupId || photo.id;
+            if (!groups[gid]) groups[gid] = [];
+            groups[gid].push(photo);
+        });
+        Object.entries(groups).forEach(([groupId, groupPhotos]) => {
+            const first = groupPhotos[0];
+            const obs = first?.analysis?.observation || [];
+            const rec = first?.analysis?.recommendation || [];
+            const refs = first?.analysis?.references || [];
+            const comment = first?.comment || '';
+            items[`${groupId}-observation`] = Array.isArray(obs) ? [...obs] : [obs].filter(Boolean);
+            items[`${groupId}-recommendation`] = Array.isArray(rec) ? [...rec] : [rec].filter(Boolean);
+            items[`${groupId}-references`] = Array.isArray(refs) ? [...refs] : [refs].filter(Boolean);
+            items[`${groupId}-comment`] = comment ? [comment] : [];
+        });
+        setBlockItems(items);
+    }, [initialPhotos]);
 
+    useEffect(() => { if (onPhotosChange) onPhotosChange(photos); }, [photos]);
+    useEffect(() => { if (onHeaderChange) onHeaderChange(header); }, [header]);
+    useEffect(() => { if (onFooterChange) onFooterChange(footer); }, [footer]);
+
+    // Sync block items back to photos when editing
     useEffect(() => {
-        if (onFooterChange) {
-            onFooterChange(footer);
-        }
-    }, [footer]);
+        if (!isEditing) return;
+        const updatedPhotos = photos.map((photo: any) => {
+            const gid = photo.groupId || photo.id;
+            const obs = blockItems[`${gid}-observation`];
+            const rec = blockItems[`${gid}-recommendation`];
+            const refs = blockItems[`${gid}-references`];
+            const comments = blockItems[`${gid}-comment`];
+            if (obs || rec || refs || comments) {
+                return {
+                    ...photo,
+                    analysis: photo.analysis ? {
+                        ...photo.analysis,
+                        observation: (obs || []).filter((s: string) => s.trim().length > 0),
+                        recommendation: (rec || []).filter((s: string) => s.trim().length > 0),
+                        references: (refs || []).filter((s: string) => s.trim().length > 0),
+                    } : photo.analysis,
+                    comment: (comments || []).join('\n').trim(),
+                };
+            }
+            return photo;
+        });
+        const hasChanges = updatedPhotos.some((p: any, i: number) => {
+            const orig = photos[i];
+            return JSON.stringify(p.analysis) !== JSON.stringify(orig.analysis) || p.comment !== orig.comment;
+        });
+        if (hasChanges) setPhotos(updatedPhotos);
+    }, [blockItems, isEditing]);
 
     const loadImages = async () => {
         setLoading(true);
         try {
-            const imagesMap = {};
-
-            await Promise.all(initialPhotos?.map(async (photo) => {
+            const imagesMap: Record<string, string> = {};
+            await Promise.all((initialPhotos || []).map(async (photo: any) => {
                 try {
+                    if (!photo.s3Url) return;
                     const base64 = await downloadImages(photo.s3Url);
-                    console.log(`Image chargée pour ${photo.id}:`, base64 ? 'OK' : 'VIDE');
-
                     if (base64) {
-                        if (base64.startsWith('data:image')) {
-                            imagesMap[photo.id] = base64;
-                        } else {
-                            imagesMap[photo.id] = `data:image/jpeg;base64,${base64}`;
-                        }
+                        imagesMap[photo.id] = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
                     }
                 } catch (error) {
                     console.error(`Erreur chargement image ${photo.id}:`, error);
                 }
             }));
-
-            console.log('Images chargées:', Object.keys(imagesMap).length);
             setBase64Images(imagesMap);
         } catch (error) {
             console.error('Erreur lors du chargement des images:', error);
@@ -94,85 +144,43 @@ function PhotoReportEditor({
         }
     };
 
-    const getRiskLevelLabel = (level) => {
-        const levels = {
-            'eleve': 'HIGH',
-            'moyen': 'MEDIUM',
-            'faible': 'LOW'
-        };
-        return levels[level] || level.toUpperCase();
+    const getRiskLevelLabel = (level: string) => {
+        const levels: Record<string, string> = { 'eleve': 'HIGH', 'moyen': 'MEDIUM', 'faible': 'LOW' };
+        return levels[level] || level?.toUpperCase?.() || '';
     };
 
-    const getRiskLevelColor = (level) => {
-        const colors = {
-            'eleve': '#dc3545',
-            'moyen': '#ffc107',
-            'faible': '#28a745'
-        };
+    const getRiskLevelColor = (level: string) => {
+        const colors: Record<string, string> = { 'eleve': '#dc3545', 'moyen': '#ffc107', 'faible': '#28a745' };
         return colors[level] || '#6c757d';
     };
 
-    const handleKeyDown = (e, photoId, field) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const textarea = e.target;
-            const cursorPosition = textarea.selectionStart;
-            const currentValue = textarea.value;
-
-            const newValue =
-                currentValue.substring(0, cursorPosition) +
-                '\n• ' +
-                currentValue.substring(cursorPosition);
-
-            const key = `${photoId}-${field}`;
-            setEditingTexts(prev => ({
-                ...prev,
-                [key]: newValue
-            }));
-
-            setTimeout(() => {
-                textarea.selectionStart = textarea.selectionEnd = cursorPosition + 3;
-            }, 0);
-        }
+    // Block editing helpers (keyed by groupId)
+    const addBlockItem = (groupId: string, field: string) => {
+        const key = `${groupId}-${field}`;
+        setBlockItems(prev => ({ ...prev, [key]: [...(prev[key] || []), ''] }));
     };
 
-    const handleTextChange = (e, photoId, field) => {
-        const value = e.target.value;
-        const key = `${photoId}-${field}`;
-
-        setEditingTexts(prev => ({
+    const updateBlockItem = (groupId: string, field: string, index: number, value: string) => {
+        const key = `${groupId}-${field}`;
+        setBlockItems(prev => ({
             ...prev,
-            [key]: value
+            [key]: (prev[key] || []).map((v, i) => i === index ? value : v)
         }));
     };
 
-    const handleTextBlur = (photoId, field) => {
-        const key = `${photoId}-${field}`;
-        const value = editingTexts[key] || '';
-
-        setPhotos(prevPhotos =>
-            prevPhotos.map(photo => {
-                if (photo.id === photoId) {
-                    return {
-                        ...photo,
-                        analysis: {
-                            ...photo.analysis,
-                            [field]: value.split('\n')
-                                .map(line => line.replace(/^•\s*/, '').trim())
-                                .filter(line => line.length > 0)
-                        }
-                    };
-                }
-                return photo;
-            })
-        );
+    const removeBlockItem = (groupId: string, field: string, index: number) => {
+        const key = `${groupId}-${field}`;
+        setBlockItems(prev => ({
+            ...prev,
+            [key]: (prev[key] || []).filter((_, i) => i !== index)
+        }));
     };
 
-    const handleCommentChange = (e, photoId) => {
+    const handleCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>, groupId: string) => {
         const value = e.target.value;
-        setPhotos(prevPhotos =>
-            prevPhotos.map(photo => {
-                if (photo.id === photoId) {
+        setPhotos((prevPhotos: any[]) =>
+            prevPhotos.map((photo: any) => {
+                if ((photo.groupId || photo.id) === groupId) {
                     return { ...photo, comment: value };
                 }
                 return photo;
@@ -180,46 +188,246 @@ function PhotoReportEditor({
         );
     };
 
-    const formatArrayToBullets = (arr) => {
-        return arr.map(item => `• ${item}`).join('\n');
-    };
-
     if (loading) {
         return (
-            <div style={{
-                padding: '40px',
-                textAlign: 'center',
-                fontSize: '16px',
-                color: '#555'
-            }}>
+            <div style={{ padding: '40px', textAlign: 'center', fontSize: '16px', color: '#555' }}>
                 ⏳ Chargement des images...
             </div>
         );
     }
 
+    const renderBlockField = (groupId: string, field: string, label: string, color: string, bgColor: string, borderColor: string, icon: string) => {
+        const key = `${groupId}-${field}`;
+        const items = blockItems[key] || [];
+
+        return (
+            <div style={{ marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                    <label style={{
+                        fontWeight: '700', display: 'flex', fontSize: '15px', color,
+                        alignItems: 'center', gap: '8px'
+                    }}>
+                        <span style={{ width: '4px', height: '20px', backgroundColor: color, borderRadius: '2px' }}></span>
+                        {icon} {label}
+                    </label>
+                    {isEditing && (
+                        <button
+                            onClick={() => addBlockItem(groupId, field)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '4px',
+                                fontSize: '12px', color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer',
+                                padding: '4px 8px', borderRadius: '6px',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#eff6ff')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                            <Plus size={14} /> Ajouter
+                        </button>
+                    )}
+                </div>
+                {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {items.map((item, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                <span style={{ color, marginTop: '10px', fontSize: '14px' }}>•</span>
+                                <textarea
+                                    value={item}
+                                    onChange={(e) => updateBlockItem(groupId, field, i, e.target.value)}
+                                    rows={3}
+                                    style={{
+                                        flex: 1, padding: '8px 12px', fontSize: '13px',
+                                        borderRadius: '8px', border: `1.5px solid ${borderColor}`,
+                                        backgroundColor: bgColor, outline: 'none', resize: 'vertical',
+                                        fontFamily: 'system-ui, sans-serif', lineHeight: '1.5',
+                                        transition: 'border-color 0.2s',
+                                    }}
+                                    onFocus={(e) => { e.target.style.borderColor = color; e.target.style.boxShadow = `0 0 0 3px ${color}15`; }}
+                                    onBlur={(e) => { e.target.style.borderColor = borderColor; e.target.style.boxShadow = 'none'; }}
+                                />
+                                <button
+                                    onClick={() => removeBlockItem(groupId, field, i)}
+                                    style={{
+                                        padding: '6px', color: '#ef4444', background: 'none', border: 'none',
+                                        cursor: 'pointer', marginTop: '4px', borderRadius: '6px',
+                                    }}
+                                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
+                                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        ))}
+                        {items.length === 0 && (
+                            <p style={{ fontSize: '13px', color: '#94a3b8', fontStyle: 'italic', padding: '8px' }}>
+                                Aucun élément — cliquez Ajouter
+                            </p>
+                        )}
+                    </div>
+                ) : (
+                    items.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {items.filter(s => s.trim()).map((item, i) => (
+                                <div key={i} style={{
+                                    display: 'flex', alignItems: 'flex-start', gap: '8px',
+                                    fontSize: '14px', color: '#475569', lineHeight: '1.6',
+                                }}>
+                                    <span style={{ color, marginTop: '2px' }}>•</span>
+                                    <span>{item}</span>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p style={{ fontSize: '13px', color: '#94a3b8', fontStyle: 'italic', padding: '8px' }}>Aucun élément</p>
+                    )
+                )}
+            </div>
+        );
+    };
+
+    const renderGroup = (group: PhotoGroup, index: number) => {
+        const riskLevel = group.analysis?.riskLevel || 'faible';
+        const nonDirectivePhotos = group.photos.filter((p: any) => !p.isDirectiveOnly && p.s3Url);
+
+        return (
+            <div key={group.groupId} style={{
+                marginBottom: '50px',
+                border: `3px solid ${getRiskLevelColor(riskLevel)}`,
+                borderRadius: '16px', padding: '30px', backgroundColor: '#ffffff',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)', position: 'relative',
+            }}>
+                {/* Risk badge */}
+                {group.analysis && (
+                    <div style={{
+                        position: 'absolute', top: '-15px', right: '30px',
+                        backgroundColor: getRiskLevelColor(riskLevel),
+                        color: 'white', padding: '8px 20px', borderRadius: '20px',
+                        fontWeight: 'bold', fontSize: '13px', boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+                    }}>
+                        {getRiskLevelLabel(riskLevel)}
+                    </div>
+                )}
+
+                <h3 style={{
+                    marginBottom: '25px', fontSize: '22px', fontWeight: '700', color: '#2c3e50',
+                    borderBottom: `3px solid ${getRiskLevelColor(riskLevel)}`, paddingBottom: '12px',
+                }}>
+                    {group.isDirectiveOnly ? `📝 Rapport ${index + 1} — Directives` : `📸 Rapport ${index + 1} — ${group.photos.length} photo(s)`}
+                </h3>
+
+                {/* Photos grid */}
+                {!group.isDirectiveOnly && nonDirectivePhotos.length > 0 && (
+                    <div style={{
+                        marginBottom: '30px',
+                        display: 'grid',
+                        gridTemplateColumns: nonDirectivePhotos.length === 1 ? '1fr' : 'repeat(2, 1fr)',
+                        gap: '12px',
+                    }}>
+                        {nonDirectivePhotos.map((photo: any, pIdx: number) => (
+                            <div key={photo.id} style={{ position: 'relative' }}>
+                                {(base64Images as any)[photo.id] ? (
+                                    <img src={(base64Images as any)[photo.id]} alt={`Photo ${pIdx + 1}`}
+                                        style={{
+                                            width: '100%', height: 'auto', maxHeight: '300px', objectFit: 'cover',
+                                            borderRadius: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                            border: '3px solid #f0f0f0',
+                                        }}
+                                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                    />
+                                ) : (
+                                    <div style={{ padding: '30px', backgroundColor: '#f8f9fa', borderRadius: '10px', color: '#6c757d', border: '2px dashed #dee2e6', textAlign: 'center' }}>
+                                        ⏳ Image en cours de chargement...
+                                    </div>
+                                )}
+                                <span style={{
+                                    position: 'absolute', top: '8px', left: '8px',
+                                    width: '24px', height: '24px', borderRadius: '50%',
+                                    backgroundColor: '#3b82f6', color: 'white',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: '12px', fontWeight: 'bold',
+                                }}>{pIdx + 1}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Block-based fields keyed by groupId */}
+                {renderBlockField(group.groupId, 'observation', 'Observations', '#e74c3c', '#fffafa', '#fee', '🔍')}
+                {renderBlockField(group.groupId, 'recommendation', 'Recommandations', '#3498db', '#f0f8ff', '#e3f2fd', '💡')}
+                {renderBlockField(group.groupId, 'references', 'Références', '#9b59b6', '#faf8fc', '#f3e5f5', '🏛️')}
+
+                {/* Directives */}
+                {group.directives && (
+                    <div style={{ marginBottom: '15px' }}>
+                        <label style={{
+                            fontWeight: '700', display: 'flex', marginBottom: '10px', fontSize: '15px',
+                            color: '#2c3e50', alignItems: 'center', gap: '8px',
+                        }}>
+                            <span style={{ width: '4px', height: '20px', backgroundColor: '#2c3e50', borderRadius: '2px' }}></span>
+                            📋 Directives
+                        </label>
+                        <div style={{
+                            padding: '12px 15px', backgroundColor: '#f8f9fa', borderRadius: '8px',
+                            fontSize: '14px', color: '#555', lineHeight: '1.6', borderLeft: '4px solid #6c757d',
+                        }}>
+                            {group.directives}
+                        </div>
+                    </div>
+                )}
+
+                {/* Comments */}
+                <div style={{ marginBottom: '15px' }}>
+                    <label style={{
+                        fontWeight: '700', display: 'flex', marginBottom: '10px', fontSize: '15px',
+                        color: '#f39c12', alignItems: 'center', gap: '8px',
+                    }}>
+                        <span style={{ width: '4px', height: '20px', backgroundColor: '#f39c12', borderRadius: '2px' }}></span>
+                        💬 Commentaires du coordonnateur
+                    </label>
+                    {isEditing ? (
+                        <textarea
+                            value={group.comment || ''}
+                            onChange={(e) => handleCommentChange(e, group.groupId)}
+                            placeholder="Ajouter un commentaire..."
+                            style={{
+                                width: '100%', minHeight: '80px', padding: '12px',
+                                fontFamily: 'system-ui, sans-serif', fontSize: '14px', lineHeight: '1.6',
+                                borderRadius: '8px', border: '1.5px solid #fef5e7', resize: 'vertical',
+                                backgroundColor: '#fffbf0', outline: 'none',
+                            }}
+                            onFocus={(e) => { e.target.style.borderColor = '#f39c12'; }}
+                            onBlur={(e) => { e.target.style.borderColor = '#fef5e7'; }}
+                        />
+                    ) : (
+                        group.comment ? (
+                            <div style={{
+                                padding: '15px', backgroundColor: '#fffbf0',
+                                borderRadius: '8px', borderLeft: '4px solid #f39c12',
+                                fontFamily: 'monospace', fontSize: '14px', color: '#555', lineHeight: '1.8',
+                            }}>
+                                {group.comment}
+                            </div>
+                        ) : (
+                            <p style={{ fontSize: '13px', color: '#94a3b8', fontStyle: 'italic', padding: '8px' }}>Aucun commentaire</p>
+                        )
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const groupsWithAnalysis = photoGroups.filter(g => g.analysis);
+
     return (
         <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
             {isEditing ? (
-                /* Mode Édition */
                 <div>
-                    {/* Édition Header */}
+                    {/* Header */}
                     <div style={{
-                        marginBottom: '30px',
-                        border: '2px solid #4a90e2',
-                        borderRadius: '12px',
-                        padding: '25px',
-                        backgroundColor: '#f0f8ff',
+                        marginBottom: '30px', border: '2px solid #4a90e2', borderRadius: '12px',
+                        padding: '25px', backgroundColor: '#f0f8ff',
                         boxShadow: '0 4px 12px rgba(74, 144, 226, 0.1)',
-                        transition: 'all 0.3s ease'
                     }}>
-                        <label style={{
-                            fontWeight: '700',
-                            display: 'block',
-                            marginBottom: '12px',
-                            fontSize: '16px',
-                            color: '#2c3e50',
-                            letterSpacing: '0.5px'
-                        }}>
+                        <label style={{ fontWeight: '700', display: 'block', marginBottom: '12px', fontSize: '16px', color: '#2c3e50' }}>
                             📝 En-tête du rapport
                         </label>
                         <textarea
@@ -227,346 +435,31 @@ function PhotoReportEditor({
                             onChange={(e) => setHeader(e.target.value)}
                             placeholder="Ajouter un en-tête (optionnel)..."
                             style={{
-                                width: '100%',
-                                minHeight: '150px',
-                                padding: '15px',
-                                fontFamily: 'monospace',
-                                fontSize: '14px',
-                                borderRadius: '8px',
-                                border: '2px solid #d1e7fd',
-                                resize: 'vertical',
-                                transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
-                                outline: 'none'
-                            }}
-                            onFocus={(e) => {
-                                e.target.style.borderColor = '#4a90e2';
-                                e.target.style.boxShadow = '0 0 0 3px rgba(74, 144, 226, 0.1)';
-                            }}
-                            onBlur={(e) => {
-                                e.target.style.borderColor = '#d1e7fd';
-                                e.target.style.boxShadow = 'none';
+                                width: '100%', minHeight: '150px', padding: '15px',
+                                fontFamily: 'monospace', fontSize: '14px', borderRadius: '8px',
+                                border: '2px solid #d1e7fd', resize: 'vertical', outline: 'none',
                             }}
                         />
                     </div>
 
-                    {/* Photos Section */}
+                    {/* Section title */}
                     <div style={{
-                        marginBottom: '35px',
-                        padding: '20px',
-                        backgroundColor: '#fff9e6',
-                        borderRadius: '12px',
-                        border: '2px solid #ffd700',
-                        boxShadow: '0 4px 12px rgba(255, 215, 0, 0.15)'
+                        marginBottom: '35px', padding: '20px', backgroundColor: '#fff9e6',
+                        borderRadius: '12px', border: '2px solid #ffd700',
                     }}>
-                        <h3 style={{
-                            margin: 0,
-                            fontSize: '20px',
-                            fontWeight: '700',
-                            color: '#856404',
-                            letterSpacing: '1px'
-                        }}>
-                            📋 OBSERVATIONS PRINCIPALES
+                        <h3 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#856404', letterSpacing: '1px' }}>
+                            📋 OBSERVATIONS PRINCIPALES ({groupsWithAnalysis.length} groupe(s))
                         </h3>
                     </div>
 
-                    {photos.map((photo, index) => (
-                        <div key={photo.id} style={{
-                            marginBottom: '50px',
-                            border: `3px solid ${getRiskLevelColor(photo.analysis.riskLevel)}`,
-                            borderRadius: '16px',
-                            padding: '30px',
-                            backgroundColor: '#ffffff',
-                            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                            transition: 'transform 0.3s ease, box-shadow 0.3s ease',
-                            position: 'relative'
-                        }}>
-                            {/* Badge niveau de risque */}
-                            <div style={{
-                                position: 'absolute',
-                                top: '-15px',
-                                right: '30px',
-                                backgroundColor: getRiskLevelColor(photo.analysis.riskLevel),
-                                color: 'white',
-                                padding: '8px 20px',
-                                borderRadius: '20px',
-                                fontWeight: 'bold',
-                                fontSize: '13px',
-                                boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
-                                letterSpacing: '0.5px'
-                            }}>
-                                {getRiskLevelLabel(photo.analysis.riskLevel)}
-                            </div>
+                    {groupsWithAnalysis.map((group, index) => renderGroup(group, index))}
 
-                            <h3 style={{
-                                marginBottom: '25px',
-                                fontSize: '22px',
-                                fontWeight: '700',
-                                color: '#2c3e50',
-                                borderBottom: `3px solid ${getRiskLevelColor(photo.analysis.riskLevel)}`,
-                                paddingBottom: '12px'
-                            }}>
-                                📸 Photo {index + 1}
-                            </h3>
-
-                            {/* Image Base64 */}
-                            <div style={{ marginBottom: '30px', textAlign: 'center' }}>
-                                {base64Images[photo.id] ? (
-                                    <img
-                                        src={base64Images[photo.id]}
-                                        alt={`Photo ${index + 1}`}
-                                        style={{
-                                            maxWidth: '100%',
-                                            width: '100%',
-                                            height: 'auto',
-                                            borderRadius: '12px',
-                                            boxShadow: '0 8px 20px rgba(0,0,0,0.2)',
-                                            border: '4px solid #f0f0f0',
-                                            transition: 'transform 0.3s ease'
-                                        }}
-                                        onMouseEnter={(e) => (e.target as HTMLElement).style.transform = 'scale(1.02)'}
-                                        onMouseLeave={(e) => (e.target as HTMLElement).style.transform = 'scale(1)'}
-                                        onError={(e) => {
-                                            console.error('Erreur chargement image:', photo.id);
-                                            (e.target as HTMLElement).style.display = 'none';
-                                        }}
-                                    />
-                                ) : (
-                                    <div style={{
-                                        padding: '40px',
-                                        backgroundColor: '#f8f9fa',
-                                        borderRadius: '12px',
-                                        color: '#6c757d',
-                                        fontSize: '15px',
-                                        border: '2px dashed #dee2e6'
-                                    }}>
-                                        ⏳ Image en cours de chargement...
-                                    </div>
-                                )}
-                                <p style={{
-                                    fontSize: '11px',
-                                    color: '#999',
-                                    marginTop: '12px',
-                                    textAlign: 'left',
-                                    fontStyle: 'italic'
-                                }}>
-                                    🔗 {photo.s3Url}
-                                </p>
-                            </div>
-
-                            {/* Observations */}
-                            <div style={{ marginBottom: '25px' }}>
-                                <label style={{
-                                    fontWeight: '700',
-                                    display: 'flex',
-                                    marginBottom: '10px',
-                                    fontSize: '16px',
-                                    color: '#e74c3c',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <span style={{
-                                        width: '4px',
-                                        height: '20px',
-                                        backgroundColor: '#e74c3c',
-                                        borderRadius: '2px'
-                                    }}></span>
-                                    Observations
-                                </label>
-                                <textarea
-                                    value={editingTexts[`${photo.id}-observation`] || ''}
-                                    onChange={(e) => handleTextChange(e, photo.id, 'observation')}
-                                    onKeyDown={(e) => handleKeyDown(e, photo.id, 'observation')}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '180px',
-                                        padding: '15px',
-                                        fontFamily: 'monospace',
-                                        fontSize: '14px',
-                                        lineHeight: '1.8',
-                                        borderRadius: '8px',
-                                        border: '2px solid #fee',
-                                        resize: 'vertical',
-                                        backgroundColor: '#fffafa',
-                                        transition: 'all 0.3s ease',
-                                        outline: 'none'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.borderColor = '#e74c3c';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(231, 76, 60, 0.1)';
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.borderColor = '#fee';
-                                        e.target.style.boxShadow = 'none';
-                                        handleTextBlur(photo.id, 'observation');
-                                    }}
-                                />
-                            </div>
-
-                            {/* Recommandations */}
-                            <div style={{ marginBottom: '25px' }}>
-                                <label style={{
-                                    fontWeight: '700',
-                                    display: 'flex',
-                                    marginBottom: '10px',
-                                    fontSize: '16px',
-                                    color: '#3498db',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <span style={{
-                                        width: '4px',
-                                        height: '20px',
-                                        backgroundColor: '#3498db',
-                                        borderRadius: '2px'
-                                    }}></span>
-                                    Recommandations
-                                </label>
-                                <textarea
-                                    value={editingTexts[`${photo.id}-recommendation`] || ''}
-                                    onChange={(e) => handleTextChange(e, photo.id, 'recommendation')}
-                                    onKeyDown={(e) => handleKeyDown(e, photo.id, 'recommendation')}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '180px',
-                                        padding: '15px',
-                                        fontFamily: 'monospace',
-                                        fontSize: '14px',
-                                        lineHeight: '1.8',
-                                        borderRadius: '8px',
-                                        border: '2px solid #e3f2fd',
-                                        resize: 'vertical',
-                                        backgroundColor: '#f0f8ff',
-                                        transition: 'all 0.3s ease',
-                                        outline: 'none'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.borderColor = '#3498db';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(52, 152, 219, 0.1)';
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.borderColor = '#e3f2fd';
-                                        e.target.style.boxShadow = 'none';
-                                        handleTextBlur(photo.id, 'recommendation');
-                                    }}
-                                />
-                            </div>
-
-                            {/* Références */}
-                            <div style={{ marginBottom: '25px' }}>
-                                <label style={{
-                                    fontWeight: '700',
-                                    display: 'flex',
-                                    marginBottom: '10px',
-                                    fontSize: '16px',
-                                    color: '#9b59b6',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <span style={{
-                                        width: '4px',
-                                        height: '20px',
-                                        backgroundColor: '#9b59b6',
-                                        borderRadius: '2px'
-                                    }}></span>
-                                    🏛️ Références
-                                </label>
-                                <textarea
-                                    value={editingTexts[`${photo.id}-references`] || ''}
-                                    onChange={(e) => handleTextChange(e, photo.id, 'references')}
-                                    onKeyDown={(e) => handleKeyDown(e, photo.id, 'references')}
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '120px',
-                                        padding: '15px',
-                                        fontFamily: 'monospace',
-                                        fontSize: '14px',
-                                        lineHeight: '1.8',
-                                        borderRadius: '8px',
-                                        border: '2px solid #f3e5f5',
-                                        resize: 'vertical',
-                                        backgroundColor: '#faf8fc',
-                                        transition: 'all 0.3s ease',
-                                        outline: 'none'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.borderColor = '#9b59b6';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(155, 89, 182, 0.1)';
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.borderColor = '#f3e5f5';
-                                        e.target.style.boxShadow = 'none';
-                                        handleTextBlur(photo.id, 'references');
-                                    }}
-                                />
-                            </div>
-
-                            {/* Commentaires */}
-                            <div style={{ marginBottom: '15px' }}>
-                                <label style={{
-                                    fontWeight: '700',
-                                    display: 'flex',
-                                    marginBottom: '10px',
-                                    fontSize: '16px',
-                                    color: '#f39c12',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <span style={{
-                                        width: '4px',
-                                        height: '20px',
-                                        backgroundColor: '#f39c12',
-                                        borderRadius: '2px'
-                                    }}></span>
-                                    💬 Commentaires du coordonnateur
-                                </label>
-                                <textarea
-                                    value={photo.comment}
-                                    onChange={(e) => handleCommentChange(e, photo.id)}
-                                    placeholder="Ajouter un commentaire..."
-                                    style={{
-                                        width: '100%',
-                                        minHeight: '100px',
-                                        padding: '15px',
-                                        fontFamily: 'monospace',
-                                        fontSize: '14px',
-                                        lineHeight: '1.8',
-                                        borderRadius: '8px',
-                                        border: '2px solid #fef5e7',
-                                        resize: 'vertical',
-                                        backgroundColor: '#fffbf0',
-                                        transition: 'all 0.3s ease',
-                                        outline: 'none'
-                                    }}
-                                    onFocus={(e) => {
-                                        e.target.style.borderColor = '#f39c12';
-                                        e.target.style.boxShadow = '0 0 0 3px rgba(243, 156, 18, 0.1)';
-                                    }}
-                                    onBlur={(e) => {
-                                        e.target.style.borderColor = '#fef5e7';
-                                        e.target.style.boxShadow = 'none';
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    ))}
-
-                    {/* Édition Footer */}
+                    {/* Footer */}
                     <div style={{
-                        marginTop: '40px',
-                        border: '2px solid #27ae60',
-                        borderRadius: '12px',
-                        padding: '25px',
-                        backgroundColor: '#f0fff4',
-                        boxShadow: '0 4px 12px rgba(39, 174, 96, 0.1)'
+                        marginTop: '40px', border: '2px solid #27ae60', borderRadius: '12px',
+                        padding: '25px', backgroundColor: '#f0fff4',
                     }}>
-                        <label style={{
-                            fontWeight: '700',
-                            display: 'block',
-                            marginBottom: '12px',
-                            fontSize: '16px',
-                            color: '#2c3e50',
-                            letterSpacing: '0.5px'
-                        }}>
+                        <label style={{ fontWeight: '700', display: 'block', marginBottom: '12px', fontSize: '16px', color: '#2c3e50' }}>
                             📄 Pied de page du rapport
                         </label>
                         <textarea
@@ -574,250 +467,37 @@ function PhotoReportEditor({
                             onChange={(e) => setFooter(e.target.value)}
                             placeholder="Ajouter un pied de page (optionnel)..."
                             style={{
-                                width: '100%',
-                                minHeight: '150px',
-                                padding: '15px',
-                                fontFamily: 'monospace',
-                                fontSize: '14px',
-                                borderRadius: '8px',
-                                border: '2px solid #d5f4e6',
-                                resize: 'vertical',
-                                transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
-                                outline: 'none'
-                            }}
-                            onFocus={(e) => {
-                                e.target.style.borderColor = '#27ae60';
-                                e.target.style.boxShadow = '0 0 0 3px rgba(39, 174, 96, 0.1)';
-                            }}
-                            onBlur={(e) => {
-                                e.target.style.borderColor = '#d5f4e6';
-                                e.target.style.boxShadow = 'none';
+                                width: '100%', minHeight: '150px', padding: '15px',
+                                fontFamily: 'monospace', fontSize: '14px', borderRadius: '8px',
+                                border: '2px solid #d5f4e6', resize: 'vertical', outline: 'none',
                             }}
                         />
                     </div>
                 </div>
             ) : (
-                /* Mode Lecture */
+                /* Read mode */
                 <div style={{
-                    whiteSpace: 'pre-wrap',
-                    fontFamily: 'system-ui, -apple-system, sans-serif',
-                    lineHeight: '1.8',
-                    backgroundColor: '#ffffff',
-                    padding: '40px',
-                    borderRadius: '12px',
-                    border: '1px solid #e0e0e0',
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.08)'
+                    whiteSpace: 'pre-wrap', fontFamily: 'system-ui, -apple-system, sans-serif',
+                    lineHeight: '1.8', backgroundColor: '#ffffff', padding: '40px',
+                    borderRadius: '12px', border: '1px solid #e0e0e0', boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
                 }}>
-                    {/* Header */}
                     {header && (
-                        <div style={{
-                            marginBottom: '30px',
-                            padding: '20px',
-                            backgroundColor: '#f8f9fa',
-                            borderRadius: '8px',
-                            borderLeft: '4px solid #4a90e2'
-                        }}>
+                        <div style={{ marginBottom: '30px', padding: '20px', backgroundColor: '#f8f9fa', borderRadius: '8px', borderLeft: '4px solid #4a90e2' }}>
                             {header}
                         </div>
                     )}
 
-                    {/* Content principal */}
                     <h2 style={{
-                        fontSize: '24px',
-                        fontWeight: '700',
-                        color: '#2c3e50',
-                        marginBottom: '30px',
-                        borderBottom: '3px solid #ffd700',
-                        paddingBottom: '12px',
-                        letterSpacing: '1px'
+                        fontSize: '24px', fontWeight: '700', color: '#2c3e50', marginBottom: '30px',
+                        borderBottom: '3px solid #ffd700', paddingBottom: '12px', letterSpacing: '1px',
                     }}>
-                        📋 OBSERVATIONS PRINCIPALES
+                        📋 OBSERVATIONS PRINCIPALES ({groupsWithAnalysis.length} groupe(s))
                     </h2>
-                    {photos.map((photo, index) => (
-                        <div key={photo.id} style={{
-                            marginBottom: '40px',
-                            padding: '30px',
-                            backgroundColor: '#fafafa',
-                            borderRadius: '12px',
-                            border: `3px solid ${getRiskLevelColor(photo.analysis.riskLevel)}`,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
-                        }}>
-                            <div style={{
-                                borderBottom: '2px solid #e0e0e0',
-                                paddingBottom: '15px',
-                                marginBottom: '20px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center'
-                            }}>
-                                <h3 style={{
-                                    margin: 0,
-                                    fontSize: '20px',
-                                    fontWeight: '700',
-                                    color: '#2c3e50'
-                                }}>
-                                    📸 Photo {index + 1}
-                                </h3>
-                                <span style={{
-                                    backgroundColor: getRiskLevelColor(photo.analysis.riskLevel),
-                                    color: 'white',
-                                    padding: '6px 16px',
-                                    borderRadius: '20px',
-                                    fontSize: '13px',
-                                    fontWeight: 'bold',
-                                    letterSpacing: '0.5px'
-                                }}>
-                                    {getRiskLevelLabel(photo.analysis.riskLevel)}
-                                </span>
-                            </div>
 
-                            {base64Images[photo.id] && (
-                                <div style={{ marginBottom: '25px' }}>
-                                    <img
-                                        src={base64Images[photo.id]}
-                                        alt={`Photo ${index + 1}`}
-                                        style={{
-                                            maxWidth: '100%',
-                                            width: '100%',
-                                            height: 'auto',
-                                            margin: '15px 0',
-                                            borderRadius: '10px',
-                                            boxShadow: '0 6px 16px rgba(0,0,0,0.15)',
-                                            border: '4px solid white'
-                                        }}
-                                        onError={(e) => {
-                                            console.error('Erreur chargement image lecture:', photo.id);
-                                            (e.target as HTMLElement).style.display = 'none';
-                                        }}
-                                    />
-                                </div>
-                            )}
+                    {groupsWithAnalysis.map((group, index) => renderGroup(group, index))}
 
-                            <div style={{ marginBottom: '20px' }}>
-                                <h4 style={{
-                                    fontSize: '16px',
-                                    fontWeight: '700',
-                                    color: '#e74c3c',
-                                    marginBottom: '10px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <span style={{
-                                        width: '4px',
-                                        height: '16px',
-                                        backgroundColor: '#e74c3c',
-                                        borderRadius: '2px'
-                                    }}></span>
-                                    Observations
-                                </h4>
-                                <div style={{
-                                    fontFamily: 'monospace',
-                                    fontSize: '14px',
-                                    paddingLeft: '12px',
-                                    lineHeight: '1.8'
-                                }}>
-                                    {photo.analysis.observation.map((obs, i) => `• ${obs}\n`).join('')}
-                                </div>
-                            </div>
-
-                            <div style={{ marginBottom: '20px' }}>
-                                <h4 style={{
-                                    fontSize: '16px',
-                                    fontWeight: '700',
-                                    color: '#3498db',
-                                    marginBottom: '10px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <span style={{
-                                        width: '4px',
-                                        height: '16px',
-                                        backgroundColor: '#3498db',
-                                        borderRadius: '2px'
-                                    }}></span>
-                                    Recommandations
-                                </h4>
-                                <div style={{
-                                    fontFamily: 'monospace',
-                                    fontSize: '14px',
-                                    paddingLeft: '12px',
-                                    lineHeight: '1.8'
-                                }}>
-                                    {photo.analysis.recommendation.map((rec, i) => `• ${rec}\n`).join('')}
-                                </div>
-                            </div>
-
-                            <div style={{ marginBottom: '20px' }}>
-                                <h4 style={{
-                                    fontSize: '16px',
-                                    fontWeight: '700',
-                                    color: '#9b59b6',
-                                    marginBottom: '10px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px'
-                                }}>
-                                    <span style={{
-                                        width: '4px',
-                                        height: '16px',
-                                        backgroundColor: '#9b59b6',
-                                        borderRadius: '2px'
-                                    }}></span>
-                                    🏛️ Références
-                                </h4>
-                                <div style={{
-                                    fontFamily: 'monospace',
-                                    fontSize: '14px',
-                                    paddingLeft: '12px',
-                                    lineHeight: '1.8'
-                                }}>
-                                    {photo.analysis.references.map((ref, i) => `• ${ref}\n`).join('')}
-                                </div>
-                            </div>
-
-                            {photo.comment && (
-                                <div style={{
-                                    marginTop: '20px',
-                                    padding: '15px',
-                                    backgroundColor: '#fffbf0',
-                                    borderRadius: '8px',
-                                    borderLeft: '4px solid #f39c12'
-                                }}>
-                                    <h4 style={{
-                                        fontSize: '16px',
-                                        fontWeight: '700',
-                                        color: '#f39c12',
-                                        marginBottom: '10px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px'
-                                    }}>
-                                        💬 Commentaires du coordonnateur
-                                    </h4>
-                                    <div style={{
-                                        fontFamily: 'monospace',
-                                        fontSize: '14px',
-                                        color: '#555',
-                                        lineHeight: '1.8'
-                                    }}>
-                                        {photo.comment}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    ))}
-
-                    {/* Footer */}
                     {footer && (
-                        <div style={{
-                            marginTop: '40px',
-                            padding: '20px',
-                            backgroundColor: '#f0fff4',
-                            borderRadius: '8px',
-                            borderLeft: '4px solid #27ae60'
-                        }}>
+                        <div style={{ marginTop: '40px', padding: '20px', backgroundColor: '#f0fff4', borderRadius: '8px', borderLeft: '4px solid #27ae60' }}>
                             {footer}
                         </div>
                     )}

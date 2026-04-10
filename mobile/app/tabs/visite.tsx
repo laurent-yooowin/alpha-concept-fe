@@ -1742,6 +1742,37 @@ export default function VisiteScreen() {
     }
   };
 
+  const handleDeleteAttachedPhotoMobile = async (photo: Photo, groupId: string) => {
+    Alert.alert(
+      'Supprimer la photo jointe',
+      'Cette photo sera supprimée du serveur et du groupe. Confirmer ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer', style: 'destructive',
+          onPress: async () => {
+            try {
+              if (photo.s3Url) {
+                try { await uploadService.deletePhotoByUrl(photo.s3Url); } catch (e) { console.error('S3 delete error:', e); }
+              }
+              const updatedPhotos = photosRef.current.filter(p => p.id !== photo.id);
+              setPhotos(updatedPhotos);
+              setHasChanges(true);
+              setReportSaved(false);
+              if (existingVisitId) {
+                await visitService.updateVisit(existingVisitId, { photos: updatedPhotos as any });
+              }
+              Alert.alert('Succès', 'Photo jointe supprimée');
+            } catch (error) {
+              console.error('Erreur suppression photo jointe:', error);
+              Alert.alert('Erreur', 'Impossible de supprimer la photo');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const processDetailPhotosForGroup = async (targetGroupId: string, detailSources: { id: string; uri: string }[]) => {
     if (!detailSources.length) return;
 
@@ -1940,7 +1971,81 @@ export default function VisiteScreen() {
     }
   };
 
-  // Take detail photo with camera for a specific group
+  // Attach photos to a group (join to report without re-analysis)
+  const attachPhotosToGroup = async (targetGroupId: string) => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission requise', 'Veuillez autoriser l\'accès à la galerie.');
+        return;
+      }
+
+      setIsLoadingPhotos(true);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        selectionLimit: 10,
+      });
+
+      if (result.canceled || result.assets.length === 0) {
+        setIsLoadingPhotos(false);
+        return;
+      }
+
+      setUploadingPhotos(true);
+      const newPhotos: Photo[] = [];
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
+        try {
+          let fileToUpload: Blob | string;
+          if (Platform.OS === 'web') {
+            const response = await fetch(asset.uri);
+            fileToUpload = await response.blob();
+          } else {
+            fileToUpload = asset.uri;
+          }
+
+          const fileName = `photo_attach_${Date.now()}_${i}.jpg`;
+          const uploadResult = await uploadService.uploadSingleFile(fileToUpload, fileName);
+          const s3Url = uploadResult?.data?.url || uploadResult?.url;
+
+          if (s3Url) {
+            newPhotos.push({
+              id: `attach-${Date.now()}-${i}`,
+              uri: asset.uri,
+              s3Url,
+              timestamp: new Date(),
+              groupId: targetGroupId,
+              comment: '',
+              userDirectives: '',
+              validated: false,
+            });
+          }
+        } catch (error) {
+          console.error(`Erreur upload photo jointe ${i}:`, error);
+        }
+      }
+
+      if (newPhotos.length > 0) {
+        const updatedPhotos = [...photos, ...newPhotos];
+        setPhotos(updatedPhotos);
+        await saveVisit(updatedPhotos, true);
+        setHasChanges(true);
+        setReportSaved(false);
+        Alert.alert('Succès', `${newPhotos.length} photo(s) jointe(s) au rapport du groupe.`);
+      } else {
+        Alert.alert('Erreur', 'Aucune photo n\'a pu être uploadée.');
+      }
+    } catch (error) {
+      console.error('Erreur joindre photos:', error);
+      Alert.alert('Erreur', 'Impossible de joindre les photos.');
+    } finally {
+      setIsLoadingPhotos(false);
+      setUploadingPhotos(false);
+    }
+  };
+
   // Open unreadable sections modal
   const openUnreadableSectionsModal = (groupId: string, sections: string[]) => {
     setUnreadableTargetGroupId(groupId);
@@ -2747,7 +2852,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
           [
             {
               text: 'Se reconnecter',
-              onPress: () => router.replace('/login')
+              onPress: () => router.replace('/auth/login')
             }
           ]
         );
@@ -2803,7 +2908,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
           [
             {
               text: 'Se reconnecter',
-              onPress: () => router.replace('/login')
+              onPress: () => router.replace('/auth/login')
             }
           ]
         );
@@ -5087,23 +5192,35 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                   )}
                                 </Text>
                                 {(reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee') && (
-                                  <TouchableOpacity
-                                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1E3A5F', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
-                                    onPress={() => addDetailPhotosToGroup(group.groupId)}
-                                  >
-                                    <ImagePlus size={14} color="#3B82F6" />
-                                    <Text style={{ color: '#3B82F6', fontSize: 11, fontFamily: 'Inter-SemiBold' }}>+ Détail</Text>
-                                  </TouchableOpacity>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <TouchableOpacity
+                                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1E3A5F', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+                                      onPress={() => attachPhotosToGroup(group.groupId)}
+                                    >
+                                      <ImagePlus size={14} color="#10B981" />
+                                      <Text style={{ color: '#10B981', fontSize: 11, fontFamily: 'Inter-SemiBold' }}>Joindre</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1E3A5F', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}
+                                      onPress={() => addDetailPhotosToGroup(group.groupId)}
+                                    >
+                                      <ImagePlus size={14} color="#3B82F6" />
+                                      <Text style={{ color: '#3B82F6', fontSize: 11, fontFamily: 'Inter-SemiBold' }}>+ Détail</Text>
+                                    </TouchableOpacity>
+                                  </View>
                                 )}
                               </View>
-                              {group.photos.map((photo, idx) => (
+                              {group.photos.map((photo, idx) => {
+                                const isAttachedOnly = !photo.aiAnalysis && !photo.isDirectiveOnly && !photo.isDetailPhoto;
+                                const canDeleteAttached = isAttachedOnly && (reportStatus !== 'envoye_au_client') && (!mission || (mission as any).originalStatus !== 'terminee');
+                                return (
+                                <View key={photo.id} style={{ marginBottom: 12, position: 'relative' }}>
                                 <TouchableOpacity
-                                  key={photo.id}
                                   onPress={() => {
                                     setZoomedImageUri(photo.uri);
                                     setShowImageZoom(true);
                                   }}
-                                  style={{ marginBottom: 12, borderRadius: 12, overflow: 'hidden', position: 'relative' }}
+                                  style={{ borderRadius: 12, overflow: 'hidden', position: 'relative' }}
                                 >
                                   <Image
                                     source={{ uri: photo.uri }}
@@ -5150,7 +5267,21 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                     </View>
                                   )}
                                 </TouchableOpacity>
-                              ))}
+                                {canDeleteAttached && (
+                                  <TouchableOpacity
+                                    onPress={() => handleDeleteAttachedPhotoMobile(photo, group.groupId)}
+                                    style={{
+                                      position: 'absolute', top: 8, right: 8,
+                                      backgroundColor: 'rgba(239, 68, 68, 0.9)', borderRadius: 12,
+                                      width: 28, height: 28, alignItems: 'center', justifyContent: 'center',
+                                    }}
+                                  >
+                                    <Trash2 size={14} color="#FFFFFF" />
+                                  </TouchableOpacity>
+                                )}
+                                </View>
+                                );
+                              })}
                             </View>
                           )}
                         </ScrollView>
