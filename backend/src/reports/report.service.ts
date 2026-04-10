@@ -119,9 +119,9 @@ export class ReportService {
       throw new NotFoundException('Report not found');
     }
 
-    if ((updateReportDto.status === ReportStatus.VALIDATED || updateReportDto.status === ReportStatus.SENT_TO_CLIENT) && user.role == UserRole.ADMIN) {
-      throw new NotFoundException('Only Coordonator can validate / send to clients the reports');
-    }
+    // if ((updateReportDto.status === ReportStatus.VALIDATED || updateReportDto.status === ReportStatus.SENT_TO_CLIENT) && user.role == UserRole.ADMIN) {
+    //   throw new NotFoundException('Only Coordonator can validate / send to clients the reports');
+    // }
 
     if (updateReportDto.status === ReportStatus.SENT) {
       updateReportDto['sentAt'] = new Date();

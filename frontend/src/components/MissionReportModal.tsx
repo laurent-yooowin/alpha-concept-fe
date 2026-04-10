@@ -195,7 +195,10 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
           const refs = Array.isArray(refText) ? refText : refText.split('. ');
 
           photos.push({
+            ...photo,
             id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+            groupId: photo.groupId || photo.id,
+            isDirectiveOnly: photo.isDirectiveOnly || false,
             uri: photo.uri || photo.s3Url,
             s3Url: photo.s3Url,
             timestamp: new Date(photo.createdAt || Date.now()),

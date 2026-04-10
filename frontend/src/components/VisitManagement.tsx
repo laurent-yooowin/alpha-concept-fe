@@ -1061,7 +1061,7 @@ export default function VisitManagement() {
                         {src ? (
                           <img src={src} alt={`Photo ${idx + 1}`}
                             className="w-full h-40 object-cover rounded-lg border border-slate-200"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          />
                         ) : (
                           <div className="w-full h-40 bg-slate-100 rounded-lg flex items-center justify-center border border-slate-200">
                             <ImageIcon className="w-8 h-8 text-slate-300" />
@@ -1135,10 +1135,10 @@ export default function VisitManagement() {
           </div>
           <div className="p-6 border-t border-slate-200 flex flex-wrap gap-3">
             <button onClick={cancelUpload} className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium text-s">Annuler</button>
-            <button onClick={() => uploadAndAnalyze(false)}
+            {/* <button onClick={() => uploadAndAnalyze(false)}
               className="flex items-center gap-2 px-6 py-3 bg-slate-600 text-white rounded-lg hover:bg-slate-700 font-medium text-s">
               <Upload className="w-4 h-4" /> Sauvegarder sans analyser
-            </button>
+            </button> */}
             <button onClick={() => uploadAndAnalyze(true)}
               className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-s">
               <Sparkles className="w-4 h-4" /> Analyser avec l'IA
@@ -1539,7 +1539,7 @@ export default function VisitManagement() {
         {showMissionReportModal && (
           <MissionReportModal
             mission={missionReportMission}
-            onClose={() => { setShowMissionReportModal(false); setMissionReportId(undefined); setMissionReportMission(null); }}
+            onClose={async () => { setShowMissionReportModal(false); setMissionReportId(undefined); setMissionReportMission(null); await loadData(); setSelectedVisit(null); setEditingNotes(false); }}
             initialReportId={missionReportId}
           />
         )}
@@ -1681,7 +1681,7 @@ export default function VisitManagement() {
       {showMissionReportModal && (
         <MissionReportModal
           mission={missionReportMission}
-          onClose={() => { setShowMissionReportModal(false); setMissionReportId(undefined); setMissionReportMission(null); }}
+          onClose={async () => { setShowMissionReportModal(false); setMissionReportId(undefined); setMissionReportMission(null); await loadData(); }}
           initialReportId={missionReportId}
         />
       )}
