@@ -22,6 +22,8 @@
     "seed:all": "npm run seed:missions && npm run seed:visits && npm run seed:reports",
     "backfill:alpha-concept-org": "node dist/scripts/backfill-alpha-concept-organization.js",
     "backfill:alpha-concept-org-dev": "ts-node src/scripts/backfill-alpha-concept-organization.ts",
+    "org:move-to-target": "node dist/scripts/move-all-to-target-organization.js",
+    "org:move-to-target-dev": "ts-node src/scripts/move-all-to-target-organization.ts",
     "migration:generate": "typeorm migration:generate -d dist/config/typeorm.config.js dist/migrations/migration -o",
     "migration:run": "typeorm migration:run -d dist/config/typeorm.config.js",
     "migration:revert": "typeorm migration:revert -d dist/config/typeorm.config.js",

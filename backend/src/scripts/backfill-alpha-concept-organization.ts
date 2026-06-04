@@ -32,6 +32,10 @@ const sourceOrgSlugs = (process.env.SOURCE_ORG_SLUGS || 'default')
   .filter(Boolean);
 const overwriteAllOrgs = process.env.OVERWRITE_ALL_ORGS === 'true';
 const dryRun = process.env.DRY_RUN === 'true';
+const fallbackTargetOrg = {
+  name: process.env.TARGET_ORG_NAME || 'Alpha Concept',
+  slug: targetOrgSlugCandidates[0],
+};
 
 function placeholders(values: unknown[]): string {
   return values.map(() => '?').join(', ');
@@ -164,7 +168,7 @@ async function main() {
   await dataSource.initialize();
 
   try {
-    const targetRows = (await dataSource.query(
+    let targetRows = (await dataSource.query(
       `
         SELECT id, slug
         FROM \`organizations\`
@@ -174,17 +178,32 @@ async function main() {
       `,
       [...targetOrgSlugCandidates, ...targetOrgSlugCandidates],
     )) as OrgRow[];
-    const targetOrg = targetRows[0];
+    let targetOrg = targetRows[0];
 
     if (!targetOrg) {
-      const availableOrgs = (await dataSource.query(
-        'SELECT slug FROM `organizations` ORDER BY slug LIMIT 20',
-      )) as Array<{ slug: string }>;
-      const availableSlugs = availableOrgs.map((org) => org.slug).join(', ') || 'none';
+      if (dryRun) {
+        throw new Error(
+          `Organization slug not found. Tried: ${targetOrgSlugCandidates.join(', ')}. DRY_RUN=true, so ${fallbackTargetOrg.slug} was not created.`,
+        );
+      }
 
-      throw new Error(
-        `Organization slug not found. Tried: ${targetOrgSlugCandidates.join(', ')}. Available slugs: ${availableSlugs}. Create it from Hyper Admin first, or set TARGET_ORG_SLUG to the real slug.`,
+      await dataSource.query(
+        `
+          INSERT INTO \`organizations\` (id, name, slug, isActive)
+          VALUES (UUID(), ?, ?, 1)
+        `,
+        [fallbackTargetOrg.name, fallbackTargetOrg.slug],
       );
+      targetRows = (await dataSource.query(
+        'SELECT id, slug FROM `organizations` WHERE slug = ? LIMIT 1',
+        [fallbackTargetOrg.slug],
+      )) as OrgRow[];
+      targetOrg = targetRows[0];
+      console.log(`Created target organization: ${fallbackTargetOrg.slug}`);
+    }
+
+    if (!targetOrg) {
+      throw new Error(`Unable to create or find target organization: ${fallbackTargetOrg.slug}`);
     }
 
     const sourceRows =
@@ -243,6 +262,15 @@ async function main() {
     }
 
     await dataSource.transaction(async (manager) => {
+      const hyperAdminResult = (await manager.query(
+        `
+          UPDATE \`users\`
+          SET \`organizationId\` = NULL
+          WHERE \`role\` = 'ROLE_HYPER_ADMIN'
+        `,
+      )) as UpdateResult;
+      console.log(`${readAffected(hyperAdminResult)} hyper admin user(s) detached from organizations.`);
+
       for (const item of scopedTables) {
         const where = sourceWhere(item.column, targetOrg.id, sourceOrgIds);
         const whereSql = item.extra ? `${where.sql} AND ${item.extra}` : where.sql;
