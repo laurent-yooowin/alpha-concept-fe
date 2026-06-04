@@ -1,13 +1,17 @@
 import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { UserService } from '../user/user.service';
-import { User } from '../user/user.entity';
+import { User, UserRole } from '../user/user.entity';
 import { RegisterDto } from './auth.dto';
 import { MailService } from '../mail/mail.service';
+import { Organization } from '../organizations/organization.entity';
 
 export interface LoginDto {
   email: string;
   password: string;
+  organizationSlug?: string;
 }
 
 export interface ForgotPasswordDto {
@@ -33,6 +37,8 @@ export class AuthService {
     private userService: UserService,
     private jwtService: JwtService,
     private mailService: MailService,
+    @InjectRepository(Organization)
+    private organizationRepository: Repository<Organization>,
   ) { }
 
   async login(loginDto: LoginDto) {
@@ -41,7 +47,7 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    
+
     if (!user.isActive) {
       throw new UnauthorizedException('User account is inactive');
     }
@@ -55,10 +61,35 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (loginDto.organizationSlug) {
+      const org = await this.organizationRepository.findOne({
+        where: { slug: loginDto.organizationSlug },
+      });
+      if (!org || !org.isActive) {
+        throw new UnauthorizedException('Organisation introuvable ou inactive');
+      }
+      if (
+        user.role !== UserRole.HYPER_ADMIN &&
+        user.organizationId !== org.id
+      ) {
+        throw new UnauthorizedException(
+          "Vous n'appartenez pas à cette organisation",
+        );
+      }
+    } else if (
+      user.role !== UserRole.HYPER_ADMIN &&
+      process.env.STRICT_LOGIN_PORTAL === 'true'
+    ) {
+      throw new UnauthorizedException(
+        'Veuillez vous connecter via le portail de votre organisation',
+      );
+    }
+
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      organizationId: user.organizationId,
     };
 
     return {
@@ -69,6 +100,7 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        organizationId: user.organizationId,
       },
     };
   }

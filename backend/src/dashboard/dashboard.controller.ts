@@ -10,22 +10,22 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('stats')
-  async getStats(@CurrentUser() user: User) {
-    return this.dashboardService.getStats(user.id, user.role);
+  getStats(@CurrentUser() user: User) {
+    return this.dashboardService.getStats(user);
   }
 
   @Get('monthly-missions')
-  async getMonthlyMissions(@CurrentUser() user: User) {
-    return this.dashboardService.getMonthlyMissions(user.id, user.role);
+  getMonthlyMissions(@CurrentUser() user: User) {
+    return this.dashboardService.getMonthlyMissions(user);
   }
 
   @Get('coordinator-stats')
-  async getCoordinatorStats(@CurrentUser() user: User) {
-    return this.dashboardService.getCoordinatorStats(user.id, user.role);
+  getCoordinatorStats(@CurrentUser() user: User) {
+    return this.dashboardService.getCoordinatorStats(user);
   }
 
   @Get('status-breakdown')
-  async getStatusBreakdown(@CurrentUser() user: User) {
-    return this.dashboardService.getStatusBreakdown(user.id, user.role);
+  getStatusBreakdown(@CurrentUser() user: User) {
+    return this.dashboardService.getStatusBreakdown(user);
   }
 }

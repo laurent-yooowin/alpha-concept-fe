@@ -1,12 +1,21 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, OneToOne } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, OneToOne, Index } from 'typeorm';
 import { User } from '../user/user.entity';
 import { Mission } from '../missions/mission.entity';
 import { Report } from '../reports/report.entity';
+import { Organization } from '../organizations/organization.entity';
 
 @Entity('visits')
 export class Visit {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @Index()
+  @Column('uuid', { nullable: true })
+  organizationId: string | null;
+
+  @ManyToOne(() => Organization, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'organizationId' })
+  organization: Organization | null;
 
   // =========================
   // ✅ RELATION AVEC MISSION (ManyToOne)

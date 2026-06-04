@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { orgScope } from '../common/utils/org-scope';
 import { Report, ReportStatus } from './report.entity';
 import { CreateReportDto, UpdateReportDto } from './report.dto';
 import { User, UserRole } from '../user/user.entity';
@@ -17,19 +18,24 @@ export class ReportService {
     private readonly missionService: MissionService,
   ) { }
 
-  async create(userId: string, createReportDto: CreateReportDto): Promise<Report> {
+  async create(userOrId: User | string, createReportDto: CreateReportDto): Promise<Report> {
+    const userId = typeof userOrId === 'string' ? userOrId : userOrId.id;
+    const organizationId =
+      typeof userOrId === 'string' ? null : userOrId.organizationId ?? null;
+
     const report = this.reportRepository.create({
       ...createReportDto,
       userId,
+      organizationId,
     });
 
     return this.reportRepository.save(report);
   }
 
   async findAll(user: User, status?: ReportStatus): Promise<Report[]> {
-    const where: any = {};
+    const where: any = orgScope(user);
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
 
@@ -45,7 +51,6 @@ export class ReportService {
 
     if (reportsDb?.length > 0) {
       const reports = [];
-      let firstReport = reportsDb[0];
       reportsDb.forEach((report) => {
         if (!reports.some(r => r.id == report.id) || reports.length == 0) {
           const secondeMission = reportsDb.filter(r => r.missionId == report.missionId);
@@ -53,7 +58,6 @@ export class ReportService {
             secondeMission.forEach(sr => {
               const visit = sr.visit;
               sr.visit = { photos: visit.photos, photoCount: visit.photoCount, createdAt: visit.createdAt };
-              console.log('secondeMission >>> : ', sr.title, sr.id);
               reports.push(sr)
             });
           }
@@ -65,9 +69,9 @@ export class ReportService {
   }
 
   async findOne(id: string, user: User): Promise<Report> {
-    const where: any = { id };
+    const where: any = orgScope(user, { id });
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
 
@@ -84,32 +88,23 @@ export class ReportService {
   }
 
   async findByVisit(visitId: string, user: User): Promise<Report> {
-    const where: any = { visitId };
+    const where: any = orgScope(user, { visitId });
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
 
-    const report = await this.reportRepository.findOne({
-      where,
-      // relations: ['mission', 'visit', 'user'],
-    });
-
-    if (!report) {
-      return null;
-    }
-
-    return report;
+    const report = await this.reportRepository.findOne({ where });
+    return report || null;
   }
 
   async findByMission(missionId: string, user: User): Promise<Report[]> {
-    const where: any = { missionId: missionId };
+    const where: any = orgScope(user, { missionId });
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
-    const report = await this.reportRepository.findBy(where);
-    return report;
+    return this.reportRepository.findBy(where);
   }
 
   async update(id: string, user: User, updateReportDto: UpdateReportDto): Promise<Report> {
@@ -145,9 +140,16 @@ export class ReportService {
       await this.missionService.update(mission.id, user, missionDto);
     }
 
-    Object.assign(report, updateReportDto);
-    console.log('Updated report:', report);
-    return this.reportRepository.save(report);
+    // Strip relation objects to avoid TypeORM nulling join columns on save
+    const { visit, mission, user: _u, ...rest } = report as any;
+    Object.assign(rest, updateReportDto);
+    // Ensure required FK columns are preserved
+    rest.visitId = report.visitId;
+    rest.missionId = report.missionId;
+    rest.userId = report.userId;
+    console.log('Updated report:', rest);
+    await this.reportRepository.save(rest);
+    return this.findOne(id, user);
   }
 
   async delete(id: string, user: User): Promise<void> {
@@ -163,9 +165,9 @@ export class ReportService {
   }
 
   async countByStatus(user: User): Promise<{ [key: string]: number }> {
-    const where: any = {};
+    const where: any = orgScope(user);
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
 

@@ -3,7 +3,8 @@ import { ActivityLogService } from './activity-log.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../user/user.entity';
+import { User, UserRole } from '../user/user.entity';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @Controller('activity-logs')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -11,8 +12,11 @@ export class ActivityLogController {
   constructor(private readonly activityLogService: ActivityLogService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN)
-  async findAll(@Query('userId') userId?: string) {
-    return this.activityLogService.findAll(userId);
+  @Roles(UserRole.ADMIN, UserRole.HYPER_ADMIN)
+  async findAll(
+    @CurrentUser() user: User,
+    @Query('userId') userId?: string,
+  ) {
+    return this.activityLogService.findAll(user, userId);
   }
 }

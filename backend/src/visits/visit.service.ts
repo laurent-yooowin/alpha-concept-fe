@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { orgScope } from '../common/utils/org-scope';
 import { Visit } from './visit.entity';
 import { CreateVisitDto, UpdateVisitDto } from './visit.dto';
 import { User, UserRole } from '../user/user.entity';
@@ -41,6 +42,7 @@ export class VisitService {
     const visit = this.visitRepository.create({
       ...createVisitDto,
       userId,
+      organizationId: user.organizationId,
       photoCount: createVisitDto.photos?.length || 0,
       visitDate: new Date(createVisitDto.visitDate),
     });
@@ -55,9 +57,9 @@ export class VisitService {
   }
 
   async findAll(user: User, missionId?: string): Promise<Visit[]> {
-    const where: any = {};
+    const where: any = orgScope(user);
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
 
@@ -73,9 +75,9 @@ export class VisitService {
   }
 
   async findByMission(missionId: string, user: User): Promise<Visit[]> {
-    const where: any = { missionId };
+    const where: any = orgScope(user, { missionId });
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
 
@@ -86,9 +88,9 @@ export class VisitService {
   }
 
   async findOne(id: string, user: User): Promise<Visit> {
-    const where: any = { id };
+    const where: any = orgScope(user, { id });
 
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       where.userId = user.id;
     }
 
@@ -279,11 +281,12 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
       conformityPercentage: highRisks > 0 ? 50 : mediumRisks > 0 ? 75 : 95,
     };
 
-    const report = await this.reportService.create(user.id, createReportDto);
+    const report = await this.reportService.create(user, createReportDto);
 
-    // Mark visit as report generated
-    visit.reportGenerated = true;
-    await this.visitRepository.save(visit);
+    // Mark visit as report generated without re-saving loaded relations.
+    // Re-saving the whole visit entity on first generation can cause TypeORM
+    // to null the inverse one-to-one relation and emit `reports.visitId = null`.
+    await this.visitRepository.update(visit.id, { reportGenerated: true });
 
     return report;
   }

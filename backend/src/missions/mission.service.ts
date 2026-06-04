@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, forwardRef, Inject, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { orgScope } from '../common/utils/org-scope';
 import { Mission } from './mission.entity';
 import { MissionAssignment } from './mission-assignment.entity';
 import { CreateMissionDto, MissionStatus, UpdateMissionDto } from './mission.dto';
@@ -42,20 +43,22 @@ export class MissionService {
       ...createMissionDto,
       status: createMissionDto.status || 'planifiee',
       userId,
+      organizationId: user.organizationId,
     });
     return this.missionRepository.save(mission);
   }
 
   async findAll(user: User): Promise<Mission[]> {
     let missions;
-    if (user.role === UserRole.ADMIN) {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.HYPER_ADMIN) {
       missions = await this.missionRepository.find({
+        where: orgScope(user),
         relations: ['user'],
         order: { createdAt: 'DESC' },
       });
     } else {
       missions = await this.missionRepository.find({
-        where: { userId: user.id },
+        where: orgScope(user, { userId: user.id }),
         order: { createdAt: 'DESC' },
       });
     }
@@ -115,14 +118,14 @@ export class MissionService {
 
   async findOne(id: string, user: User): Promise<Mission> {
     let mission = new Mission();
-    if (user.role === UserRole.ADMIN) {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.HYPER_ADMIN) {
       mission = await this.missionRepository.findOne({
-        where: { id },
+        where: orgScope(user, { id }),
         relations: ['user'],
       });
     } else {
       mission = await this.missionRepository.findOne({
-        where: { id, userId: user.id },
+        where: orgScope(user, { id, userId: user.id }),
       });
     }
 
@@ -164,23 +167,11 @@ export class MissionService {
   async update(id: string, user: User, updateMissionDto: UpdateMissionDto): Promise<Mission> {
     try {
       const mission = await this.missionRepository.findOne({
-        where: { id },
+        where: orgScope(user, { id }),
       });
 
       if (!mission) {
         throw new NotFoundException('Mission not found');
-      }
-
-      const relatedReports = await this.reportService.findByMission(id, user);
-      if (relatedReports?.length > 0) {
-        const filtredReports = relatedReports.filter(r => r.status != ReportStatus.SENT_TO_CLIENT);
-        if (filtredReports.length > 0) {
-          await Promise.all(filtredReports.map(async (report) => {
-            report.status = ReportStatus.CANCELLED;
-            await this.reportService.save(report, user);
-            return report;
-          }));
-        }
       }
 
       Object.assign(mission, updateMissionDto);
@@ -191,9 +182,9 @@ export class MissionService {
     }
   }
 
-  async delete(id: string, userId: string): Promise<void> {
+  async delete(id: string, user: User): Promise<void> {
     const mission = await this.missionRepository.findOne({
-      where: { id },
+      where: orgScope(user, { id }),
     });
 
     if (!mission) {
@@ -202,7 +193,7 @@ export class MissionService {
     const missionId = mission.id;
 
     const assignment = await this.assignmentRepository.findOne({
-      where: { missionId, userId },
+      where: { missionId, userId: user.id },
     });
 
     if (assignment || mission.status == MissionStatus.TERMINATED) {
@@ -214,15 +205,23 @@ export class MissionService {
   }
 
   async assignUsers(missionId: string, userIds: string[], assignedBy: User): Promise<MissionAssignment[]> {
-    if (assignedBy.role !== UserRole.ADMIN) {
+    if (assignedBy.role !== UserRole.ADMIN && assignedBy.role !== UserRole.HYPER_ADMIN) {
       throw new NotFoundException('Only admins can assign users to missions');
     }
     const mission = await this.missionRepository.findOne({
-      where: { id: missionId },
+      where: orgScope(assignedBy, { id: missionId }),
     });
 
     if (!mission) {
       throw new NotFoundException('Mission not found');
+    }
+
+    // Ensure target users belong to the same organization (defense in depth)
+    const targetUsers = await this.userService.findAll(assignedBy);
+    const validIds = new Set(targetUsers.map(u => u.id));
+    const safeUserIds = userIds.filter(id => validIds.has(id));
+    if (safeUserIds.length !== userIds.length) {
+      throw new NotFoundException("Un ou plusieurs coordonnateurs n'appartiennent pas à votre organisation");
     }
 
     const existingAssignments = await this.assignmentRepository.find({
@@ -230,7 +229,7 @@ export class MissionService {
     });
 
     const existingUserIds = existingAssignments.map(a => a.userId);
-    const newUserIds = userIds.filter(id => !existingUserIds.includes(id));
+    const newUserIds = safeUserIds.filter(id => !existingUserIds.includes(id));
 
     const assignments = newUserIds.map(userId =>
       this.assignmentRepository.create({
@@ -238,21 +237,29 @@ export class MissionService {
         userId,
         assignedBy: assignedBy.id,
         notified: false,
+        organizationId: mission.organizationId,
       })
     );
 
     const updateMissionDto = new UpdateMissionDto();
     updateMissionDto.status = MissionStatus.ASSIGNED;
     updateMissionDto.assigned = true;
-    updateMissionDto.userId = userIds[0];
+    updateMissionDto.userId = safeUserIds[0];
     this.logger.log('🚀 updateMissionDto.status =', updateMissionDto.status);
     await this.update(missionId, assignedBy, updateMissionDto);
 
-    this.logger.log(`Existing assignments for mission `, userIds);
+    this.logger.log(`Existing assignments for mission `, safeUserIds);
     return this.assignmentRepository.save(assignments);
   }
 
-  async getAssignedUsers(missionId: string): Promise<User[]> {
+  async getAssignedUsers(missionId: string, currentUser: User): Promise<User[]> {
+    // Validate the mission belongs to the user's organization first
+    const mission = await this.missionRepository.findOne({
+      where: orgScope(currentUser, { id: missionId }),
+    });
+    if (!mission) {
+      throw new NotFoundException('Mission not found');
+    }
     const assignments = await this.assignmentRepository.find({
       where: { missionId },
       relations: ['user'],
@@ -262,7 +269,7 @@ export class MissionService {
   }
 
   async removeAssignment(missionId: string, userId: string, user: User): Promise<void> {
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.HYPER_ADMIN) {
       throw new NotFoundException('Only admins can remove assignment of the mission');
     }
 
@@ -286,8 +293,13 @@ export class MissionService {
     }
   }
 
-  async getAllUsers(): Promise<User[]> {
+  async getAllUsers(currentUser: User): Promise<User[]> {
+    const where: any = currentUser.role === UserRole.HYPER_ADMIN
+      ? {}
+      : { organizationId: currentUser.organizationId };
+
     const missions = await this.missionRepository.find({
+      where,
       relations: ['user'],
     });
 
@@ -451,10 +463,10 @@ export class MissionService {
 
         if (missionData.userEmail) {
           importUser = await this.userService.findByEmail(missionData.userEmail);
-          if (!importUser) {
+          if (!importUser || (importUser.organizationId && importUser.organizationId !== user.organizationId)) {
             errors.push({
               row: rowNumber,
-              error: `L'utilisateur avec email : ${missionData.userEmail} n'existe pas dans la base, merci de le créer d'abord. `,
+              error: `L'utilisateur avec email : ${missionData.userEmail} n'existe pas dans votre organisation. `,
               data: normalizedRow,
             });
             continue;
@@ -478,6 +490,7 @@ export class MissionService {
             client: missionData.client,
             date: missionData.date,
             address: missionData.address,
+            organizationId: user.organizationId,
           },
         });
 
@@ -494,6 +507,8 @@ export class MissionService {
           continue;
         }
 
+        missionData.organizationId = user.organizationId;
+        if (!missionData.userId) missionData.userId = user.id;
         const mission = this.missionRepository.create(missionData);
         const savedMission: any = await this.missionRepository.save(mission);
         imported.push(savedMission);

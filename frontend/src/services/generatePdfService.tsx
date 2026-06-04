@@ -3,6 +3,15 @@ import { filesService } from "./filesService";
 import html2pdf from 'html2pdf.js';
 
 export const generatePdfService = {
+  getMissionTypeLabel(reportData: any) {
+    return String(reportData?.missionType || reportData?.type || 'SPS').trim() || 'SPS';
+  },
+
+  getReportFilename(baseName: string, missionType?: string) {
+    const cleanBase = (baseName || 'rapport').replace(/\s+/g, '_');
+    const cleanType = (missionType || 'SPS').replace(/\s+/g, '_');
+    return `${cleanBase}_rapport_${cleanType}.pdf`;
+  },
 
   async generateHTMLContent(reportData: any) {
     // 1️⃣ Convertir chaque image en base64
@@ -54,19 +63,21 @@ export const generatePdfService = {
       });
 
       // Download all images in parallel (skip directive-only photos)
-      const photoBase64Map = new Map<number, string>();
+      const photoDataUrlMap = new Map<number, string>();
       await Promise.all(
         (reportData.photos || []).map(async (photo: any, idx: number) => {
           if (photo.isDirectiveOnly) {
-            photoBase64Map.set(idx, '');
+            photoDataUrlMap.set(idx, '');
             return;
           }
           try {
             const pdfData = await filesService.downloadFile(photo.s3Url, 'visits/photos/', true);
-            photoBase64Map.set(idx, pdfData.data?.base64 || '');
+            const base64 = pdfData.data?.base64 || '';
+            const contentType = pdfData.data?.contentType || 'image/jpeg';
+            photoDataUrlMap.set(idx, base64 ? `data:${contentType};base64,${base64}` : '');
           } catch (err) {
             console.warn('Erreur conversion image en base64:', err);
-            photoBase64Map.set(idx, '');
+            photoDataUrlMap.set(idx, '');
           }
         })
       );
@@ -86,21 +97,21 @@ export const generatePdfService = {
         let photoGridHtml = '';
         if (!isDirectiveOnlyGroup) {
           if (isSinglePhoto) {
-            const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[0])) || '';
+            const photoSrc = photoDataUrlMap.get(reportData.photos.indexOf(photos[0])) || '';
             photoGridHtml = `
               <div class="photo-grid-single" style="display:flex;justify-content:center;">
                 <div class="photo-container-normalized" style="max-width:400px;">
-                  <img src="data:image/jpeg;base64,${base64}" class="photo-image-normalized" />
+                  <img src="${photoSrc}" class="photo-image-normalized" />
                 </div>
               </div>`;
           } else {
             photoGridHtml = `<div class="photo-grid-multi">`;
             for (let i = 0; i < photos.length; i++) {
-              const base64 = photoBase64Map.get(reportData.photos.indexOf(photos[i])) || '';
+              const photoSrc = photoDataUrlMap.get(reportData.photos.indexOf(photos[i])) || '';
               photoGridHtml += `
                 <div class="photo-grid-cell">
                   <div class="photo-container-normalized">
-                    <img src="data:image/jpeg;base64,${base64}" class="photo-image-normalized" />
+                    <img src="${photoSrc}" class="photo-image-normalized" />
                     <span class="photo-index-badge">${i + 1}</span>
                   </div>
                 </div>`;
@@ -178,11 +189,29 @@ export const generatePdfService = {
       });
     }
 
-    const logoBase64 = await filesService.downloadFile("https://alpha-concept.s3.eu-central-1.amazonaws.com/reports_files/logo_alpha.jpg", '/reports_files', true);
-    const logoBase64Img = logoBase64 && logoBase64.data ? logoBase64.data.base64 : '';
-    const logoImage = `
-      <img src="data:image/jpeg;base64,${logoBase64Img}" class="logo-image" />    
-    `;
+    // Prefer the current organization's logo (set by AuthContext on login).
+    const defaultLogoUrl = 'https://alpha-concept.s3.eu-central-1.amazonaws.com/reports_files/logo_alpha.jpg';
+    const currentOrg = (typeof window !== 'undefined' ? (window as any).__currentOrganization : null) || null;
+    const orgLogoUrl: string | null = (reportData && reportData.organizationLogoUrl) || currentOrg?.logoUrl || null;
+    let logoSrc = '';
+    try {
+      const target = orgLogoUrl || defaultLogoUrl;
+      const logoBase64 = await filesService.downloadFile(target, '/reports_files', true);
+      const logoBase64Img = logoBase64 && logoBase64.data ? logoBase64.data.base64 : '';
+      if (logoBase64Img) {
+        logoSrc = `data:${logoBase64.data?.contentType || 'image/jpeg'};base64,${logoBase64Img}`;
+      } else if (orgLogoUrl) {
+        // Fallback: embed by URL directly if download failed
+        logoSrc = orgLogoUrl;
+      }
+    } catch {
+      if (orgLogoUrl) logoSrc = orgLogoUrl;
+    }
+    const logoImage = logoSrc
+      ? `<img src="${logoSrc}" class="logo-image" />`
+      : '';
+
+    const missionType = this.getMissionTypeLabel(reportData);
 
     return `
     <!DOCTYPE html>
@@ -546,7 +575,7 @@ export const generatePdfService = {
           </div>    
           <div class="info-header">
             <div class="report-title">${reportData.title}</div>
-            <div class="report-subtitle">Rapport de Visite SPS</div>
+            <div class="report-subtitle">Rapport de Visite ${missionType}</div>
           </div>
         </div>
       </div>
@@ -560,6 +589,11 @@ export const generatePdfService = {
         <div class="info-item">
           <div class="info-label">Client</div>
           <div class="info-value">${reportData.client}</div>
+        </div>
+
+        <div class="info-item">
+          <div class="info-label">Type</div>
+          <div class="info-value">${missionType}</div>
         </div>
     
         <div class="info-item">
@@ -597,13 +631,8 @@ export const generatePdfService = {
   },
 
   async generateWebPDF(htmlContent: string, filename: string) {
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(htmlContent);
-      printWindow.document.close();
-      // printWindow.print();
-      return 'web-print';
-    }
+    // Aperçu dans un nouvel onglet désactivé — utilisez `downloadReportPDF`
+    // pour télécharger directement le fichier PDF.
     return null;
   },
 
@@ -649,7 +678,6 @@ export const generatePdfService = {
   async generateReportPDF(reportData: any) {
     try {
       const htmlContent = await this.generateHTMLContent(reportData);
-      await this.generateWebPDF(htmlContent, reportData.title);
       return htmlContent;
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -657,7 +685,35 @@ export const generatePdfService = {
     }
   },
 
-  async sendReportPDFByEmail(email: string, subject: string, message: string, pdfContent: string, pdfUrl?: string, isHtmlContent?: boolean, fileName: string = 'report.pdf') {
+  async downloadReportPDF(reportData: any, filename?: string): Promise<boolean> {
+    try {
+      const htmlContent = await this.generateHTMLContent(reportData);
+      const element = document.createElement('div');
+      element.innerHTML = htmlContent;
+      document.body.appendChild(element);
+
+      const safeName = (filename || reportData?.title || reportData?.mission || 'rapport')
+        .toString()
+        .replace(/[^a-zA-Z0-9-_]+/g, '_');
+
+      const options = {
+        margin: 10,
+        filename: `${safeName}.pdf`,
+        image: { type: 'jpeg' as const, quality: 0.98 },
+        html2canvas: { scale: 2 },
+        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const },
+      };
+
+      await html2pdf().set(options).from(element).save();
+      document.body.removeChild(element);
+      return true;
+    } catch (err) {
+      console.error('Erreur génération PDF:', err);
+      return false;
+    }
+  },
+
+  async sendReportPDFByEmail(email: string, subject: string, message: string, pdfContent: string, pdfUrl?: string, isHtmlContent?: boolean, fileName: string = 'report.pdf', missionId?: string, cc?: string[]) {
     const url = `/mail/send-report`;
     const data = {
       email: email,
@@ -667,6 +723,8 @@ export const generatePdfService = {
       message: message,
       isHtmlContent: isHtmlContent,
       fileName: fileName,
+      missionId: missionId,
+      cc: cc,
     };
 
     return apiRequest(url, {

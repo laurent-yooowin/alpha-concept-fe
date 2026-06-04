@@ -6,9 +6,18 @@ import * as Print from 'expo-print';
 import { AIAnalysis } from './aiService';
 import { uploadService } from './uploadService';
 
+const imageContentTypeFromUrl = (url: string) => {
+  const cleanUrl = url.split('?')[0].toLowerCase();
+  if (cleanUrl.endsWith('.avif')) return 'image/avif';
+  if (cleanUrl.endsWith('.webp')) return 'image/webp';
+  if (cleanUrl.endsWith('.png')) return 'image/png';
+  return 'image/jpeg';
+};
+
 export interface ReportData {
   title: string;
   mission: string;
+  type?: string | null;
   client: string;
   date: string;
   conformity: number;
@@ -51,7 +60,7 @@ export const pdfService = {
         const photoHTML = `
         <div style="margin: 10px 0; page-break-inside: avoid;">
           <p>📸 Photo: ${photo.s3Url}</p>
-          <img src="data:image/jpeg;base64,${base64Img}" style="max-width: 100%; height: auto; border-radius: 8px;" />
+          <img src="data:${imageContentTypeFromUrl(photo.s3Url)};base64,${base64Img}" style="max-width: 100%; height: auto; border-radius: 8px;" />
           ${photo.comment ? `<p style="margin-top: 4px; font-size: 12px; color: #666;"><strong>Commentaire:</strong> ${photo.comment}</p>` : ''}
         </div>
       `;
@@ -122,16 +131,18 @@ export const pdfService = {
             const photoImagesHtml: string[] = [];
             for (const photo of group.photos) {
               let base64Img = '';
+              let contentType = 'image/jpeg';
               try {
                 const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
                 if (imgResp && imgResp.data && imgResp.data.data) {
                   base64Img = imgResp.data.data.base64;
+                  contentType = imgResp.data.data.contentType || contentType;
                 }
               } catch (err) {
                 console.warn('Erreur download photo:', err);
               }
               if (base64Img) {
-                photoImagesHtml.push(`<img src="data:image/jpeg;base64,${base64Img}" class="photo-image" />`);
+                photoImagesHtml.push(`<img src="data:${contentType};base64,${base64Img}" class="photo-image" />`);
               }
             }
 
@@ -218,9 +229,11 @@ export const pdfService = {
 
     const logoBase64 = await uploadService.downloadFile("https://alpha-concept.s3.eu-central-1.amazonaws.com/reports_files/logo_alpha.jpg", '/reports_files', true);
     const logoBase64Img = logoBase64 && logoBase64.data ? logoBase64.data.data.base64 : '';
+    const logoContentType = logoBase64?.data?.data?.contentType || 'image/jpeg';
     const logoImage = `
-      <img src="data:image/jpeg;base64,${logoBase64Img}" class="logo-image" />    
+      <img src="data:${logoContentType};base64,${logoBase64Img}" class="logo-image" />    
     `;
+    const reportTypeLabel = reportData.type?.trim();
 
     return `
       <!DOCTYPE html>
@@ -524,7 +537,7 @@ export const pdfService = {
       </div>    
       <div class="info-header">
         <div class="report-title">${reportData.title}</div>
-        <div class="report-subtitle">Rapport de Visite SPS</div>
+        <div class="report-subtitle">Rapport de Visite${reportTypeLabel ? ` ${reportTypeLabel}` : ''}</div>
       </div>
     </div>
   </div>

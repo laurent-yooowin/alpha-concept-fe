@@ -11,10 +11,12 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
-  @Post('register')
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
-  }
+  // Public registration is disabled in multi-tenant mode.
+  // Users are created either by an ADMIN (own org) or by the HYPER_ADMIN.
+  // @Post('register')
+  // async register(@Body() registerDto: RegisterDto) {
+  //   return this.authService.register(registerDto);
+  // }
 
   @Post('forgot-password')
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {

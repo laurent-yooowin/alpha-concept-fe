@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import { missionsAPI, reportsAPI, usersAPI } from '../lib/api';
+import { mailingListAPI, missionsAPI, reportsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText, FileCheck, Clock, Loader2 } from 'lucide-react';
+import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText, FileCheck, Clock, Loader2, Plus, X } from 'lucide-react';
 import { generatePdfService } from '../services/generatePdfService';
 import { visitService } from '../services/visitService';
 import { filesService } from '../services/filesService';
@@ -37,6 +37,14 @@ interface Report {
   missionStatus: string;
   missionDate: string;
   missionTime: string;
+  missionType?: string;
+}
+
+interface MailingEntry {
+  id: string;
+  email: string;
+  name?: string | null;
+  missionId?: string | null;
 }
 
 export default function ReportManagement() {
@@ -57,9 +65,24 @@ export default function ReportManagement() {
   const [cursorPos, setCursorPos] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [downloadingReportId, setDownloadingReportId] = useState<string | null>(null);
+  const [showRecipientsModal, setShowRecipientsModal] = useState(false);
+  const [recipientsLoading, setRecipientsLoading] = useState(false);
+  const [mailingEntries, setMailingEntries] = useState<MailingEntry[]>([]);
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>([]);
+  const [recipientSearch, setRecipientSearch] = useState('');
+  const [newRecipientEmail, setNewRecipientEmail] = useState('');
+  const [newRecipientName, setNewRecipientName] = useState('');
+  const [addingRecipient, setAddingRecipient] = useState(false);
 
   const editedContentRef = useRef(null);
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
+  const getReportMissionType = (report: Report | null) => (
+    report?.missionType ||
+    report?.visit?.mission?.type ||
+    (report as any)?.type ||
+    'SPS'
+  );
 
   useEffect(() => {
     fetchReports();
@@ -269,6 +292,63 @@ export default function ReportManagement() {
     }
   };
 
+  const handleDownloadRowPdf = async (report: Report, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setDownloadingReportId(report.id);
+    try {
+      const visitPhotos = report.visit?.photos || [];
+      const riskLevelMap: Record<string, string> = {
+        faible: 'low', moyen: 'medium', eleve: 'high',
+        low: 'low', medium: 'medium', high: 'high'
+      };
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const pdfData = {
+        title: report.title,
+        mission: report.mission,
+        missionType: getReportMissionType(report),
+        client: report.client,
+        date: report.createdAt || '',
+        conformity: report.conformityPercentage,
+        header: report.header || '',
+        content: report.content || '',
+        footer: report.footer || '',
+        observations: report.observations || '',
+        photos: photosForPdf,
+      };
+
+      const ok = await generatePdfService.downloadReportPDF(
+        pdfData,
+        `${pdfData.mission || pdfData.title || 'rapport'}_${generatePdfService.getMissionTypeLabel(pdfData)}`,
+      );
+      if (ok) {
+        Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 2000, showConfirmButton: false });
+      } else {
+        Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+    } finally {
+      setDownloadingReportId(null);
+    }
+  };
+
   const handleDownloadPdf = async () => {
     if (!selectedReport) return;
     setGeneratingPdf(true);
@@ -298,6 +378,7 @@ export default function ReportManagement() {
       const pdfData = {
         title: selectedReport.title,
         mission: selectedReport.mission,
+        missionType: getReportMissionType(selectedReport),
         client: selectedReport.client,
         date: selectedReport.createdAt || '',
         conformity: selectedReport.conformityPercentage,
@@ -308,8 +389,15 @@ export default function ReportManagement() {
         photos: photosForPdf,
       };
 
-      await generatePdfService.generateReportPDF(pdfData);
-      Swal.fire({ icon: 'success', title: 'PDF généré', text: 'Le PDF a été ouvert dans un nouvel onglet', timer: 2000, showConfirmButton: false });
+      const ok = await generatePdfService.downloadReportPDF(
+        pdfData,
+        `${pdfData.mission || pdfData.title || 'rapport'}_${generatePdfService.getMissionTypeLabel(pdfData)}`,
+      );
+      if (ok) {
+        Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 2000, showConfirmButton: false });
+      } else {
+        Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+      }
     } catch (error) {
       console.error('Error generating PDF:', error);
       Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
@@ -429,6 +517,72 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
   const handleSendToClient = async () => {
     if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
       selectedReport.missionStatus == 'terminee' || selectedReport.missionStatus == 'archivee') return;
+    setRecipientsLoading(true);
+    setShowRecipientsModal(true);
+    setRecipientSearch('');
+    setNewRecipientEmail('');
+    setNewRecipientName('');
+    try {
+      const data = await mailingListAPI.getByMission(selectedReport.missionId);
+      const entries = Array.isArray(data) ? data : [];
+      setMailingEntries(entries);
+      setSelectedRecipientIds(entries.map((entry: MailingEntry) => entry.id));
+    } catch (error: any) {
+      setMailingEntries([]);
+      setSelectedRecipientIds([]);
+      Swal.fire({
+        title: 'Erreur',
+        text: error?.message || 'Impossible de charger la liste de diffusion',
+        icon: 'error',
+      });
+    } finally {
+      setRecipientsLoading(false);
+    }
+  };
+
+  const toggleRecipient = (id: string) => {
+    setSelectedRecipientIds((prev) => (
+      prev.includes(id) ? prev.filter((entryId) => entryId !== id) : [...prev, id]
+    ));
+  };
+
+  const handleAddRecipient = async () => {
+    if (!selectedReport || !newRecipientEmail.trim()) return;
+    setAddingRecipient(true);
+    try {
+      const created = await mailingListAPI.create({
+        missionId: selectedReport.missionId,
+        email: newRecipientEmail.trim(),
+        name: newRecipientName.trim(),
+      });
+      setMailingEntries((prev) => [created, ...prev]);
+      setSelectedRecipientIds((prev) => [...prev, created.id]);
+      setNewRecipientEmail('');
+      setNewRecipientName('');
+      setRecipientSearch('');
+    } catch (error: any) {
+      Swal.fire({
+        title: 'Erreur',
+        text: error?.message || "Impossible d'ajouter l'email",
+        icon: 'error',
+      });
+    } finally {
+      setAddingRecipient(false);
+    }
+  };
+
+  const confirmSendToSelectedRecipients = async () => {
+    if (!selectedReport) return;
+    const selectedCc = mailingEntries
+      .filter((entry) => selectedRecipientIds.includes(entry.id))
+      .map((entry) => entry.email);
+    setShowRecipientsModal(false);
+    await sendReportToClient(selectedCc);
+  };
+
+  const sendReportToClient = async (selectedCc: string[]) => {
+    if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
+      selectedReport.missionStatus == 'terminee' || selectedReport.missionStatus == 'archivee') return;
 
     let photos: any[] = [];
     try {
@@ -482,6 +636,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
       const pdfData: any = {
         title: selectedReport.title,
         mission: selectedReport.mission,
+        missionType: getReportMissionType(selectedReport),
         client: selectedReport.client,
         date: selectedReport.createdAt || '',
         conformity: selectedReport.conformityPercentage,
@@ -520,41 +675,31 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 Cordialement.
 ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}`}
 `;
-        const subject = `Rapport CSPS – ${pdfData.mission} – ${pdfData.date}`;
+        const missionType = generatePdfService.getMissionTypeLabel(pdfData);
+        const subject = `Rapport ${missionType} – ${pdfData.mission} – ${pdfData.date}`;
 
         const pdfUrl = (resp as any)?.url;
 
-        const confirm = await Swal.fire({
-          title: 'Confirmer l’envoi du rapport',
-          text: `Voulez-vous vraiment envoyer le rapport PDF au client ${selectedReport.contactFirstName} ?`,
-          icon: 'question',
-          showCancelButton: true,
-          confirmButtonText: 'Oui, envoyer',
-          cancelButtonText: 'Annuler',
-        });
+        const response = await generatePdfService.sendReportPDFByEmail(
+          selectedReport.contactEmail || '',
+          subject,
+          message,
+          '',
+          pdfUrl || '',
+          false,
+          generatePdfService.getReportFilename(pdfData.mission, missionType),
+          selectedReport.missionId,
+          selectedCc
+        );
 
-        if (!confirm.isConfirmed) {
-          return;
+        if (response.ok || response.success) {
+          await validateSentReport(selectedReport?.contactEmail, pdfUrl);
         } else {
-          const response = await generatePdfService.sendReportPDFByEmail(
-            selectedReport.contactEmail || '',
-            subject,
-            message,
-            '',
-            pdfUrl || '',
-            false,
-            `${pdfData.mission.replace(/\s+/g, '_')}_rapport_CSPS.pdf`
-          );
-
-          if (response.ok || response.success) {
-            await validateSentReport(selectedReport?.contactEmail, pdfUrl);
-          } else {
-            Swal.fire({
-              title: 'Erreur',
-              text: 'Échec de l’envoi du mail.',
-              icon: 'error',
-            });
-          }
+          Swal.fire({
+            title: 'Erreur',
+            text: 'Échec de l’envoi du mail.',
+            icon: 'error',
+          });
         }
       } catch (err: any) {
         Swal.fire({
@@ -785,8 +930,8 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
       // console.log('response for download >>> : ', response);
       // const blob = await response.data.data.blob();
       // const url = window.URL.createObjectURL(blob);
-      const { base64, contentType, fileName } = response.data;
-      return base64;
+      const { base64, contentType } = response.data;
+      return base64?.startsWith('data:image') ? base64 : `data:${contentType || 'image/jpeg'};base64,${base64}`;
     } catch (error) {
       console.error('Erreur lors du téléchargement de l\'image:', error);
     }
@@ -830,6 +975,14 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
     setIsEditing(false);
     await handleSaveEdits();
   };
+
+  const filteredMailingEntries = mailingEntries.filter((entry) => {
+    const q = recipientSearch.trim().toLowerCase();
+    if (!q) return true;
+    return entry.email.toLowerCase().includes(q) || (entry.name || '').toLowerCase().includes(q);
+  });
+
+  const selectedRecipientsCount = selectedRecipientIds.length;
 
   if (loading) {
     return <div className="text-center py-12">Chargement...</div>;
@@ -924,9 +1077,18 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                     </span>
                   </td>
                   <td className="px-6 py-4 items-center" style={{ display: 'flex', justifyContent: 'center' }}>
-                    {report.reportFileUrl && report.reportFileUrl.trim() != '' && <button onClick={() => downloadReportFile(report.reportFileUrl)}>
-                      <FileText className="w-6 h-6 text-red-600 hover:scale-110 transition cursor-pointer" />
-                    </button>}
+                    <button
+                      onClick={(e) => handleDownloadRowPdf(report, e)}
+                      disabled={downloadingReportId === report.id}
+                      className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+                      title="Télécharger PDF"
+                    >
+                      {downloadingReportId === report.id ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Download className="w-5 h-5 text-blue-600 hover:scale-110 transition cursor-pointer" />
+                      )}
+                    </button>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
@@ -1178,6 +1340,141 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                     )}
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRecipientsModal && selectedReport && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Liste de diffusion du chantier</h3>
+                <p className="text-sm text-slate-500">
+                  {selectedReport.mission} · {selectedRecipientsCount} sélectionné(s)
+                </p>
+              </div>
+              <button
+                onClick={() => setShowRecipientsModal(false)}
+                disabled={loading}
+                className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={newRecipientEmail}
+                    onChange={(e) => setNewRecipientEmail(e.target.value)}
+                    placeholder="nouvel.email@domaine.com"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-prosps-blue"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nom</label>
+                  <input
+                    type="text"
+                    value={newRecipientName}
+                    onChange={(e) => setNewRecipientName(e.target.value)}
+                    placeholder="Nom facultatif"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-prosps-blue"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddRecipient}
+                  disabled={addingRecipient || !newRecipientEmail.trim()}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-prosps-blue text-white rounded-lg hover:opacity-90 text-sm disabled:opacity-60"
+                >
+                  {addingRecipient ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Ajouter
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={recipientSearch}
+                  onChange={(e) => setRecipientSearch(e.target.value)}
+                  placeholder="Rechercher dans la liste..."
+                  className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-prosps-blue"
+                />
+              </div>
+
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">Emails de diffusion</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allVisibleIds = filteredMailingEntries.map((entry) => entry.id);
+                      const allVisibleSelected = allVisibleIds.every((id) => selectedRecipientIds.includes(id));
+                      setSelectedRecipientIds((prev) => (
+                        allVisibleSelected
+                          ? prev.filter((id) => !allVisibleIds.includes(id))
+                          : Array.from(new Set([...prev, ...allVisibleIds]))
+                      ));
+                    }}
+                    className="text-sm text-prosps-blue hover:underline"
+                  >
+                    Tout sélectionner
+                  </button>
+                </div>
+
+                {recipientsLoading ? (
+                  <div className="p-8 flex justify-center text-slate-400">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  </div>
+                ) : filteredMailingEntries.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-slate-500">
+                    {mailingEntries.length === 0 ? 'Aucun email dans la liste de diffusion de ce chantier.' : 'Aucun email ne correspond à la recherche.'}
+                  </div>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                    {filteredMailingEntries.map((entry) => (
+                      <label key={entry.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedRecipientIds.includes(entry.id)}
+                          onChange={() => toggleRecipient(entry.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-prosps-blue focus:ring-prosps-blue"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium text-slate-800 truncate">{entry.email}</span>
+                          {entry.name && <span className="block text-xs text-slate-500 truncate">{entry.name}</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowRecipientsModal(false)}
+                disabled={loading}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmSendToSelectedRecipients}
+                disabled={loading || recipientsLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-prosps-blue text-white rounded-lg hover:opacity-90 text-sm disabled:opacity-60"
+              >
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {loading ? 'Envoi...' : 'Envoyer'}
+              </button>
             </div>
           </div>
         </div>

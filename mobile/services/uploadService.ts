@@ -18,6 +18,14 @@ export interface UploadResponse {
   data: UploadResult | UploadResult[];
 }
 
+const imageContentTypeFromFileName = (fileName: string) => {
+  const cleanName = fileName.split('?')[0].toLowerCase();
+  if (cleanName.endsWith('.avif')) return 'image/avif';
+  if (cleanName.endsWith('.webp')) return 'image/webp';
+  if (cleanName.endsWith('.png')) return 'image/png';
+  return 'image/jpeg';
+};
+
 export const uploadService = {
 
   async deletePhotoByUrl(url: string): Promise<DeleteResponse> {
@@ -41,7 +49,7 @@ export const uploadService = {
       // Mobile: file is a URI
       formData.append('file', {
         uri: file,
-        type: 'image/jpeg',
+        type: imageContentTypeFromFileName(fileName),
         name: fileName,
       } as any);
     } else {
@@ -92,7 +100,7 @@ export const uploadService = {
         // Mobile: file is a URI
         formData.append('files', {
           uri: file,
-          type: 'image/jpeg',
+          type: imageContentTypeFromFileName(fileName),
           name: fileName,
         } as any);
       } else {

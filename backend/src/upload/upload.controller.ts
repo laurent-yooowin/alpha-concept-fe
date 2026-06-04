@@ -31,7 +31,15 @@ export class UploadController {
     @Body() deleteFileDto: DeleteFileDto,
   ) {
     const { url } = deleteFileDto;
-    console.log('Received URL to delete:', url);
+    // Whitelist of allowed prefixes — prevents arbitrary cross-tenant deletions
+    // (e.g. organization logos must only be removed via the org service).
+    const allowedPrefixes = ['uploads/', 'visits/photos/', 'reports_files/'];
+    const key = url?.split('.com/')[1] || '';
+    if (!allowedPrefixes.some(p => key.startsWith(p))) {
+      this.logger.warn(`Blocked delete attempt outside whitelist: ${key}`);
+      throw new BadRequestException('Suppression non autorisée pour ce chemin');
+    }
+    this.logger.log('Received URL to delete:', url);
     return await this.uploadService.deleteFile(url);
   }
 

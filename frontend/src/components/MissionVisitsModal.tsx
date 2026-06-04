@@ -125,9 +125,9 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     if (!url || imageCache[url]) return;
     try {
       const response = await filesService.downloadFile(url, 'reports', true);
-      const { base64 } = response.data;
+      const { base64, contentType } = response.data;
       if (base64) {
-        const dataUrl = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
+        const dataUrl = base64.startsWith('data:image') ? base64 : `data:${contentType || 'image/jpeg'};base64,${base64}`;
         setImageCache(prev => ({ ...prev, [url]: dataUrl }));
       }
     } catch (error) { console.error('Erreur chargement image:', error); }

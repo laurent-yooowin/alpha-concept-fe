@@ -13,17 +13,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production',
+      secretOrKey:
+        configService.get<string>('JWT_SECRET') ||
+        'your-secret-key-change-in-production',
     });
   }
 
   async validate(payload: any) {
     const user = await this.authService.validateUser(payload.sub);
-
     if (!user) {
       throw new UnauthorizedException();
     }
-
+    // Trust the DB-side organizationId rather than the token claim
+    // to avoid stale tokens after admin re-assignment.
     return user;
   }
 }

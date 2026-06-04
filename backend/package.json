@@ -20,9 +20,12 @@
     "seed:visits": "node dist/scripts/seed-visits.js",
     "seed:reports": "node dist/scripts/seed-reports.js",
     "seed:all": "npm run seed:missions && npm run seed:visits && npm run seed:reports",
+    "backfill:alpha-concept-org": "ts-node src/scripts/backfill-alpha-concept-organization.ts",
     "migration:generate": "typeorm migration:generate -d dist/config/typeorm.config.js dist/migrations/migration -o",
     "migration:run": "typeorm migration:run -d dist/config/typeorm.config.js",
-    "migration:revert": "typeorm migration:revert -d dist/config/typeorm.config.js"
+    "migration:revert": "typeorm migration:revert -d dist/config/typeorm.config.js",
+    "create-hyper-admin-dev": "ts-node src/scripts/create-hyper-admin.ts",
+    "create-hyper-admin": "node dist/scripts/create-hyper-admin.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.609.0",

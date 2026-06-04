@@ -49,7 +49,14 @@ export const apiUploadsRequest = async (endpoint: string, options: RequestInit =
     throw new Error(error.message || 'Request failed');
   }
 
-  return response.json();
+  if (response.status === 204) return null;
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 };
 
 export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
@@ -77,17 +84,29 @@ export const apiRequest = async (endpoint: string, options: RequestInit = {}) =>
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || 'Request failed');
+    const raw = error?.message ?? error?.error ?? 'Request failed';
+    const message = Array.isArray(raw) ? raw.join(' • ') : String(raw);
+    const err = new Error(message) as Error & { status?: number; payload?: any };
+    err.status = response.status;
+    err.payload = error;
+    throw err;
   }
 
-  return response.json();
+  if (response.status === 204) return null;
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 };
 
 export const authAPI = {
-  login: async (email: string, password: string) => {
+  login: async (email: string, password: string, organizationSlug?: string) => {
     const data = await apiRequest('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(organizationSlug ? { organizationSlug } : {}) }),
     });
     return data;
   },
@@ -128,7 +147,7 @@ export const usersAPI = {
   },
 
   create: async (userData: any) => {
-    return apiRequest('/auth/register', {
+    return apiRequest('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
@@ -144,6 +163,16 @@ export const usersAPI = {
   delete: async (id: string) => {
     return apiRequest(`/users/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  updatePermissions: async (
+    id: string,
+    payload: { preset?: string; permissions?: Record<string, 'none' | 'read' | 'write'> },
+  ) => {
+    return apiRequest(`/users/${id}/permissions`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     });
   },
 };
@@ -247,6 +276,20 @@ export const reportsAPI = {
   },
 };
 
+export const mailingListAPI = {
+  getAll: async () => apiRequest('/mailing-list'),
+  getMissionOptions: async () => apiRequest('/mailing-list/missions'),
+  getByMission: async (missionId: string) => apiRequest(`/mailing-list/mission/${missionId}`),
+  create: async (data: { email: string; name?: string; missionId: string }) =>
+    apiRequest('/mailing-list', { method: 'POST', body: JSON.stringify(data) }),
+  update: async (id: string, data: { email?: string; name?: string; missionId?: string }) =>
+    apiRequest(`/mailing-list/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  remove: async (id: string) =>
+    apiRequest(`/mailing-list/${id}`, { method: 'DELETE' }),
+  bulkCreate: async (missionId: string, entries: Array<{ email: string; name?: string }>) =>
+    apiRequest('/mailing-list/bulk', { method: 'POST', body: JSON.stringify({ missionId, entries }) }),
+};
+
 export const visitsAPI = {
   getAll: async (missionId?: string) => {
     const url = missionId ? `/visits?missionId=${missionId}` : '/visits';
@@ -311,4 +354,109 @@ export const dashboardAPI = {
   getStatusBreakdown: async () => {
     return apiRequest('/dashboard/status-breakdown');
   },
+};
+
+export const publicOrgAPI = {
+  getBySlug: async (slug: string, options: RequestInit = {}) => {
+    return apiRequest(`/public/organizations/by-slug/${encodeURIComponent(slug)}`, options);
+  },
+};
+
+export const currentOrgAPI = {
+  get: async () => apiRequest('/organizations/current'),
+  update: async (data: { cguContent?: string; privacyContent?: string }) =>
+    apiRequest('/organizations/current', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  validateLegalDocuments: async (data: { cguContent: string; privacyContent: string }) =>
+    apiRequest('/organizations/current/legal-validation', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+};
+
+export const organizationsAPI = {
+  getAll: async () => apiRequest('/hyper-admin/organizations'),
+  getReportBtpLegalDocs: async () => apiRequest('/hyper-admin/organizations/reportbtp/legal-docs'),
+  updateReportBtpLegalDocs: async (data: { cguContent?: string; privacyContent?: string }) =>
+    apiRequest('/hyper-admin/organizations/reportbtp/legal-docs', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  getById: async (id: string) => apiRequest(`/hyper-admin/organizations/${id}`),
+  create: async (data: any) =>
+    apiRequest('/hyper-admin/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  update: async (id: string, data: any) =>
+    apiRequest(`/hyper-admin/organizations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  remove: async (id: string) =>
+    apiRequest(`/hyper-admin/organizations/${id}`, { method: 'DELETE' }),
+  uploadLogo: async (id: string, file: File) => {
+    const token = getAccessToken();
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE_URL}/hyper-admin/organizations/${id}/logo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Upload failed' }));
+      throw new Error(error.message || 'Upload failed');
+    }
+    return response.json();
+  },
+  uploadBackground: async (id: string, file: File) => {
+    const token = getAccessToken();
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_BASE_URL}/hyper-admin/organizations/${id}/background`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Upload failed' }));
+      throw new Error(error.message || 'Upload failed');
+    }
+    return response.json();
+  },
+};
+
+export const hyperAdminAPI = {
+  dashboard: async () => apiRequest('/hyper-admin/dashboard'),
+  users: async () => apiRequest('/hyper-admin/users'),
+  createUser: async (data: any) =>
+    apiRequest('/hyper-admin/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  orgUsers: async (orgId: string) =>
+    apiRequest(`/hyper-admin/organizations/${orgId}/users`),
+  createOrgUser: async (orgId: string, data: any) =>
+    apiRequest(`/hyper-admin/organizations/${orgId}/users`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  updateUser: async (id: string, data: any) =>
+    apiRequest(`/hyper-admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteUser: async (id: string) =>
+    apiRequest(`/hyper-admin/users/${id}`, { method: 'DELETE' }),
+  updateUserPermissions: async (
+    id: string,
+    payload: { preset?: string; permissions?: Record<string, 'none' | 'read' | 'write'> },
+  ) =>
+    apiRequest(`/users/${id}/permissions`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
 };

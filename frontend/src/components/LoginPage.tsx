@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { authAPI } from '../lib/api';
-import { Lock, Mail, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Mail, AlertCircle, Eye, EyeOff, ArrowLeft, CheckCircle } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, user } = useAuth();
+  const { signIn, signOut, user } = useAuth();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
 
@@ -22,31 +22,48 @@ export default function LoginPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [forgotError, setForgotError] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
+    if (!user) {
+      try {
+        const savedSlug = localStorage.getItem('lastOrgSlug')?.trim();
+        if (savedSlug) {
+          navigate(`/${savedSlug}/login`, { replace: true });
+          return;
+        }
+      } catch {}
     }
-  }, [user, navigate]);
+
+    if (user) {
+      if (user.role === 'ROLE_HYPER_ADMIN') {
+        navigate('/hyper-admin');
+      } else {
+        signOut();
+      }
+    }
+  }, [user, navigate, signOut]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    const { error } = await signIn(email, password);
+    const { error } = await signIn(email, password, undefined, { hyperAdminOnly: true });
 
     if (error) {
       if (error.message === 'User account is inactive') {
         setError("Votre compte est inactif. Veuillez contacter l'administrateur.");
+      } else if (error.message) {
+        setError(error.message);
       } else {
         setError('Identifiants incorrects. Veuillez réessayer.');
       }
       setLoading(false);
     } else {
-      navigate('/dashboard');
+      // navigation handled by useEffect on user change
     }
   };
 
@@ -126,6 +143,8 @@ export default function LoginPage() {
     setResetToken('');
     setNewPassword('');
     setConfirmPassword('');
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
     setForgotError('');
   };
 
@@ -155,6 +174,11 @@ export default function LoginPage() {
                 {otpStep === 'newPassword' && 'Nouveau mot de passe'}
                 {otpStep === 'success' && 'Mot de passe réinitialisé'}
               </h1>
+              {otpStep !== 'success' && (
+                <p className="text-sm text-slate-600">
+                  Le code de vérification expire dans 15 minutes.
+                </p>
+              )}
             </div>
 
             {/* Step indicator */}
@@ -189,7 +213,7 @@ export default function LoginPage() {
             {otpStep === 'email' && (
               <div className="space-y-4">
                 <p className="text-sm text-slate-600">
-                  Entrez votre adresse email. Nous vous enverrons un code de vérification.
+                  Entrez votre adresse email. Nous vous enverrons un code de vérification valable 15 minutes.
                 </p>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
@@ -276,14 +300,23 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Confirmer le mot de passe</label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
-                    placeholder="••••••••"
-                    disabled={forgotLoading}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full px-4 py-3 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-prosps-blue focus:border-transparent outline-none"
+                      placeholder="••••••••"
+                      disabled={forgotLoading}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                    >
+                      {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                  </div>
                 </div>
                 <button
                   onClick={handleResetPassword}
@@ -327,8 +360,8 @@ export default function LoginPage() {
             <div className="flex justify-center mb-6">
               <img src="/logo_new.png" alt="Report BTP" className="h-40" />
             </div>
-            <h1 className="text-3xl font-bold text-slate-900 mb-2">Administration SPS</h1>
-            <p className="text-slate-600">Connectez-vous à votre compte</p>
+            <h1 className="text-3xl font-bold text-slate-900 mb-2">Hyper Administration</h1>
+            <p className="text-slate-600">Portail ReportBTP</p>
           </div>
 
           {error && (

@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export interface LoginCredentials {
   email: string;
   password: string;
+  organizationSlug?: string;
 }
 
 export interface RegisterData {
@@ -30,10 +31,21 @@ export interface AuthResponse {
 const TOKEN_KEY = 'auth_token';
 const TOKEN_TIMESTAMP_KEY = 'auth_token_timestamp';
 const TOKEN_EXPIRY_HOURS = 24;
+const HYPER_ADMIN_ROLE = 'ROLE_HYPER_ADMIN';
 
 export const authService = {
   async login(credentials: LoginCredentials) {
-    const response = await api.post<AuthResponse>('/auth/login', credentials);
+    const response = await api.post<AuthResponse>('/auth/login', {
+      ...credentials,
+      organizationSlug: credentials.organizationSlug || 'alphaconcept',
+    });
+
+    if (response.data?.user?.role === HYPER_ADMIN_ROLE) {
+      await this.logout();
+      return {
+        error: "L'application mobile est réservée aux coordonnateurs de l'organisation.",
+      };
+    }
 
     if (response.data?.access_token) {
       await AsyncStorage.setItem(TOKEN_KEY, response.data.access_token);

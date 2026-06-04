@@ -11,6 +11,14 @@ interface PhotoGroup {
     directives: string;
 }
 
+const imageContentTypeFromUrl = (url: string) => {
+    const cleanUrl = url.split('?')[0].toLowerCase();
+    if (cleanUrl.endsWith('.avif')) return 'image/avif';
+    if (cleanUrl.endsWith('.webp')) return 'image/webp';
+    if (cleanUrl.endsWith('.png')) return 'image/png';
+    return 'image/jpeg';
+};
+
 function PhotoReportEditor({
     initialPhotos,
     downloadImages,
@@ -130,7 +138,7 @@ function PhotoReportEditor({
                     if (!photo.s3Url) return;
                     const base64 = await downloadImages(photo.s3Url);
                     if (base64) {
-                        imagesMap[photo.id] = base64.startsWith('data:image') ? base64 : `data:image/jpeg;base64,${base64}`;
+                        imagesMap[photo.id] = base64.startsWith('data:image') ? base64 : `data:${imageContentTypeFromUrl(photo.s3Url)};base64,${base64}`;
                     }
                 } catch (error) {
                     console.error(`Erreur chargement image ${photo.id}:`, error);

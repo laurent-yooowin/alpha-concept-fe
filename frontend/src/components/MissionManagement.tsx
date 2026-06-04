@@ -194,8 +194,6 @@ export default function MissionManagement() {
   };
 
   const handleRowClick = (mission: Mission) => {
-    if (!isAdmin) return;
-
     if (mission.status == 'terminee' || mission.status == 'archivee') return;
 
     setSelectedMission(mission);
@@ -221,7 +219,7 @@ export default function MissionManagement() {
 
   const handleUpdateMission = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin || !selectedMission) return;
+    if (!selectedMission) return;
 
     if (selectedMission.status == 'terminee' || selectedMission.status == 'archivee') return;
 
@@ -450,7 +448,9 @@ export default function MissionManagement() {
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Type</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Coordonnateur</th>
                 <th className="text-left px-6 py-3 text-sm font-semibold text-slate-900">Statut</th>
-                <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Changer statut</th>
+                {isAdmin && (
+                  <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Changer statut</th>
+                )}
                 <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Visites</th>
                 <th className="text-center px-4 py-3 text-sm font-semibold text-slate-900">Rapports</th>
               </tr>
@@ -460,7 +460,7 @@ export default function MissionManagement() {
                 <tr
                   key={mission.id}
                   onClick={() => handleRowClick(mission)}
-                  className={`transition-colors ${isAdmin ? 'hover:bg-slate-50 cursor-pointer' : ''}`}
+                  className="transition-colors hover:bg-slate-50 cursor-pointer"
                 >
                   <td className="px-6 py-4">
                     <div>
@@ -525,8 +525,8 @@ export default function MissionManagement() {
                     </div>
                   </td>
                   {/* Status change column */}
-                  <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                    {isAdmin && (
+                  {isAdmin && (
+                    <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                       <select
                         value={mission.status}
                         onChange={(e) => handleStatusChange(mission, e.target.value, e)}
@@ -542,8 +542,8 @@ export default function MissionManagement() {
                         <option value="refusee">Refusé</option>
                         <option value="annulee">Annulé</option>
                       </select>
-                    )}
-                  </td>
+                    </td>
+                  )}
                   {/* Visits column */}
                   <td className="px-4 py-4 text-center">
                     <button

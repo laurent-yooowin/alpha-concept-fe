@@ -14,7 +14,13 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { MailModule } from './mail/mail.module';
 import { MailerModule } from '@nestjs-modules/mailer';
 import { HealthcheckModule } from './healthcheck/healthcheck.module';
-
+import { OrganizationModule } from './organizations/organization.module';
+import { ClientModule } from './clients/client.module';
+import { HyperAdminModule } from './hyper-admin/hyper-admin.module';
+import { APP_GUARD } from '@nestjs/core';
+import { OrganizationScopeGuard } from './common/guards/organization-scope.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
+import { MailingListModule } from './mailing-list/mailing-list.module';
 
 @Module({
   imports: [
@@ -53,6 +59,14 @@ import { HealthcheckModule } from './healthcheck/healthcheck.module';
     DashboardModule,
     MailModule,
     HealthcheckModule,
+    OrganizationModule,
+    ClientModule,
+    HyperAdminModule,
+    MailingListModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: OrganizationScopeGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
 })
 export class AppModule { }

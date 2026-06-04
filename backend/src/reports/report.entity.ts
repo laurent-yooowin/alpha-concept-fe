@@ -1,7 +1,8 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToOne } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToOne, Index } from 'typeorm';
 import { User } from '../user/user.entity';
 import { Mission } from '../missions/mission.entity';
 import { Visit } from '../visits/visit.entity';
+import { Organization } from '../organizations/organization.entity';
 
 export enum ReportStatus {
   DRAFT = 'brouillon',
@@ -17,6 +18,14 @@ export enum ReportStatus {
 export class Report {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @Index()
+  @Column('uuid', { nullable: true })
+  organizationId: string | null;
+
+  @ManyToOne(() => Organization, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'organizationId' })
+  organization: Organization | null;
 
   // =========================
   // ✅ RELATION AVEC MISSION (ManyToOne)

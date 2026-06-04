@@ -85,7 +85,7 @@ services:
     networks:
       - csps-prod-network
     volumes:
-      - ./logs:/app/logs:rw
+      - backend_logs:/app/logs
     healthcheck:
       test:
         [
@@ -204,6 +204,8 @@ volumes:
   nginx_cache:
     driver: local
   nginx_logs:
+    driver: local
+  backend_logs:
     driver: local
   redis_data:
     driver: local

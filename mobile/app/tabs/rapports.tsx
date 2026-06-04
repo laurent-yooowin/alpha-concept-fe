@@ -29,6 +29,7 @@ import { visitService } from '@/services/visitService';
 import { useAuth } from '@/contexts/AuthContext';
 
 import * as MailComposer from 'expo-mail-composer';
+import { mailingListService } from '../../services/mailingListService';
 import { uploadService } from '@/services/uploadService';
 import { Mission, missionService } from '../../services/missionService';
 import { useLocalSearchParams } from 'expo-router';
@@ -52,6 +53,14 @@ export default function RapportsScreen() {
   const [showPdfLoadingModal, setShowPdfLoadingModal] = useState(false);
   const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
   const [selection, setSelection] = useState({ start: 2, end: 2 });
+  const [showRecipientsModal, setShowRecipientsModal] = useState(false);
+  const [recipientsLoading, setRecipientsLoading] = useState(false);
+  const [mailingEntries, setMailingEntries] = useState<any[]>([]);
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>([]);
+  const [recipientSearch, setRecipientSearch] = useState('');
+  const [newRecipientEmail, setNewRecipientEmail] = useState('');
+  const [newRecipientName, setNewRecipientName] = useState('');
+  const [addingRecipient, setAddingRecipient] = useState(false);
 
   // Global edit mode for all groups in report detail modal
   const [isEditingAllGroups, setIsEditingAllGroups] = useState(false);
@@ -523,7 +532,11 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
     }
   }
 
-  const handleSendReport = async () => {
+  const getSelectedReportMissionId = () => {
+    return selectedReport?.missionData?.id || selectedReport?.missionId || selectedReport?.mission?.id;
+  };
+
+  const openRecipientsModal = async () => {
     if (!selectedReport) return;
     if (selectedReport.status == 'annule' || selectedReport.status == 'envoye_au_client') {
       Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
@@ -538,19 +551,128 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
       );
       return;
     }
-    const subject = `Rapport SPS: ${selectedReport.title}`;
+
+    const missionId = getSelectedReportMissionId();
+    if (!missionId) {
+      Alert.alert('Chantier introuvable', "Impossible de récupérer la liste de diffusion sans chantier associé.");
+      return;
+    }
+
+    setShowRecipientsModal(true);
+    setRecipientsLoading(true);
+    setRecipientSearch('');
+    setNewRecipientEmail('');
+    setNewRecipientName('');
+
+    try {
+      const response = await mailingListService.getByMission(missionId);
+      const entries = Array.isArray(response.data) ? response.data : [];
+      setMailingEntries(entries);
+      setSelectedRecipientIds(entries.map((entry: any) => entry.id));
+    } catch (error) {
+      console.log('Erreur chargement liste de diffusion:', error);
+      setMailingEntries([]);
+      setSelectedRecipientIds([]);
+      Alert.alert('Liste de diffusion', "Impossible de récupérer la liste de diffusion du chantier.");
+    } finally {
+      setRecipientsLoading(false);
+    }
+  };
+
+  const toggleRecipient = (entryId: string) => {
+    setSelectedRecipientIds(prev =>
+      prev.includes(entryId)
+        ? prev.filter(id => id !== entryId)
+        : [...prev, entryId]
+    );
+  };
+
+  const handleAddRecipient = async () => {
+    const email = newRecipientEmail.trim();
+    if (!email) {
+      Alert.alert('Email requis', 'Veuillez saisir une adresse email.');
+      return;
+    }
+
+    const missionId = getSelectedReportMissionId();
+    if (!missionId) {
+      Alert.alert('Chantier introuvable', "Impossible d'ajouter un email sans chantier associé.");
+      return;
+    }
+
+    try {
+      setAddingRecipient(true);
+      const response = await mailingListService.create({
+        email,
+        name: newRecipientName.trim() || undefined,
+        missionId,
+      });
+      if (response.error || !response.data) {
+        Alert.alert('Erreur', response.error || "Impossible d'ajouter cet email.");
+        return;
+      }
+
+      const createdEntry = response.data;
+      setMailingEntries(prev => [...prev, createdEntry]);
+      setSelectedRecipientIds(prev => [...prev, createdEntry.id]);
+      setNewRecipientEmail('');
+      setNewRecipientName('');
+    } catch (error) {
+      console.log('Erreur ajout destinataire:', error);
+      Alert.alert('Erreur', "Impossible d'ajouter cet email.");
+    } finally {
+      setAddingRecipient(false);
+    }
+  };
+
+  const confirmSendReport = async () => {
+    const selectedEmails = mailingEntries
+      .filter((entry: any) => selectedRecipientIds.includes(entry.id))
+      .map((entry: any) => entry.email)
+      .filter(Boolean);
+
+    setShowRecipientsModal(false);
+    await handleSendReport(selectedEmails);
+  };
+
+  const cleanMailValue = (value: any, fallback = 'Non renseigné') => {
+    if (value === undefined || value === null) return fallback;
+    const text = String(value).trim();
+    if (!text || text === 'undefined' || text === 'null' || text === 'Invalid Date') {
+      return fallback;
+    }
+    return text;
+  };
+
+  const formatMailDate = (value: any, fallback = 'Non renseignée') => {
+    if (!value) return fallback;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return fallback;
+    return date.toLocaleString('fr-FR');
+  };
+
+  const handleSendReport = async (selectedCcEmails: string[] = []) => {
+    if (!selectedReport) return;
+
+    let clientEmail = selectedReport.contact?.email;
+    if (!clientEmail || clientEmail.trim() === '') {
+      Alert.alert(
+        'Email client manquant',
+        "L'email du client est obligatoire pour envoyer le rapport. Veuillez renseigner l'email du contact dans les détails du chantier.",
+      );
+      return;
+    }
+    const reportTypeLabel = (selectedReport.type || selectedReport.missionData?.type || '').trim();
+    const subject = `Rapport${reportTypeLabel ? ` ${reportTypeLabel}` : ''}: ${selectedReport.title}`;
 
     try {
       setShowPdfLoadingModal(true);
       setPdfLoadingProgress('Préparation du document...');
 
       let photos: any[] = [];
-      let visitResponse;
       // console.log('selectedReport >>> : ', selectedReport);
       if (selectedReport.visit) {
         try {
-          // visitResponse = await visitService.getVisit(selectedReport.visitId);
-          // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
           if (selectedReport.visit.photos) {
             photos = selectedReport.visit.photos
               .map((photo: any) => {
@@ -606,6 +728,7 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
       const pdfData: any = {
         title: selectedReport.title,
         mission: selectedReport.mission,
+        type: selectedReport.type || selectedReport.missionData?.type || '',
         client: selectedReport.client,
         date: selectedReport.date,
         conformity: selectedReport.conformity,
@@ -627,19 +750,36 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
 
       setPdfLoadingProgress('Finalisation...');
 
-      const body = `Bonjour ${selectedReport?.contact.firstName},
+      const contactFirstName = cleanMailValue(selectedReport?.contact?.firstName, 'Madame, Monsieur');
+      const missionTitle = cleanMailValue(selectedReport?.title);
+      const assignmentDate = cleanMailValue(selectedReport?.dateMission, '');
+      const assignmentTime = cleanMailValue(selectedReport?.timeMission, '');
+      const assignmentLabel = [assignmentDate, assignmentTime].filter(Boolean).join(' à ') || 'Non renseignée';
+      const visitDate = formatMailDate(
+        selectedReport?.visit?.visitDate ||
+        selectedReport?.visit?.createdAt ||
+        selectedReport?.createdAt ||
+        selectedReport?.date
+      );
+      const missionAddress = cleanMailValue(selectedReport?.location);
+      const photoCount = photos.length || selectedReport?.visit?.photos?.length || selectedReport?.photos || 0;
+      const coordinatorName = userProfile
+        ? `${cleanMailValue(userProfile.firstName, '')} ${cleanMailValue(userProfile.lastName, '')}`.trim()
+        : '';
+
+      const body = `Bonjour ${contactFirstName},
 Veuillez trouver ci-joint le rapport de visite suivant:
 
-Chantier: ${selectedReport?.title}
-Date d'attribution: ${selectedReport.dateMission} à ${selectedReport.timeMission}
-Date de visite: ${new Date(visitResponse?.data?.createdAt || '').toLocaleString('fr-FR')}
-Adresse chantier: ${selectedReport.location} 
-Nombre de photos: ${visitResponse?.data?.photos?.length}
+Chantier: ${missionTitle}
+Date d'attribution: ${assignmentLabel}
+Date de visite: ${visitDate}
+Adresse chantier: ${missionAddress}
+Nombre de photos: ${photoCount}
 
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement.
-${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName}`}
+${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
 `;
       // 4️⃣ Vérifier si MailComposer est disponible
       const isAvailable = await MailComposer.isAvailableAsync();
@@ -649,11 +789,12 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
       }
 
       // 5️⃣ Préparer l’email avec texte pré-rempli et pièce jointe
-      const mailOptions = {
+      const ccList = selectedCcEmails.filter((e) => e && e.toLowerCase() !== clientEmail.toLowerCase());
+      const mailOptions: any = {
         recipients: [clientEmail],
+        ccRecipients: ccList.length ? ccList : undefined,
         subject: subject,
         body: body,
-
       };
 
       if (pdfPath) {
@@ -870,6 +1011,15 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
       setLoadingReport(false);
     }
   }
+
+  const filteredMailingEntries = mailingEntries.filter((entry: any) => {
+    const query = recipientSearch.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      entry.email?.toLowerCase().includes(query) ||
+      entry.name?.toLowerCase().includes(query)
+    );
+  });
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -1643,7 +1793,7 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
 
                           <TouchableOpacity
                             style={styles.actionButton}
-                            onPress={handleSendReport}
+                            onPress={openRecipientsModal}
                           >
                             <LinearGradient
                               colors={['#3B82F6', '#1D4ED8']}
@@ -1660,6 +1810,153 @@ ${userProfile && `Coordonnateur: ${userProfile.firstName} ${userProfile.lastName
                 </>
               )}
             </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+
+      {/* Recipients Modal */}
+      <Modal visible={showRecipientsModal} animationType="slide" transparent>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+          style={styles.recipientsModalOverlay}
+        >
+          <View style={styles.recipientsModal}>
+            <LinearGradient
+              colors={['#1E293B', '#0F172A']}
+              style={styles.recipientsModalHeader}
+            >
+              <View style={styles.recipientsModalTitleRow}>
+                <View style={styles.recipientsModalTitleLeft}>
+                  <Mail size={22} color="#FFFFFF" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.recipientsModalTitle}>Envoyer au client</Text>
+                    <Text style={styles.recipientsModalSubtitle}>
+                      Liste de diffusion du chantier
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.closeReportDetailButton}
+                  onPress={() => setShowRecipientsModal(false)}
+                >
+                  <X size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </LinearGradient>
+
+            <ScrollView
+              style={styles.recipientsModalScroll}
+              contentContainerStyle={styles.recipientsModalContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.recipientSearchBox}>
+                <Search size={18} color="#94A3B8" />
+                <TextInput
+                  style={styles.recipientSearchInput}
+                  value={recipientSearch}
+                  onChangeText={setRecipientSearch}
+                  placeholder="Rechercher un destinataire..."
+                  placeholderTextColor="#64748B"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <ScrollView
+                style={styles.recipientsList}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={false}
+              >
+                {recipientsLoading ? (
+                  <View style={styles.recipientsEmptyState}>
+                    <ActivityIndicator size="large" color="#3B82F6" />
+                    <Text style={styles.recipientsEmptyText}>Chargement des destinataires...</Text>
+                  </View>
+                ) : filteredMailingEntries.length === 0 ? (
+                  <View style={styles.recipientsEmptyState}>
+                    <Mail size={28} color="#64748B" />
+                    <Text style={styles.recipientsEmptyTitle}>Aucun destinataire</Text>
+                    <Text style={styles.recipientsEmptyText}>
+                      Ajoutez un email pour compléter la liste de diffusion de ce chantier.
+                    </Text>
+                  </View>
+                ) : (
+                  filteredMailingEntries.map((entry: any) => {
+                    const isSelected = selectedRecipientIds.includes(entry.id);
+                    return (
+                      <TouchableOpacity
+                        key={entry.id}
+                        style={styles.recipientRow}
+                        onPress={() => toggleRecipient(entry.id)}
+                      >
+                        <View style={[styles.recipientCheckbox, isSelected && styles.recipientCheckboxActive]}>
+                          {isSelected && <CheckCircle size={18} color="#FFFFFF" />}
+                        </View>
+                        <View style={styles.recipientRowContent}>
+                          <Text style={styles.recipientEmail}>{entry.email}</Text>
+                          {!!entry.name && <Text style={styles.recipientName}>{entry.name}</Text>}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </ScrollView>
+
+              <View style={styles.addRecipientBox}>
+                <Text style={styles.addRecipientTitle}>Ajouter un email</Text>
+                <TextInput
+                  style={styles.addRecipientInput}
+                  value={newRecipientEmail}
+                  onChangeText={setNewRecipientEmail}
+                  placeholder="email@exemple.com"
+                  placeholderTextColor="#64748B"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={styles.addRecipientInput}
+                  value={newRecipientName}
+                  onChangeText={setNewRecipientName}
+                  placeholder="Nom ou libellé optionnel"
+                  placeholderTextColor="#64748B"
+                />
+                <TouchableOpacity
+                  style={[styles.addRecipientButton, addingRecipient && styles.actionButtonDisabled]}
+                  onPress={handleAddRecipient}
+                  disabled={addingRecipient}
+                >
+                  {addingRecipient ? (
+                    <ActivityIndicator size={18} color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Plus size={18} color="#FFFFFF" />
+                      <Text style={styles.addRecipientButtonText}>Ajouter à la liste</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.recipientsModalActions}>
+                <TouchableOpacity
+                  style={styles.recipientsCancelButton}
+                  onPress={() => setShowRecipientsModal(false)}
+                >
+                  <Text style={styles.recipientsCancelButtonText}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.recipientsSendButton}
+                  onPress={confirmSendReport}
+                  disabled={recipientsLoading}
+                >
+                  <Send size={18} color="#FFFFFF" />
+                  <Text style={styles.recipientsSendButtonText}>Envoyer</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -2564,6 +2861,205 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   actionButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+  },
+  recipientsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  recipientsModal: {
+    maxHeight: '92%',
+    backgroundColor: '#0F172A',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+  },
+  recipientsModalHeader: {
+    padding: 20,
+  },
+  recipientsModalTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  recipientsModalTitleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  recipientsModalTitle: {
+    fontSize: 20,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+  },
+  recipientsModalSubtitle: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#CBD5E1',
+    marginTop: 4,
+  },
+  recipientsModalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  recipientsModalContent: {
+    padding: 16,
+    paddingBottom: 28,
+    gap: 14,
+  },
+  recipientSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  recipientSearchInput: {
+    flex: 1,
+    minHeight: 46,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+  },
+  recipientsList: {
+    maxHeight: 260,
+  },
+  recipientsEmptyState: {
+    minHeight: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 20,
+  },
+  recipientsEmptyTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter-Bold',
+    color: '#E2E8F0',
+  },
+  recipientsEmptyText: {
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 19,
+  },
+  recipientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  recipientCheckbox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#64748B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipientCheckboxActive: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  recipientRowContent: {
+    flex: 1,
+  },
+  recipientEmail: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+  },
+  recipientName: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#94A3B8',
+    marginTop: 3,
+  },
+  addRecipientBox: {
+    backgroundColor: '#111827',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+    gap: 10,
+  },
+  addRecipientTitle: {
+    fontSize: 13,
+    fontFamily: 'Inter-Bold',
+    color: '#CBD5E1',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  addRecipientInput: {
+    backgroundColor: '#0F172A',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+  },
+  addRecipientButton: {
+    minHeight: 44,
+    borderRadius: 10,
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  addRecipientButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#FFFFFF',
+  },
+  recipientsModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 4,
+    backgroundColor: '#111827',
+  },
+  recipientsCancelButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#475569',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipientsCancelButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Bold',
+    color: '#CBD5E1',
+  },
+  recipientsSendButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  recipientsSendButtonText: {
     fontSize: 14,
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',

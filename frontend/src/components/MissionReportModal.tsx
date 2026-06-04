@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, FileText, Calendar, CheckCircle, Clock, Send, AlertTriangle, Image as ImageIcon, Eye, Edit2, Download } from 'lucide-react';
-import { reportsAPI, missionsAPI } from '../lib/api';
+import { X, FileText, Calendar, CheckCircle, Clock, Send, AlertTriangle, Image as ImageIcon, Eye, Edit2, Download, Loader2, Search, Plus } from 'lucide-react';
+import { reportsAPI, missionsAPI, mailingListAPI } from '../lib/api';
 import { visitService } from '../services/visitService';
 import { filesService } from '../services/filesService';
 import { generatePdfService } from '../services/generatePdfService';
@@ -38,8 +38,15 @@ interface Report {
   reportFileUrl?: string;
 }
 
+interface MailingEntry {
+  id: string;
+  email: string;
+  name?: string | null;
+  missionId?: string | null;
+}
+
 interface MissionReportModalProps {
-  mission: { id: string; title: string; client: string; address: string };
+  mission: { id: string; title: string; client: string; address: string; type?: string };
   onClose: () => void;
   initialReportId?: string;
 }
@@ -59,7 +66,16 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
   const [adminRemarks, setAdminRemarks] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [sendingToClient, setSendingToClient] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [initialReportOpened, setInitialReportOpened] = useState(false);
+  const [showRecipientsModal, setShowRecipientsModal] = useState(false);
+  const [recipientsLoading, setRecipientsLoading] = useState(false);
+  const [mailingEntries, setMailingEntries] = useState<MailingEntry[]>([]);
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>([]);
+  const [recipientSearch, setRecipientSearch] = useState('');
+  const [newRecipientEmail, setNewRecipientEmail] = useState('');
+  const [newRecipientName, setNewRecipientName] = useState('');
+  const [addingRecipient, setAddingRecipient] = useState(false);
 
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
 
@@ -177,6 +193,66 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
 
   const handleSendToClient = async () => {
     if (!selectedReport || selectedReport.status === 'envoye_au_client' || selectedReport.missionStatus === 'terminee') return;
+    const missionId = selectedReport.missionId || mission.id;
+    setRecipientsLoading(true);
+    setShowRecipientsModal(true);
+    setRecipientSearch('');
+    setNewRecipientEmail('');
+    setNewRecipientName('');
+    try {
+      const data = await mailingListAPI.getByMission(missionId);
+      const entries = Array.isArray(data) ? data : [];
+      setMailingEntries(entries);
+      setSelectedRecipientIds(entries.map((entry: MailingEntry) => entry.id));
+    } catch (error: any) {
+      console.error('Error loading mailing list:', error);
+      setMailingEntries([]);
+      setSelectedRecipientIds([]);
+      Swal.fire({ icon: 'error', title: 'Erreur', text: error?.message || 'Impossible de charger la liste de diffusion' });
+    } finally {
+      setRecipientsLoading(false);
+    }
+  };
+
+  const toggleRecipient = (id: string) => {
+    setSelectedRecipientIds((prev) => (
+      prev.includes(id) ? prev.filter((entryId) => entryId !== id) : [...prev, id]
+    ));
+  };
+
+  const handleAddRecipient = async () => {
+    if (!selectedReport || !newRecipientEmail.trim()) return;
+    const missionId = selectedReport.missionId || mission.id;
+    setAddingRecipient(true);
+    try {
+      const created = await mailingListAPI.create({
+        missionId,
+        email: newRecipientEmail.trim(),
+        name: newRecipientName.trim(),
+      });
+      setMailingEntries((prev) => [created, ...prev]);
+      setSelectedRecipientIds((prev) => [...prev, created.id]);
+      setNewRecipientEmail('');
+      setNewRecipientName('');
+      setRecipientSearch('');
+    } catch (error: any) {
+      Swal.fire({ icon: 'error', title: 'Erreur', text: error?.message || "Impossible d'ajouter l'email" });
+    } finally {
+      setAddingRecipient(false);
+    }
+  };
+
+  const confirmSendToSelectedRecipients = async () => {
+    if (!selectedReport) return;
+    const selectedCc = mailingEntries
+      .filter((entry) => selectedRecipientIds.includes(entry.id))
+      .map((entry) => entry.email);
+    setShowRecipientsModal(false);
+    await sendReportToClient(selectedCc);
+  };
+
+  const sendReportToClient = async (selectedCc: string[]) => {
+    if (!selectedReport || selectedReport.status === 'envoye_au_client' || selectedReport.missionStatus === 'terminee') return;
 
     let photos: any[] = [];
     try {
@@ -222,6 +298,7 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
       const pdfData: any = {
         title: selectedReport.title || mission.title,
         mission: mission.title,
+        missionType: mission.type || 'SPS',
         client: mission.client,
         date: selectedReport.createdAt || '',
         conformity: selectedReport.conformityPercentage,
@@ -256,22 +333,9 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 Cordialement.
 ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}` : ''}`;
 
-      const subject = `Rapport CSPS – ${pdfData.mission} – ${pdfData.date}`;
+      const missionType = generatePdfService.getMissionTypeLabel(pdfData);
+      const subject = `Rapport ${missionType} – ${pdfData.mission} – ${pdfData.date}`;
       const pdfUrl = (resp as any)?.url;
-
-      const confirm = await Swal.fire({
-        title: 'Confirmer l\'envoi du rapport',
-        text: `Voulez-vous vraiment envoyer le rapport PDF au client ${selectedReport.contactFirstName || ''} ?`,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Oui, envoyer',
-        cancelButtonText: 'Annuler',
-      });
-
-      if (!confirm.isConfirmed) {
-        setSendingToClient(false);
-        return;
-      }
 
       const response = await generatePdfService.sendReportPDFByEmail(
         selectedReport.contactEmail || '',
@@ -280,7 +344,9 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
         '',
         pdfUrl || '',
         false,
-        `${pdfData.mission.replace(/\s+/g, '_')}_rapport_CSPS.pdf`
+        generatePdfService.getReportFilename(pdfData.mission, missionType),
+        selectedReport.missionId || mission.id,
+        selectedCc
       );
 
       if (response.ok || response.success) {
@@ -309,6 +375,111 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
   };
 
   const downloadReportFile = async (fileUrl: string) => {
+    // continue ...
+    return _downloadReportFile(fileUrl);
+  };
+
+  const handleDownloadReportPdf = async (report: Report, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setGeneratingPdf(true);
+    try {
+      const visitPhotos = report.visit?.photos || [];
+      const riskLevelMap: Record<string, string> = { faible: 'low', moyen: 'medium', eleve: 'high', low: 'low', medium: 'medium', high: 'high' };
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const ok = await generatePdfService.downloadReportPDF({
+        title: report.title || mission.title,
+        mission: mission.title,
+        missionType: mission.type || 'SPS',
+        client: mission.client,
+        date: report.createdAt || '',
+        conformity: report.conformityPercentage,
+        header: report.header || '',
+        content: report.content || '',
+        footer: report.footer || '',
+        observations: report.observations || '',
+        photos: photosForPdf,
+      }, `${mission.title || 'rapport'}_${mission.type || 'SPS'}`);
+
+      if (ok) {
+        Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 1800, showConfirmButton: false });
+      } else {
+        Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+      }
+    } catch (err) {
+      console.error('PDF download error:', err);
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  const handleDownloadGeneratedPdf = async () => {
+    if (!selectedReport) return;
+    setGeneratingPdf(true);
+    try {
+      const visitPhotos = selectedReport.visit?.photos || reportPhotos || [];
+      const riskLevelMap: Record<string, string> = { faible: 'low', moyen: 'medium', eleve: 'high', low: 'low', medium: 'medium', high: 'high' };
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const ok = await generatePdfService.downloadReportPDF({
+        title: selectedReport.title || mission.title,
+        mission: mission.title,
+        missionType: mission.type || 'SPS',
+        client: mission.client,
+        date: selectedReport.createdAt || '',
+        conformity: selectedReport.conformityPercentage,
+        header: selectedReport.header || editedHeader || '',
+        content: selectedReport.content || editedContent || '',
+        footer: selectedReport.footer || editedFooter || '',
+        observations: selectedReport.observations || editedObservations || '',
+        photos: photosForPdf,
+      }, `${mission.title || 'rapport'}_${mission.type || 'SPS'}`);
+
+      if (ok) {
+        Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 1800, showConfirmButton: false });
+      } else {
+        Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+      }
+    } catch (err) {
+      console.error('PDF download error:', err);
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  const _downloadReportFile = async (fileUrl: string) => {
     try {
       const response = await filesService.downloadFile(fileUrl, 'reports', true);
       const { base64, contentType, fileName } = response.data;
@@ -358,6 +529,14 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     }
   };
 
+  const filteredMailingEntries = mailingEntries.filter((entry) => {
+    const q = recipientSearch.trim().toLowerCase();
+    if (!q) return true;
+    return entry.email.toLowerCase().includes(q) || (entry.name || '').toLowerCase().includes(q);
+  });
+
+  const selectedRecipientsCount = selectedRecipientIds.length;
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-xl max-w-5xl w-full max-h-[90vh] flex flex-col">
@@ -399,14 +578,13 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-bold text-slate-900 text-lg">{selectedReport.title || mission.title}</h3>
                   <div className="flex items-center gap-2">
-                    {selectedReport.reportFileUrl && (
-                      <button
-                        onClick={() => downloadReportFile(selectedReport.reportFileUrl!)}
-                        className="flex items-center gap-1 text-s text-red-600 hover:underline"
-                      >
-                        <Download className="w-4 h-4" /> PDF
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleDownloadReportPdf(selectedReport)}
+                      disabled={generatingPdf}
+                      className="flex items-center gap-1 text-s text-blue-600 hover:underline disabled:opacity-50"
+                    >
+                      {generatingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} PDF
+                    </button>
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-s font-medium border ${getStatusColor(selectedReport.status)}`}>
                       {getStatusLabel(selectedReport.status)}
                     </span>
@@ -501,6 +679,15 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                   Retour
                 </button>
 
+                <button
+                  onClick={handleDownloadGeneratedPdf}
+                  disabled={generatingPdf}
+                  className="flex items-center gap-2 bg-slate-700 text-white px-6 py-3 rounded-lg hover:bg-slate-800 transition-colors font-medium disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  {generatingPdf ? 'Génération...' : 'Télécharger PDF'}
+                </button>
+
                 {selectedReport.status !== 'envoye_au_client' && selectedReport.status !== 'annule' && selectedReport.missionStatus !== 'terminee' && (
                   <>
                     {isEditing ? (
@@ -584,15 +771,14 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      {report.reportFileUrl && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); downloadReportFile(report.reportFileUrl!); }}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Télécharger PDF"
-                        >
-                          <FileText className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDownloadReportPdf(report, e); }}
+                        disabled={generatingPdf}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                        title="Télécharger PDF"
+                      >
+                        {generatingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      </button>
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-s font-medium border ${getStatusColor(report.status)}`}>
                         {getStatusLabel(report.status)}
                       </span>
@@ -605,6 +791,141 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
           )}
         </div>
       </div>
+
+      {showRecipientsModal && selectedReport && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Liste de diffusion du chantier</h3>
+                <p className="text-sm text-slate-500">
+                  {mission.title} · {selectedRecipientsCount} sélectionné(s)
+                </p>
+              </div>
+              <button
+                onClick={() => setShowRecipientsModal(false)}
+                disabled={sendingToClient}
+                className="p-2 hover:bg-slate-100 rounded-lg disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={newRecipientEmail}
+                    onChange={(e) => setNewRecipientEmail(e.target.value)}
+                    placeholder="nouvel.email@domaine.com"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-prosps-blue"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nom</label>
+                  <input
+                    type="text"
+                    value={newRecipientName}
+                    onChange={(e) => setNewRecipientName(e.target.value)}
+                    placeholder="Nom facultatif"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-prosps-blue"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddRecipient}
+                  disabled={addingRecipient || !newRecipientEmail.trim()}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-prosps-blue text-white rounded-lg hover:opacity-90 text-sm disabled:opacity-60"
+                >
+                  {addingRecipient ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Ajouter
+                </button>
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={recipientSearch}
+                  onChange={(e) => setRecipientSearch(e.target.value)}
+                  placeholder="Rechercher dans la liste..."
+                  className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-prosps-blue"
+                />
+              </div>
+
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">Emails de diffusion</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allVisibleIds = filteredMailingEntries.map((entry) => entry.id);
+                      const allVisibleSelected = allVisibleIds.every((id) => selectedRecipientIds.includes(id));
+                      setSelectedRecipientIds((prev) => (
+                        allVisibleSelected
+                          ? prev.filter((id) => !allVisibleIds.includes(id))
+                          : Array.from(new Set([...prev, ...allVisibleIds]))
+                      ));
+                    }}
+                    className="text-sm text-prosps-blue hover:underline"
+                  >
+                    Tout sélectionner
+                  </button>
+                </div>
+
+                {recipientsLoading ? (
+                  <div className="p-8 flex justify-center text-slate-400">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  </div>
+                ) : filteredMailingEntries.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-slate-500">
+                    {mailingEntries.length === 0 ? 'Aucun email dans la liste de diffusion de ce chantier.' : 'Aucun email ne correspond à la recherche.'}
+                  </div>
+                ) : (
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                    {filteredMailingEntries.map((entry) => (
+                      <label key={entry.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedRecipientIds.includes(entry.id)}
+                          onChange={() => toggleRecipient(entry.id)}
+                          className="w-4 h-4 rounded border-slate-300 text-prosps-blue focus:ring-prosps-blue"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium text-slate-800 truncate">{entry.email}</span>
+                          {entry.name && <span className="block text-xs text-slate-500 truncate">{entry.name}</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowRecipientsModal(false)}
+                disabled={sendingToClient}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmSendToSelectedRecipients}
+                disabled={sendingToClient || recipientsLoading}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-prosps-blue text-white rounded-lg hover:opacity-90 text-sm disabled:opacity-60"
+              >
+                {sendingToClient ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                {sendingToClient ? 'Envoi...' : 'Envoyer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

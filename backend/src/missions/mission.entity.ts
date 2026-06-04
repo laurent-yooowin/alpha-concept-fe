@@ -1,14 +1,23 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany, Index } from 'typeorm';
 import { User } from '../user/user.entity';
 import { MissionStatus, MissionType } from './mission.dto';
 import { Visit } from '../visits/visit.entity';
 import { Report } from '../reports/report.entity';
+import { Organization } from '../organizations/organization.entity';
 
 
 @Entity('missions')
 export class Mission {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  @Index()
+  @Column('uuid', { nullable: true })
+  organizationId: string | null;
+
+  @ManyToOne(() => Organization, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'organizationId' })
+  organization: Organization | null;
 
   @Column()
   title: string;

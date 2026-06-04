@@ -11,12 +11,14 @@ import {
   IsBoolean,
   IsEnum,
   ValidateIf,
+  IsUUID,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export enum UserRole {
   ADMIN = 'ROLE_ADMIN',
   USER = 'ROLE_USER',
+  HYPER_ADMIN = 'ROLE_HYPER_ADMIN',
 }
 
 export class UpdateUserDto {
@@ -33,37 +35,21 @@ export class UpdateUserDto {
   )
   password: string;
 
-  @IsOptional()
-  @IsString()  
-  firstName: string;
+  @IsOptional() @IsString() firstName: string;
+  @IsOptional() @IsString() lastName: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() company?: string;
 
   @IsOptional()
-  @IsString()
-  lastName: string;
-
-  @IsOptional()
-  @IsString()
-  phone?: string;
-
-  @IsOptional()
-  @IsString()
-  address?: string;
-
-  @IsOptional()
-  @IsString()
-  company?: string;
-
-  @IsOptional()
-  // Validation uniquement si la valeur existe et n'est pas undefined
   @ValidateIf((o) => o.experience !== undefined && o.experience !== null && o.experience !== '')
-  // @Type(() => Number)
   @IsInt({ message: 'L\'expérience doit être un nombre entier valide' })
   @Min(0, { message: 'L\'expérience doit être positive ou nulle' })
   experience?: number;
 
   @IsOptional()
   @IsEnum(UserRole, {
-    message: 'Le rôle doit être ROLE_ADMIN ou ROLE_USER'
+    message: 'Le rôle doit être ROLE_ADMIN, ROLE_USER ou ROLE_HYPER_ADMIN'
   })
   role?: UserRole;
 
@@ -72,4 +58,12 @@ export class UpdateUserDto {
   @Type(() => Boolean)
   @IsBoolean({ message: 'isActive doit être un booléen (true/false)' })
   isActive?: boolean;
+
+  /**
+   * organizationId est ignoré sauf pour HYPER_ADMIN (filtré côté contrôleur).
+   * On le garde dans le DTO pour permettre les déplacements explicites par hyper-admin.
+   */
+  @IsOptional()
+  @IsUUID()
+  organizationId?: string;
 }

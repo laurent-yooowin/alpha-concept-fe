@@ -28,6 +28,11 @@ export class AiService {
 
   }
 
+  private toImageDataUrl(file: { data: string | Buffer; contentType: string }) {
+    const contentType = file.contentType || 'image/jpeg';
+    return `data:${contentType};base64,${file.data}`;
+  }
+
   async analyzePhoto(imageUrl: string): Promise<{
     nonConformities: string[];
     recommendations: string[];
@@ -69,7 +74,7 @@ export class AiService {
                 {
                   type: 'image_url',
                   image_url: {
-                    url: `data:image/jpeg;base64,${imgBase64.data}`,
+                    url: this.toImageDataUrl(imgBase64),
                   },
                 },
               ],
@@ -153,7 +158,7 @@ export class AiService {
                 {
                   type: 'image_url',
                   image_url: {
-                    url: `data:image/jpeg;base64,${imgBase64.data}`,
+                    url: this.toImageDataUrl(imgBase64),
                   },
                 },
               ],
@@ -288,7 +293,7 @@ export class AiService {
           return {
             type: 'image_url' as const,
             image_url: {
-              url: `data:image/jpeg;base64,${imgBase64.data}`,
+              url: this.toImageDataUrl(imgBase64),
             },
           };
         })
@@ -388,7 +393,7 @@ export class AiService {
           return {
             type: 'image_url' as const,
             image_url: {
-              url: `data:image/jpeg;base64,${imgBase64.data}`,
+              url: this.toImageDataUrl(imgBase64),
             },
           };
         })
@@ -510,7 +515,7 @@ Toujours fournir la réponse sous format JSON valide.`,
                   type: 'image_url',
                   image_url: {
                     // Gemini via l'adaptateur OpenAI accepte parfaitement le base64
-                    url: `data:image/jpeg;base64,${imgBase64.data}`,
+                    url: this.toImageDataUrl(imgBase64),
                   },
                 },
               ],
@@ -608,7 +613,7 @@ Toujours fournir la réponse sous format JSON valide.`,
                 {
                   type: 'image_url',
                   image_url: {
-                    url: `data:image/jpeg;base64,${imgBase64.data}`,
+                    url: this.toImageDataUrl(imgBase64),
                   },
                 },
               ],

@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequirePermission } from '../common/decorators/permissions.decorator';
 import { User, UserRole } from '../user/user.entity';
 
 @Controller('missions')
@@ -14,6 +15,7 @@ export class MissionController {
   constructor(private readonly missionService: MissionService) {}
 
   @Post()
+  @RequirePermission('missions', 'write')
   async create(
     @CurrentUser() user: User,
     @Body() createMissionDto: CreateMissionDto,
@@ -22,16 +24,19 @@ export class MissionController {
   }
 
   @Get()
+  @RequirePermission('missions', 'read')
   async findAll(@CurrentUser() user: User) {
     return this.missionService.findAll(user);
   }
 
   @Get(':id')
+  @RequirePermission('missions', 'read')
   async findOne(@CurrentUser() user: User, @Param('id') id: string) {
     return this.missionService.findOne(id, user);
   }
 
   @Post(':id/assign')
+  @RequirePermission('missions', 'write')
   async assignUsers(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -41,11 +46,13 @@ export class MissionController {
   }
 
   @Get(':id/assigned-users')
-  async getAssignedUsers(@Param('id') id: string) {
-    return this.missionService.getAssignedUsers(id);
+  @RequirePermission('missions', 'read')
+  async getAssignedUsers(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.missionService.getAssignedUsers(id, user);
   }
 
   @Delete(':id/assign/:userId')
+  @RequirePermission('missions', 'write')
   async removeAssignment(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -56,11 +63,13 @@ export class MissionController {
   }
 
   @Get('admin/all-users')
-  async getAllUsers() {
-    return this.missionService.getAllUsers();
+  @RequirePermission('missions', 'read')
+  async getAllUsers(@CurrentUser() user: User) {
+    return this.missionService.getAllUsers(user);
   }
 
   @Put(':id')
+  @RequirePermission('missions', 'write')
   async update(
     @CurrentUser() user: User,
     @Param('id') id: string,
@@ -70,8 +79,9 @@ export class MissionController {
   }
 
   @Delete(':id')
+  @RequirePermission('missions', 'write')
   async delete(@CurrentUser() user: User, @Param('id') id: string) {
-    await this.missionService.delete(id, user.id);
+    await this.missionService.delete(id, user);
     return { message: 'Mission deleted successfully' };
   }
 

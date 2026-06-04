@@ -2,7 +2,7 @@
   "expo": {
     "name": "Report BTP",
     "slug": "reportbtp",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/logo_admin_app.png",
     "scheme": "reportbtp",

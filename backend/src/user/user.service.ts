@@ -1,10 +1,9 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from './user.entity';
+import { User, UserRole } from './user.entity';
 import * as bcrypt from 'bcrypt';
 import { UpdateUserDto } from './user.dto';
-// import { CreateUserDto } from './user.controller';
 
 @Injectable()
 export class UserService {
@@ -43,13 +42,36 @@ export class UserService {
     return user;
   }
 
-  async findAll(): Promise<User[]> {
-    return this.userRepository.find({
-      select: ['id', 'email', 'firstName', 'lastName', 'role', 'phone', 'company', 'experience', 'isActive', 'createdAt'],
-    });
+  /**
+   * Org-scoped listing.
+   * - HYPER_ADMIN: sees everything (optional org filter)
+   * - ADMIN: sees users of its own organization
+   * - USER: sees self only
+   */
+  async findAll(currentUser?: User, organizationId?: string): Promise<User[]> {
+    const qb = this.userRepository
+      .createQueryBuilder('user')
+      .select([
+        'user.id', 'user.email', 'user.firstName', 'user.lastName',
+        'user.role', 'user.phone', 'user.company', 'user.experience',
+        'user.isActive', 'user.organizationId', 'user.permissions', 'user.createdAt',
+      ]);
+
+    if (!currentUser) return qb.getMany();
+
+    if (currentUser.role === UserRole.HYPER_ADMIN) {
+      if (organizationId) qb.where('user.organizationId = :oid', { oid: organizationId });
+    } else if (currentUser.role === UserRole.ADMIN) {
+      qb.where('user.organizationId = :oid', { oid: currentUser.organizationId })
+        .andWhere('user.role != :hyper', { hyper: UserRole.HYPER_ADMIN });
+    } else {
+      qb.where('user.id = :id', { id: currentUser.id });
+    }
+
+    return qb.getMany();
   }
 
-  async update(id: string, userData: UpdateUserDto | {password: string}): Promise<User> {
+  async update(id: string, userData: UpdateUserDto | { password: string }): Promise<User> {
     const user = await this.findById(id);
 
     if (userData.password) {

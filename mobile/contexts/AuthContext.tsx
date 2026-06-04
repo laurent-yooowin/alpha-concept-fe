@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { authService } from '@/services/authService';
+import { userService } from '@/services/userService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { Alert, AppState } from 'react-native';
@@ -10,7 +11,11 @@ interface User {
   firstName: string;
   lastName: string;
   role: string;
+  organizationId?: string | null;
+  organizationSlug?: string | null;
 }
+
+const HYPER_ADMIN_ROLE = 'ROLE_HYPER_ADMIN';
 
 interface AuthContextType {
   isAuthenticated: boolean | null;
@@ -52,7 +57,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (authenticated) {
       const userData = await AsyncStorage.getItem('user_data');
       if (userData) {
-        setUser(JSON.parse(userData));
+        const parsedUser = JSON.parse(userData);
+        if (parsedUser?.role === HYPER_ADMIN_ROLE) {
+          await authService.logout();
+          setIsAuthenticated(false);
+          setUser(null);
+          return;
+        }
+        setUser(parsedUser);
       }
     } else {
       setUser(null);
@@ -95,9 +107,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (userData: User) => {
+    if (userData.role === HYPER_ADMIN_ROLE) {
+      await authService.logout();
+      setIsAuthenticated(false);
+      setUser(null);
+      Alert.alert(
+        'Accès refusé',
+        "L'application mobile est réservée aux coordonnateurs de l'organisation.",
+      );
+      return;
+    }
+
+    // Enrich user with full profile (incl. organization) when possible,
+    // so we can persist the user's organization for future sessions.
+    let enriched: User = userData;
+    try {
+      const res = await userService.getProfile();
+      if (res?.data) {
+        enriched = { ...userData, ...(res.data as any) };
+      }
+    } catch {}
+    if (enriched.role === HYPER_ADMIN_ROLE) {
+      await authService.logout();
+      setIsAuthenticated(false);
+      setUser(null);
+      Alert.alert(
+        'Accès refusé',
+        "L'application mobile est réservée aux coordonnateurs de l'organisation.",
+      );
+      return;
+    }
     setIsAuthenticated(true);
-    setUser(userData);
-    await AsyncStorage.setItem('user_data', JSON.stringify(userData));
+    setUser(enriched);
+    await AsyncStorage.setItem('user_data', JSON.stringify(enriched));
+    if ((enriched as any)?.organizationSlug) {
+      await AsyncStorage.setItem('last_org_slug', (enriched as any).organizationSlug);
+    } else if ((enriched as any)?.organizationId) {
+      await AsyncStorage.setItem('last_org_id', (enriched as any).organizationId);
+    }
     startTokenExpirationCheck();
   };
 
@@ -105,6 +152,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     stopTokenExpirationCheck();
     await authService.logout();
     await AsyncStorage.removeItem('user_data');
+    // Keep `last_org_slug` / `last_org_id` so the user is reminded of
+    // their organization on next login.
     setIsAuthenticated(false);
     setUser(null);
   };

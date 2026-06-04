@@ -5,13 +5,16 @@ import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
 import { winstonLogger } from './config/winston-logger';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: winstonLogger,
+    bufferLogs: true,
   });
 
   app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   app.enableCors({
     origin: process.env.CORS_ORIGIN || '*',
