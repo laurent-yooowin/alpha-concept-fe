@@ -177,8 +177,13 @@ async function main() {
     const targetOrg = targetRows[0];
 
     if (!targetOrg) {
+      const availableOrgs = (await dataSource.query(
+        'SELECT slug FROM `organizations` ORDER BY slug LIMIT 20',
+      )) as Array<{ slug: string }>;
+      const availableSlugs = availableOrgs.map((org) => org.slug).join(', ') || 'none';
+
       throw new Error(
-        `Organization slug not found. Tried: ${targetOrgSlugCandidates.join(', ')}. Create it from Hyper Admin first, or set TARGET_ORG_SLUG to the real slug.`,
+        `Organization slug not found. Tried: ${targetOrgSlugCandidates.join(', ')}. Available slugs: ${availableSlugs}. Create it from Hyper Admin first, or set TARGET_ORG_SLUG to the real slug.`,
       );
     }
 

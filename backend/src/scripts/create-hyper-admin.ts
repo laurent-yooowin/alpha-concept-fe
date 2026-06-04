@@ -16,14 +16,29 @@ import { User, UserRole } from '../user/user.entity';
 
 config();
 
+function firstEnvValue(...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]
+      ?.split(',')
+      .map((item) => item.trim())
+      .find(Boolean);
+
+    if (value) return value;
+  }
+
+  return undefined;
+}
+
 async function main() {
-  const email = process.env.HYPER_ADMIN_EMAIL;
-  const password = process.env.HYPER_ADMIN_PASSWORD;
-  const firstName = process.env.HYPER_ADMIN_FIRSTNAME || 'Hyper';
-  const lastName = process.env.HYPER_ADMIN_LASTNAME || 'Admin';
+  const email = firstEnvValue('HYPER_ADMIN_EMAIL', 'HYPER_ADMIN_EMAILS');
+  const password = firstEnvValue('HYPER_ADMIN_PASSWORD', 'HYPER_ADMIN_PASSWORDS');
+  const firstName = firstEnvValue('HYPER_ADMIN_FIRSTNAME', 'HYPER_ADMIN_FIRSTNAMES') || 'Hyper';
+  const lastName = firstEnvValue('HYPER_ADMIN_LASTNAME', 'HYPER_ADMIN_LASTNAMES') || 'Admin';
 
   if (!email || !password) {
-    console.error('HYPER_ADMIN_EMAIL and HYPER_ADMIN_PASSWORD are required.');
+    console.error(
+      'HYPER_ADMIN_EMAIL/HYPER_ADMIN_PASSWORD are required. HYPER_ADMIN_EMAILS/HYPER_ADMIN_PASSWORDS are also accepted.',
+    );
     process.exit(1);
   }
 
