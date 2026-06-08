@@ -36,11 +36,17 @@ import * as MailComposer from 'expo-mail-composer';
 import { useAuth } from '@/contexts/AuthContext';
 import { missionService } from '@/services/missionService';
 import { userService } from '@/services/userService';
+import { getStoredOrganizationSlug, loginRoute, organizationStorageKey } from '@/services/organizationContext';
 import { Visit } from 'src/visits/visit.entity';
 import { reportsAPI } from '../../../frontend/src/lib/api';
 import { ImageManipulator } from 'expo-image-manipulator';
 
 const { width, height } = Dimensions.get('window');
+
+const goToOrgLogin = async () => {
+  const slug = await getStoredOrganizationSlug();
+  router.replace(loginRoute(slug));
+};
 
 interface Photo {
   id: string;
@@ -2655,7 +2661,7 @@ export default function VisiteScreen() {
           [
             {
               text: 'Se reconnecter',
-              onPress: () => router.push('/auth/login')
+              onPress: goToOrgLogin
             }
           ]
         );
@@ -2852,7 +2858,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
           [
             {
               text: 'Se reconnecter',
-              onPress: () => router.replace('/auth/login')
+              onPress: goToOrgLogin
             }
           ]
         );
@@ -2908,7 +2914,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
           [
             {
               text: 'Se reconnecter',
-              onPress: () => router.replace('/auth/login')
+              onPress: goToOrgLogin
             }
           ]
         );
@@ -2942,10 +2948,12 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         reportFooter: reportFooter,
         visitPhotos: photos
       };
-      const existingReports = await AsyncStorage.getItem('userReports');
+      const reportsStorageKey = await organizationStorageKey('userReports');
+      const existingReports = await AsyncStorage.getItem(reportsStorageKey)
+        || await AsyncStorage.getItem('userReports');
       const parsedReports = existingReports ? JSON.parse(existingReports) : [];
       const updatedReports = [newReport, ...parsedReports];
-      await AsyncStorage.setItem('userReports', JSON.stringify(updatedReports));
+      await AsyncStorage.setItem(reportsStorageKey, JSON.stringify(updatedReports));
       //       if (isToSend) {
       //         setReportSended(false);
       //         // const pdfPhotos = photos.map(p => ({
@@ -3065,7 +3073,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
           [
             {
               text: 'Se reconnecter',
-              onPress: () => router.push('/auth/login')
+              onPress: goToOrgLogin
             }
           ]
         );

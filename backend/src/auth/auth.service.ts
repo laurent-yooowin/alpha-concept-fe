@@ -61,6 +61,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    let userOrganization: Organization | null = null;
+    if (user.organizationId) {
+      userOrganization = await this.organizationRepository.findOne({
+        where: { id: user.organizationId },
+      });
+    }
+
     if (loginDto.organizationSlug) {
       const org = await this.organizationRepository.findOne({
         where: { slug: loginDto.organizationSlug },
@@ -72,9 +79,22 @@ export class AuthService {
         user.role !== UserRole.HYPER_ADMIN &&
         user.organizationId !== org.id
       ) {
-        throw new UnauthorizedException(
-          "Vous n'appartenez pas à cette organisation",
-        );
+        throw new UnauthorizedException({
+          code: 'ORG_MISMATCH',
+          message: "Vous n'appartenez pas à cette organisation",
+          organization: userOrganization
+            ? {
+                id: userOrganization.id,
+                name: userOrganization.name,
+                slug: userOrganization.slug,
+              }
+            : null,
+          requestedOrganization: {
+            id: org.id,
+            name: org.name,
+            slug: org.slug,
+          },
+        });
       }
     } else if (
       user.role !== UserRole.HYPER_ADMIN &&
@@ -101,6 +121,7 @@ export class AuthService {
         lastName: user.lastName,
         role: user.role,
         organizationId: user.organizationId,
+        organizationSlug: userOrganization?.slug || null,
       },
     };
   }

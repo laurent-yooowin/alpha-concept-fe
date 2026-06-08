@@ -34,6 +34,7 @@ import { uploadService } from '@/services/uploadService';
 import { Mission, missionService } from '../../services/missionService';
 import { useLocalSearchParams } from 'expo-router';
 import { userService } from '@/services/userService';
+import { organizationStorageKey } from '@/services/organizationContext';
 
 const { width } = Dimensions.get('window');
 
@@ -169,7 +170,8 @@ export default function RapportsScreen() {
           }));
 
         // Load local reports as well
-        const localReports = await AsyncStorage.getItem('userReports');
+        const localReports = await AsyncStorage.getItem(await organizationStorageKey('userReports'))
+          || await AsyncStorage.getItem('userReports');
         const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
 
         // setReports([...backendReports, ...parsedLocalReports]);
@@ -182,7 +184,8 @@ export default function RapportsScreen() {
         }
       } else {
         // Load only local reports if backend fails
-        const localReports = await AsyncStorage.getItem('userReports');
+        const localReports = await AsyncStorage.getItem(await organizationStorageKey('userReports'))
+          || await AsyncStorage.getItem('userReports');
         const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
         setReports([]);
         setLoadingReport(false);
@@ -190,7 +193,8 @@ export default function RapportsScreen() {
     } catch (error) {
       console.log('Error loading reports:', error);
       // Load local reports as fallback
-      const localReports = await AsyncStorage.getItem('userReports');
+      const localReports = await AsyncStorage.getItem(await organizationStorageKey('userReports'))
+        || await AsyncStorage.getItem('userReports');
       const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
       setReports(parsedLocalReports);
       setLoadingReport(false);

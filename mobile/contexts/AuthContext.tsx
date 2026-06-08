@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { authService } from '@/services/authService';
 import { userService } from '@/services/userService';
+import { organizationService } from '@/services/organizationService';
+import {
+  loginRoute,
+  persistOrganizationId,
+  persistOrganizationSlug,
+} from '@/services/organizationContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { Alert, AppState } from 'react-native';
@@ -30,7 +36,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const tokenCheckInterval = useRef<NodeJS.Timeout | null>(null);
+  const tokenCheckInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     checkAuth();
@@ -81,9 +87,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         [
           {
             text: 'Se reconnecter',
-            onPress: () => {
-              logout();
-              router.replace('/auth/login');
+            onPress: async () => {
+              const slug = user?.organizationSlug || (await AsyncStorage.getItem('last_org_slug')) || undefined;
+              await logout();
+              router.replace(loginRoute(slug || ''));
             }
           }
         ],
@@ -127,6 +134,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         enriched = { ...userData, ...(res.data as any) };
       }
     } catch {}
+    try {
+      const orgRes = await organizationService.getCurrent();
+      if (orgRes?.data) {
+        enriched = {
+          ...enriched,
+          organizationId: orgRes.data.id,
+          organizationSlug: orgRes.data.slug,
+        };
+      }
+    } catch {}
     if (enriched.role === HYPER_ADMIN_ROLE) {
       await authService.logout();
       setIsAuthenticated(false);
@@ -141,9 +158,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(enriched);
     await AsyncStorage.setItem('user_data', JSON.stringify(enriched));
     if ((enriched as any)?.organizationSlug) {
-      await AsyncStorage.setItem('last_org_slug', (enriched as any).organizationSlug);
-    } else if ((enriched as any)?.organizationId) {
-      await AsyncStorage.setItem('last_org_id', (enriched as any).organizationId);
+      await persistOrganizationSlug((enriched as any).organizationSlug);
+    }
+    if ((enriched as any)?.organizationId) {
+      await persistOrganizationId((enriched as any).organizationId);
     }
     startTokenExpirationCheck();
   };

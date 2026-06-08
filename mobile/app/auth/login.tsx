@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -9,24 +9,46 @@ import {
   Platform,
   Alert,
   Image,
+  ImageBackground,
   Dimensions,
   Modal,
   ScrollView,
   ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Shield, User, Lock, Eye, EyeOff, ArrowRight, X } from 'lucide-react-native';
+import { Shield, User, Lock, Eye, EyeOff, ArrowRight, X, Info } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SvgUri } from 'react-native-svg';
 import { authService } from '@/services/authService';
 import { useAuth } from '@/contexts/AuthContext';
+import { organizationService, OrganizationBranding } from '@/services/organizationService';
+import {
+  DEFAULT_ORG_SLUG,
+  getStoredOrganizationSlug,
+  normalizeOrgSlug,
+  persistOrganizationSlug,
+} from '@/services/organizationContext';
+import { useLocalSearchParams } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
+type OrganizationSwitchTarget = {
+  id?: string;
+  name?: string;
+  slug?: string;
+};
+
 export default function LoginScreen() {
+  const params = useLocalSearchParams<{ organizationSlug?: string; slug?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [organizationSlug, setOrganizationSlug] = useState(DEFAULT_ORG_SLUG);
+  const [organization, setOrganization] = useState<OrganizationBranding | null>(null);
+  const [organizationLoading, setOrganizationLoading] = useState(true);
+  const [showOrganizationInfo, setShowOrganizationInfo] = useState(false);
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
   const { login } = useAuth();
 
   // Forgot password flow states
@@ -40,6 +62,102 @@ export default function LoginScreen() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const loadOrganization = async (slug: string, shouldPersist = true) => {
+    setOrganizationSlug(slug);
+    setOrganizationLoading(true);
+
+    const response = await organizationService.getPublicBySlug(slug);
+
+    if (response.data) {
+      setOrganization(response.data);
+      setOrganizationSlug(response.data.slug);
+      setLogoLoadFailed(false);
+      if (shouldPersist) {
+        await persistOrganizationSlug(response.data.slug);
+      }
+    } else {
+      setOrganization(null);
+      setLogoLoadFailed(false);
+    }
+
+    setOrganizationLoading(false);
+    return response.data;
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveOrganization = async () => {
+      const routeSlug = normalizeOrgSlug(params.organizationSlug || params.slug);
+      const storedSlug = await getStoredOrganizationSlug();
+      const nextSlug = routeSlug || storedSlug || DEFAULT_ORG_SLUG;
+
+      if (!mounted) return;
+      setOrganizationLoading(true);
+      const response = await organizationService.getPublicBySlug(nextSlug);
+      if (!mounted) return;
+
+      if (response.data) {
+        setOrganization(response.data);
+        await persistOrganizationSlug(response.data.slug);
+        setOrganizationSlug(response.data.slug);
+        setLogoLoadFailed(false);
+      } else {
+        setOrganization(null);
+        setLogoLoadFailed(false);
+      }
+      setOrganizationLoading(false);
+    };
+
+    resolveOrganization();
+
+    return () => {
+      mounted = false;
+    };
+  }, [params.organizationSlug, params.slug]);
+
+  const getOrganizationSwitchTarget = (response: any): OrganizationSwitchTarget | null => {
+    const details = response?.details || {};
+    const nested = details?.message && typeof details.message === 'object' ? details.message : {};
+    const code = details?.code || nested?.code;
+    const target = details?.organization || nested?.organization;
+
+    if (code !== 'ORG_MISMATCH' || !target?.slug) {
+      return null;
+    }
+
+    return target;
+  };
+
+  const continueLoginWithOrganization = async (targetSlug: string) => {
+    setLoading(true);
+
+    try {
+      const normalizedTargetSlug = normalizeOrgSlug(targetSlug);
+      await persistOrganizationSlug(normalizedTargetSlug);
+      await loadOrganization(normalizedTargetSlug);
+
+      const response = await authService.login({
+        email,
+        password,
+        organizationSlug: normalizedTargetSlug,
+      });
+
+      if (response.error) {
+        Alert.alert('Erreur de connexion', `${response.error}\n\nOrganisation: ${normalizedTargetSlug}`);
+        setLoading(false);
+        return;
+      }
+
+      if (response.data?.user) {
+        await login(response.data.user);
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur est survenue lors de la connexion');
+      setLoading(false);
+    }
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs');
@@ -49,15 +167,33 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const response = await authService.login({ email, password });
+      const response = await authService.login({ email, password, organizationSlug });
 
       if (response.error) {
-        Alert.alert('Erreur de connexion', response.error);
+        const switchTarget = getOrganizationSwitchTarget(response);
+        if (switchTarget?.slug) {
+          setLoading(false);
+          Alert.alert(
+            "Changer d'organisation",
+            `Ce compte appartient à ${switchTarget.name || switchTarget.slug}. Voulez-vous basculer vers cette organisation et continuer la connexion ?`,
+            [
+              { text: 'Annuler', style: 'cancel' },
+              {
+                text: 'Continuer',
+                onPress: () => continueLoginWithOrganization(switchTarget.slug as string),
+              },
+            ],
+          );
+          return;
+        }
+
+        Alert.alert('Erreur de connexion', `${response.error}\n\nOrganisation: ${organizationSlug}`);
         setLoading(false);
         return;
       }
 
       if (response.data && response.data.user) {
+        await persistOrganizationSlug(response.data.user.organizationSlug || organizationSlug);
         await login(response.data.user);
       }
     } catch (error) {
@@ -346,6 +482,41 @@ export default function LoginScreen() {
     );
   };
 
+  const renderOrganizationLogo = () => {
+    const logoUrl = organization?.logoUrl;
+    const shouldUseRemoteLogo = !!logoUrl && !logoLoadFailed;
+    const isSvgLogo = shouldUseRemoteLogo && logoUrl.split('?')[0].toLowerCase().endsWith('.svg');
+
+    if (isSvgLogo) {
+      return (
+        <SvgUri
+          uri={logoUrl}
+          width="100%"
+          height="100%"
+          onError={() => setLogoLoadFailed(true)}
+        />
+      );
+    }
+
+    return (
+      <Image
+        key={shouldUseRemoteLogo ? logoUrl : 'default-logo'}
+        source={
+          shouldUseRemoteLogo
+            ? { uri: logoUrl }
+            : require('../../assets/images/logo_admin.png')
+        }
+        style={{ width: '100%', height: '100%' }}
+        resizeMode="contain"
+        onError={() => {
+          if (shouldUseRemoteLogo) {
+            setLogoLoadFailed(true);
+          }
+        }}
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <LinearGradient
@@ -359,10 +530,20 @@ export default function LoginScreen() {
           <View style={styles.content}>
             <View style={styles.header}>
               <View style={styles.logoContainer}>
-                <Image source={require('../../assets/images/logo_admin.png')} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                {renderOrganizationLogo()}
               </View>
-              <Text style={styles.title}>Report BTP COORDONNATEUR</Text>
-              <Text style={styles.subtitle}>Application mobile pour coordonnateurs SPS</Text>
+              <View style={styles.organizationRow}>
+                <Text style={styles.organizationName}>
+                  {organizationLoading ? 'Chargement...' : organization?.name || organizationSlug}
+                </Text>
+                <TouchableOpacity
+                  style={styles.infoButton}
+                  onPress={() => setShowOrganizationInfo(true)}
+                  disabled={organizationLoading}
+                >
+                  <Info size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.form}>
@@ -455,6 +636,51 @@ export default function LoginScreen() {
         </KeyboardAvoidingView>
       </LinearGradient>
 
+      <Modal
+        visible={showOrganizationInfo}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowOrganizationInfo(false)}
+      >
+        <View style={styles.infoModalOverlay}>
+          <View style={styles.infoModalContent}>
+            {organization?.backgroundImageUrl ? (
+              <ImageBackground
+                source={{ uri: organization.backgroundImageUrl }}
+                style={styles.infoBackground}
+                imageStyle={styles.infoBackgroundImage}
+              >
+                <View style={styles.infoBackgroundScrim} />
+              </ImageBackground>
+            ) : (
+              <LinearGradient
+                colors={['#1E293B', '#334155']}
+                style={styles.infoBackground}
+              />
+            )}
+
+            <TouchableOpacity
+              style={styles.infoCloseButton}
+              onPress={() => setShowOrganizationInfo(false)}
+            >
+              <X size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <View style={styles.infoTextPanel}>
+              <Text style={styles.infoTitle}>
+                {organization?.loginTitle || organization?.name || 'Report BTP'}
+              </Text>
+              <Text style={styles.infoDescription}>
+                {organization?.loginContent || 'Application mobile pour coordonnateurs SPS'}
+              </Text>
+              <Text style={styles.infoOrganizationSlug}>
+                {organization?.slug || organizationSlug}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Forgot Password Modal with OTP flow */}
       <Modal
         visible={showForgotPasswordModal}
@@ -519,8 +745,9 @@ const styles = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 24, justifyContent: 'center' },
   header: { alignItems: 'center', marginBottom: 48 },
   logoContainer: { width: 80, height: 80, borderRadius: 10, overflow: 'hidden', marginBottom: 16 },
-  title: { fontSize: 28, fontFamily: 'Inter-Bold', color: '#FFFFFF', marginBottom: 8, letterSpacing: 2 },
-  subtitle: { fontSize: 14, fontFamily: 'Inter-Regular', color: '#94A3B8', textAlign: 'center', letterSpacing: 0.5 },
+  organizationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  organizationName: { maxWidth: width - 96, fontSize: 16, fontFamily: 'Inter-Bold', color: '#FFFFFF', textAlign: 'center' },
+  infoButton: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#3B82F6' },
   form: { marginBottom: 32 },
   inputContainer: { marginBottom: 16, borderRadius: 16, overflow: 'hidden' },
   inputGradient: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, height: 56 },
@@ -538,6 +765,16 @@ const styles = StyleSheet.create({
   securityBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6 },
   securityText: { fontSize: 11, fontFamily: 'Inter-SemiBold', color: '#FFFFFF', letterSpacing: 0.5 },
   versionText: { fontSize: 12, fontFamily: 'Inter-Regular', color: '#64748B' },
+  infoModalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.76)', justifyContent: 'center', paddingHorizontal: 20 },
+  infoModalContent: { minHeight: 360, borderRadius: 20, overflow: 'hidden', backgroundColor: '#0F172A' },
+  infoBackground: { height: 180, width: '100%' },
+  infoBackgroundImage: { resizeMode: 'cover' },
+  infoBackgroundScrim: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.35)' },
+  infoCloseButton: { position: 'absolute', top: 14, right: 14, width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.75)' },
+  infoTextPanel: { padding: 20 },
+  infoTitle: { fontSize: 22, fontFamily: 'Inter-Bold', color: '#FFFFFF', marginBottom: 10 },
+  infoDescription: { fontSize: 14, fontFamily: 'Inter-Regular', color: '#CBD5E1', lineHeight: 21 },
+  infoOrganizationSlug: { marginTop: 16, fontSize: 12, fontFamily: 'Inter-SemiBold', color: '#60A5FA' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.8)', justifyContent: 'center', alignItems: 'center', paddingVertical: 20 },
   modalContainer: { width: '95%', maxWidth: 600, height: '90%' },
   modalContent: { flex: 1, borderRadius: 24, paddingTop: 24, paddingBottom: 40, paddingHorizontal: 24 },

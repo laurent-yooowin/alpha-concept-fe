@@ -1,31 +1,63 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { authService } from './authService';
+import { tokenStorage } from './tokenStorage';
 
-const API_URL = Platform.OS == 'web' ? process.env.EXPO_PUBLIC_API_URL_LOCAL : process.env.EXPO_PUBLIC_API_URL;
-const TOKEN_KEY = 'auth_token';
+const RAW_API_URL =
+  Platform.OS === 'web'
+    ? process.env.EXPO_PUBLIC_API_URL_LOCAL
+    : process.env.EXPO_PUBLIC_API_URL;
+const getExpoDevHost = () => {
+  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri;
+  const debuggerHost = Constants.manifest?.debuggerHost;
+  const host = hostUri || debuggerHost;
+
+  return host?.split(':')[0];
+};
+
+const normalizeApiUrl = (rawUrl?: string) => {
+  const url = (rawUrl || 'https://reportbtp.com/api').replace(/\/+$/, '');
+  const devHost = getExpoDevHost();
+
+  if (
+    __DEV__ &&
+    Platform.OS !== 'web' &&
+    devHost &&
+    (url.includes('://localhost:') || url.includes('://127.0.0.1:'))
+  ) {
+    return url.replace('://localhost:', `://${devHost}:`).replace('://127.0.0.1:', `://${devHost}:`);
+  }
+
+  return url;
+};
+const API_URL = normalizeApiUrl(RAW_API_URL);
+const PUBLIC_ENDPOINT_PREFIXES = ['/auth/', '/public/'];
 
 export interface ApiResponse<T> {
   data?: T;
   error?: string;
   isTokenExpired?: boolean;
+  status?: number;
+  details?: any;
 }
 
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
-  try {
-    const isTokenValid = await authService.validateToken();
+  const url = `${API_URL}${endpoint}`;
 
-    if (!isTokenValid && !endpoint.includes('/auth/')) {
+  try {
+    const isPublicEndpoint = PUBLIC_ENDPOINT_PREFIXES.some((prefix) => endpoint.includes(prefix));
+    const isTokenValid = isPublicEndpoint ? true : await tokenStorage.validateToken();
+
+    if (!isTokenValid) {
       return {
         error: 'Token expired. Please login again.',
         isTokenExpired: true,
       };
     }
 
-    const token = await AsyncStorage.getItem(TOKEN_KEY);
+    const token = await tokenStorage.getToken();
 
     const isFormData = options.body instanceof FormData;
 
@@ -42,36 +74,53 @@ export async function apiRequest<T>(
       delete headers['Content-Type'];
     }
 
-    console.log("API_URL >>>: ", API_URL);
-
-    const response = await fetch(`${API_URL}${endpoint}`, {
+    const response = await fetch(url, {
       ...options,
       headers,
     });
 
     // console.log("response API >>>: ", response);
 
-    if (response.status === 401) {
-      await authService.logout();
-      return {
-        error: 'Session expired. Please login again.',
-        isTokenExpired: true,
-      };
-    }
-
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      const rawMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`;
+      const message = Array.isArray(rawMessage)
+        ? rawMessage.join(' • ')
+        : typeof rawMessage === 'string'
+          ? rawMessage
+          : rawMessage?.message
+            ? String(rawMessage.message)
+            : JSON.stringify(rawMessage);
+
+      if (response.status === 401 && !isPublicEndpoint) {
+        await tokenStorage.clearToken();
+        return {
+          error: message || 'Session expired. Please login again.',
+          isTokenExpired: true,
+          status: response.status,
+          details: errorData,
+        };
+      }
+
       return {
-        error: errorData.message || `HTTP error! status: ${response.status}`,
+        error: message,
+        status: response.status,
+        details: errorData,
       };
     }
 
     const data = await response.json();
     return { data };
   } catch (error) {
-    console.error(error);
+    console.error('API request failed:', {
+      url,
+      method: options.method || 'GET',
+      message: error instanceof Error ? error.message : String(error),
+    });
     return {
-      error: error instanceof Error ? error.message : 'Problème Serveur ',
+      error: error instanceof Error
+        ? `${error.message} (${url})`
+        : 'Problème Serveur ',
     };
   }
 }

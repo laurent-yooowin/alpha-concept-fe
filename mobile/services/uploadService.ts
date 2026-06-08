@@ -18,6 +18,13 @@ export interface UploadResponse {
   data: UploadResult | UploadResult[];
 }
 
+export interface DownloadFileResponse {
+  data: {
+    base64?: string;
+    contentType?: string;
+  };
+}
+
 const imageContentTypeFromFileName = (fileName: string) => {
   const cleanName = fileName.split('?')[0].toLowerCase();
   if (cleanName.endsWith('.avif')) return 'image/avif';
@@ -152,7 +159,7 @@ export const uploadService = {
       folder: folder,
       isBase64: isBase64 || false,
     }
-    return await apiRequest(url, {
+    return await apiRequest<DownloadFileResponse>(url, {
       method: 'POST',
       body: JSON.stringify(data),
     });

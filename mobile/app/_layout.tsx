@@ -5,6 +5,7 @@ import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { getStoredOrganizationSlug, loginRoute } from '@/services/organizationContext';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -19,7 +20,9 @@ function RootLayoutNav() {
     const inAuthGroup = segments[0] === 'auth';
 
     if (!isAuthenticated && !inAuthGroup) {
-      router.replace('/auth/login');
+      getStoredOrganizationSlug().then((slug) => {
+        router.replace(loginRoute(slug));
+      });
     } else if (isAuthenticated && inAuthGroup) {
       router.replace('/tabs');
     }

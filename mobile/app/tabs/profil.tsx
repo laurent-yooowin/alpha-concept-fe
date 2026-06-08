@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { userService } from '@/services/userService';
 import { useAuth } from '@/contexts/AuthContext';
+import { getStoredOrganizationSlug, loginRoute } from '@/services/organizationContext';
 
 const { width } = Dimensions.get('window');
 
@@ -76,8 +77,9 @@ export default function ProfilScreen() {
 
   const handleLogout = async () => {
     try {
+      const slug = await getStoredOrganizationSlug();
       await logout();
-      router.replace('/auth/login');
+      router.replace(loginRoute(slug));
     } catch (error) {
       console.log('Erreur lors de la déconnexion:', error);
       Alert.alert('Erreur', 'Impossible de se déconnecter. Veuillez réessayer.');

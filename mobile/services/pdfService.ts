@@ -5,6 +5,7 @@ import { Alert, Platform } from 'react-native';
 import * as Print from 'expo-print';
 import { AIAnalysis } from './aiService';
 import { uploadService } from './uploadService';
+import { organizationService } from './organizationService';
 
 const imageContentTypeFromUrl = (url: string) => {
   const cleanUrl = url.split('?')[0].toLowerCase();
@@ -75,10 +76,10 @@ export const pdfService = {
     return finalContent;
   },
 
-  async generateHTMLContent(reportData: ReportData): string {
+  async generateHTMLContent(reportData: ReportData): Promise<string> {
     // 1️⃣ Convertir chaque image en base64
     let reportContent = '';
-    const divs = [];
+    const divs: Array<{ index: number; divContent: string }> = [];
 
     const getRiskColor = (riskLevel: string) => {
       switch (riskLevel.toLowerCase()) {
@@ -135,7 +136,7 @@ export const pdfService = {
               try {
                 const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
                 if (imgResp && imgResp.data && imgResp.data.data) {
-                  base64Img = imgResp.data.data.base64;
+                  base64Img = imgResp.data.data.base64 || '';
                   contentType = imgResp.data.data.contentType || contentType;
                 }
               } catch (err) {
@@ -182,14 +183,14 @@ export const pdfService = {
                     <div class="analysis-block">
                       <h4 class="analysis-heading">🔍 Observations</h4>
                       <ul class="analysis-list">
-                        ${firstPhoto.aiAnalysis?.observations?.map(obs => `<li>${obs}</li>`).join('')}
+                        ${firstPhoto.aiAnalysis?.observations?.map((obs: string) => `<li>${obs}</li>`).join('')}
                       </ul>
                     </div>
 
                     <div class="analysis-block">
                       <h4 class="analysis-heading">⚠️ Recommandations</h4>
                       <ul class="analysis-list">
-                        ${firstPhoto.aiAnalysis?.recommendations?.map(rec => `<li>${rec}</li>`).join('')}
+                        ${firstPhoto.aiAnalysis?.recommendations?.map((rec: string) => `<li>${rec}</li>`).join('')}
                       </ul>
                     </div>
 
@@ -197,7 +198,7 @@ export const pdfService = {
                       <div class="analysis-block">
                         <h4 class="comment-heading">🏛️ Références</h4>
                         <ul class="analysis-list">
-                          ${firstPhoto.aiAnalysis?.references?.map(rec => `<li>${rec}</li>`).join('')}
+                          ${firstPhoto.aiAnalysis?.references?.map((rec: string) => `<li>${rec}</li>`).join('')}
                         </ul>                        
                       </div>
                     ` : ''}
@@ -227,9 +228,18 @@ export const pdfService = {
       });
     }
 
-    const logoBase64 = await uploadService.downloadFile("https://alpha-concept.s3.eu-central-1.amazonaws.com/reports_files/logo_alpha.jpg", '/reports_files', true);
-    const logoBase64Img = logoBase64 && logoBase64.data ? logoBase64.data.data.base64 : '';
-    const logoContentType = logoBase64?.data?.data?.contentType || 'image/jpeg';
+    let logoUrl = "https://alpha-concept.s3.eu-central-1.amazonaws.com/reports_files/logo_alpha.jpg";
+    try {
+      const currentOrg = await organizationService.getCurrent();
+      if (currentOrg.data?.logoUrl) {
+        logoUrl = currentOrg.data.logoUrl;
+      }
+    } catch {}
+
+    const logoBase64 = await uploadService.downloadFile(logoUrl, '/reports_files', true);
+    const logoPayload = (logoBase64 as any)?.data?.data;
+    const logoBase64Img = logoPayload?.base64 || '';
+    const logoContentType = logoPayload?.contentType || imageContentTypeFromUrl(logoUrl);
     const logoImage = `
       <img src="data:${logoContentType};base64,${logoBase64Img}" class="logo-image" />    
     `;

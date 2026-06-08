@@ -1,5 +1,10 @@
 import { api } from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { tokenStorage } from './tokenStorage';
+import {
+  getStoredOrganizationSlug,
+  persistOrganizationSlug,
+} from './organizationContext';
 
 export interface LoginCredentials {
   email: string;
@@ -25,19 +30,19 @@ export interface AuthResponse {
     firstName: string;
     lastName: string;
     role: string;
+    organizationId?: string | null;
+    organizationSlug?: string | null;
   };
 }
 
-const TOKEN_KEY = 'auth_token';
-const TOKEN_TIMESTAMP_KEY = 'auth_token_timestamp';
-const TOKEN_EXPIRY_HOURS = 24;
 const HYPER_ADMIN_ROLE = 'ROLE_HYPER_ADMIN';
 
 export const authService = {
   async login(credentials: LoginCredentials) {
+    const organizationSlug = credentials.organizationSlug || await getStoredOrganizationSlug();
     const response = await api.post<AuthResponse>('/auth/login', {
       ...credentials,
-      organizationSlug: credentials.organizationSlug || 'alphaconcept',
+      organizationSlug,
     });
 
     if (response.data?.user?.role === HYPER_ADMIN_ROLE) {
@@ -48,8 +53,8 @@ export const authService = {
     }
 
     if (response.data?.access_token) {
-      await AsyncStorage.setItem(TOKEN_KEY, response.data.access_token);
-      await AsyncStorage.setItem(TOKEN_TIMESTAMP_KEY, Date.now().toString());
+      await tokenStorage.setToken(response.data.access_token);
+      await persistOrganizationSlug(organizationSlug);
     }
 
     return response;
@@ -72,60 +77,23 @@ export const authService = {
   },
 
   async logout() {
-    await AsyncStorage.removeItem(TOKEN_KEY);
-    await AsyncStorage.removeItem(TOKEN_TIMESTAMP_KEY);
+    await tokenStorage.clearToken();
     await AsyncStorage.removeItem('user_data');
   },
 
   async getToken() {
-    return AsyncStorage.getItem(TOKEN_KEY);
+    return tokenStorage.getToken();
   },
 
   async isTokenExpired(): Promise<boolean> {
-    const timestampStr = await AsyncStorage.getItem(TOKEN_TIMESTAMP_KEY);
-
-    if (!timestampStr) {
-      return true;
-    }
-
-    const timestamp = parseInt(timestampStr, 10);
-    const now = Date.now();
-    const hoursPassed = (now - timestamp) / (1000 * 60 * 60);
-
-    return hoursPassed >= TOKEN_EXPIRY_HOURS;
+    return tokenStorage.isTokenExpired();
   },
 
   async isAuthenticated() {
-    const token = await this.getToken();
-
-    if (!token) {
-      return false;
-    }
-
-    const expired = await this.isTokenExpired();
-
-    if (expired) {
-      await this.logout();
-      return false;
-    }
-
-    return true;
+    return tokenStorage.validateToken();
   },
 
   async validateToken(): Promise<boolean> {
-    const token = await this.getToken();
-
-    if (!token) {
-      return false;
-    }
-
-    const expired = await this.isTokenExpired();
-
-    if (expired) {
-      await this.logout();
-      return false;
-    }
-
-    return true;
+    return tokenStorage.validateToken();
   },
 };
