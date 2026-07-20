@@ -79,3 +79,4 @@ mobile/.env copy
 frontend/.env.prod
 frontend/package-lock.json
 mobile/.env.prod
+.agents/AGENTS.md
