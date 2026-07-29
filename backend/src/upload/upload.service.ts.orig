@@ -180,10 +180,6 @@ export class UploadService {
     }
   }
 
-  async deleteFile(url: string): Promise<{ fileName: string; message: string }> {
-    if (!url || url.trim() === '' || !url.includes(`https://${this.bucketName}.s3.${this.region}.amazonaws.com/`)) {
-      throw new BadRequestException('Aucune url fourni');
-    }
 
     // Validate file type
     // const allowedMimeTypes = [

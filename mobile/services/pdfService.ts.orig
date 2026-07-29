@@ -166,21 +166,15 @@ export const pdfService = {
                 ? `<div class="photo-container">${photoImagesHtml[0]}</div>`
                 : '';
 
-            const isDirectiveOnlyPhoto = (photo: any) => (
-              photo.isDirectiveOnly === true ||
-              photo.isDirectiveOnly === 'true' ||
-              (!photo.uri && !photo.s3Url && Boolean(photo.userDirectives?.trim()))
-            );
-            const actualPhotoCount = group.photos.filter((photo: any) => !isDirectiveOnlyPhoto(photo)).length;
-            const isDirectiveOnlyGroup = actualPhotoCount === 0;
+            const isDirectiveOnlyGroup = group.photos.every((p: any) => p.isDirectiveOnly);
             const photoCountLabel = isDirectiveOnlyGroup
-              ? 'Sans photo'
-              : `${actualPhotoCount} photo${actualPhotoCount > 1 ? 's' : ''}`;
+              ? 'Pas de photo'
+              : `${group.photos.length} photo${group.photos.length > 1 ? 's' : ''}`;
             const headerIcon = isDirectiveOnlyGroup ? '📝' : '📸';
 
             const divContent = `<div class="photo-section">
                 <div class="photo-header">
-                  <h3 class="photo-title">${headerIcon} Rapport ${group.index + 1} - ${photoCountLabel}</h3>
+                  <h3 class="photo-title">${headerIcon} Rapport ${group.index + 1} — ${photoCountLabel}</h3>
                 </div>
 
                 ${photoGridHtml}
@@ -272,7 +266,8 @@ export const pdfService = {
       margin-top: 0;
     }
 
-    .conclusion-section {
+    .conclusion-section,
+    .analysis-block {
       break-inside: avoid-page;
       page-break-inside: avoid;
     }
@@ -507,15 +502,11 @@ export const pdfService = {
     }
 
     .analysis-block {
-      break-inside: auto;
-      page-break-inside: auto;
       background: #F8FAFC;
       padding: 15px;
       border-radius: 8px;
       margin-bottom: 12px;
       border-left: 4px solid #3B82F6;
-      orphans: 2;
-      widows: 2;
     }
 
     .analysis-heading {

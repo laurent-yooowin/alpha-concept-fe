@@ -84,13 +84,6 @@ export default function ReportManagement() {
     (report as any)?.type ||
     'SPS'
   );
-  const getSuggestedPdfFileName = (report: Report) => generatePdfService.getSuggestedReportFilename({
-    reportType: 'vc',
-    client: report.client,
-    address: report.address,
-    project: report.mission || report.title,
-    date: report.visit?.visitDate || report.visit?.createdAt || report.createdAt,
-  });
 
   const normalizePdfFileName = (value: string, fallback: string) => {
     const baseName = value.trim()
@@ -313,8 +306,45 @@ export default function ReportManagement() {
     e?.stopPropagation();
     setDownloadingReportId(report.id);
     try {
-      const fileName = getSuggestedPdfFileName(report);
-      const generated = await generatePdfService.generateServerPDF(report.id, fileName);
+      const visitPhotos = report.visit?.photos || [];
+      const riskLevelMap: Record<string, string> = {
+        faible: 'low', moyen: 'medium', eleve: 'high',
+        low: 'low', medium: 'medium', high: 'high'
+      };
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const pdfData = {
+        title: report.title,
+        mission: report.mission,
+        missionType: getReportMissionType(report),
+        client: report.client,
+        date: report.createdAt || '',
+        conformity: report.conformityPercentage,
+        header: report.header || '',
+        content: report.content || '',
+        footer: report.footer || '',
+        observations: report.observations || '',
+        photos: photosForPdf,
+      };
+
+      const fileName = `${pdfData.mission || pdfData.title || 'rapport'}_${generatePdfService.getMissionTypeLabel(pdfData)}.pdf`;
+      const pdfHtml = await generatePdfService.generateReportPDF(pdfData);
+      const generated = await generatePdfService.generateServerPDF(report.id, pdfHtml || '', fileName);
       if (!generated?.url) {
         throw new Error('Le serveur n’a pas généré de PDF valide');
       }
@@ -332,8 +362,45 @@ export default function ReportManagement() {
     if (!selectedReport) return;
     setGeneratingPdf(true);
     try {
-      const fileName = getSuggestedPdfFileName(selectedReport);
-      const generated = await generatePdfService.generateServerPDF(selectedReport.id, fileName);
+      const visitPhotos = selectedReport.visit?.photos || [];
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const riskLevelMap: { [key: string]: string } = {
+          'faible': 'low', 'moyen': 'medium', 'eleve': 'high',
+          'low': 'low', 'medium': 'medium', 'high': 'high'
+        };
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const pdfData = {
+        title: selectedReport.title,
+        mission: selectedReport.mission,
+        missionType: getReportMissionType(selectedReport),
+        client: selectedReport.client,
+        date: selectedReport.createdAt || '',
+        conformity: selectedReport.conformityPercentage,
+        header: selectedReport.header || editedHeader || '',
+        content: selectedReport.content || editedContent || '',
+        footer: selectedReport.footer || editedFooter || '',
+        observations: selectedReport.observations || editedObservations || '',
+        photos: photosForPdf,
+      };
+
+      const fileName = `${pdfData.mission || pdfData.title || 'rapport'}_${generatePdfService.getMissionTypeLabel(pdfData)}.pdf`;
+      const pdfHtml = await generatePdfService.generateReportPDF(pdfData);
+      const generated = await generatePdfService.generateServerPDF(selectedReport.id, pdfHtml || '', fileName);
       if (!generated?.url) {
         throw new Error('Le serveur n’a pas généré de PDF valide');
       }
@@ -427,16 +494,33 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
     }
   };
 
-  const validateSentReport = async () => {
-    Swal.fire({
-      title: 'Rapport envoyé au client',
-      text: `Le rapport a été envoyé au client avec succès.`,
-      icon: 'success',
-      confirmButtonText: 'OK',
-    }).then(async () => {
+  const validateSentReport = async (clientEmail: string, reportFileUrl: string) => {
+    try {
+      await reportsAPI.update(selectedReport.id, {
+        status: 'envoye_au_client',
+        recipientEmail: clientEmail,
+        reportFileUrl: reportFileUrl,
+      });
+
+      Swal.fire({
+        title: 'Rapport envoyé au client',
+        text: `Le rapport a été envoyé au client avec succès.`,
+        icon: 'success',
+        confirmButtonText: 'OK',
+      }).then(async () => {
+        await terminateReportFn();
+      });
+
+    } catch (error) {
       await terminateReportFn();
-    });
-  };
+      Swal.fire({
+        title: 'Mail envoyé !',
+        text: `Erreur lors de la mise à jours du rapport, veuillez contacter le support .`,
+        icon: 'error',
+      });
+    }
+
+  }
 
   const handleSendToClient = async () => {
     if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
@@ -446,7 +530,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
     setRecipientSearch('');
     setNewRecipientEmail('');
     setNewRecipientName('');
-    setPdfFileName(getSuggestedPdfFileName(selectedReport));
+    setPdfFileName(generatePdfService.getReportFilename(selectedReport.mission, getReportMissionType(selectedReport)));
     try {
       const data = await mailingListAPI.getByMission(selectedReport.missionId);
       const entries = Array.isArray(data) ? data : [];
@@ -501,7 +585,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
     const selectedCc = mailingEntries
       .filter((entry) => selectedRecipientIds.includes(entry.id))
       .map((entry) => entry.email);
-    const fileName = normalizePdfFileName(pdfFileName, getSuggestedPdfFileName(selectedReport));
+    const fileName = normalizePdfFileName(pdfFileName, generatePdfService.getReportFilename(selectedReport.mission, getReportMissionType(selectedReport)));
     setPdfFileName(fileName);
     setShowRecipientsModal(false);
     await sendReportToClient(selectedCc, fileName);
@@ -511,8 +595,70 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
     if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
       selectedReport.missionStatus == 'terminee' || selectedReport.missionStatus == 'archivee') return;
 
+    let photos: any[] = [];
     try {
+      // const visitResponse = await visitService.getVisit(selectedReport.visitId);
+      const visitResponse = selectedReport.visit;
+      // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
+      if (visitResponse && visitResponse.photos) {
+        visitResponse.photos
+          .map((photo: any) => {
+            const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+              'faible': 'low',
+              'moyen': 'medium',
+              'eleve': 'high',
+              'low': 'low',
+              'medium': 'medium',
+              'high': 'high'
+            };
 
+            const observationText = photo.analysis?.observation || '';
+            const recommendationText = photo.analysis?.recommendation || '';
+            const refText = photo.analysis?.references || '';
+
+            const observations = Array.isArray(observationText) ? observationText : observationText.split('. ');
+            const recommendations = Array.isArray(recommendationText) ? recommendationText : recommendationText.split('. ');
+            const refs = Array.isArray(refText) ? refText : refText.split('. ');
+
+            const ret = {
+              ...photo,
+              id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+              uri: photo.uri || photo.s3Url,
+              s3Url: photo.s3Url,
+              timestamp: new Date(photo.createdAt || Date.now()),
+              aiAnalysis: photo.analysis ? {
+                observations: observations ? observations.filter((s: string) => s.length > 0) : [],
+                recommendations: recommendations ? recommendations.filter((s: string) => s.length > 0) : [],
+                riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                confidence: (photo.analysis.confidence || 0),
+                references: refs ? refs.filter((s: string) => s.length > 0) : [],
+              } : undefined,
+              comment: photo.comment || '',
+              validated: photo.validated || true
+            };
+            photos.push(ret);
+          });
+      }
+    } catch (error) {
+      console.log('Could not load visit photos:', error);
+    }
+
+    try {
+      const pdfData: any = {
+        title: selectedReport.title,
+        mission: selectedReport.mission,
+        missionType: getReportMissionType(selectedReport),
+        client: selectedReport.client,
+        date: selectedReport.createdAt || '',
+        conformity: selectedReport.conformityPercentage,
+        header: selectedReport.header || '',
+        content: selectedReport.content || 'Contenu non disponible',
+        footer: selectedReport.footer || '',
+        observations: selectedReport.observations || '',
+        photos: photos,
+      };
+
+      const pdfHtml = await generatePdfService.generateReportPDF(pdfData);
       try {
         setLoading(true);
 
@@ -531,12 +677,13 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 Cordialement.
 ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}`}
 `;
-        const missionType = getReportMissionType(selectedReport);
-        const subject = `Rapport ${missionType} – ${selectedReport.mission} – ${selectedReport.createdAt || ''}`;
+        const missionType = generatePdfService.getMissionTypeLabel(pdfData);
+        const subject = `Rapport ${missionType} – ${pdfData.mission} – ${pdfData.date}`;
 
         const response = await generatePdfService.generateStoreAndSendReportPDF(
           selectedReport.id,
           {
+            html: pdfHtml || '',
             fileName,
             email: selectedReport.contactEmail || '',
             subject,
@@ -544,9 +691,10 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
             cc: selectedCc,
           },
         );
+        const pdfUrl = (response as any)?.url;
 
         if (response.ok || response.success) {
-          await validateSentReport();
+          await validateSentReport(selectedReport?.contactEmail, pdfUrl);
         } else {
           Swal.fire({
             title: 'Erreur',

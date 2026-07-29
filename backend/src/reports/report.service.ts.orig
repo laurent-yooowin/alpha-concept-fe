@@ -185,19 +185,6 @@ export class ReportService {
     );
     return generated;
   }
-  async generateAndStorePdfByVisit(
-    visitId: string,
-    user: User,
-    requestedFileName?: string,
-    forceRegenerate = false,
-  ): Promise<{ url: string; key: string; size: number; fileName: string; cached: boolean }> {
-    const report = await this.findByVisit(visitId, user);
-    if (!report) {
-      throw new NotFoundException('Report not found for this visit');
-    }
-    return this.generateAndStorePdf(report.id, user, requestedFileName, forceRegenerate);
-  }
-
 
   async update(id: string, user: User, updateReportDto: UpdateReportDto): Promise<Report> {
     const report = await this.findOne(id, user);
@@ -287,16 +274,16 @@ export class ReportService {
     recipientEmail: string,
     subject: string,
     message: string,
+    html: string,
     requestedFileName?: string,
     cc: string[] = [],
-    forceRegenerate = false,
   ) {
     const primaryRecipient = recipientEmail.trim().toLowerCase();
     const { pdf, ...generated } = await this.generateAndStorePdfArtifact(
       reportId,
       user,
+      html,
       requestedFileName,
-      forceRegenerate,
     );
     const normalizedCc = Array.from(new Set(
       cc

@@ -257,23 +257,10 @@ ${highRisks > 0
 
 Date: ${new Date().toLocaleDateString('fr-FR')}`;
 
-    // Check if a report already exists for this visit
-    const existingReport = await this.reportService.findByVisit(visitId, user);
-
-    if (existingReport) {
-      // Update existing report
-      return this.reportService.update(existingReport.id, user, {
-        content: reportContent,
-        header,
-        footer,
-      });
-    }
-
-    // Create new report
     const createReportDto: CreateReportDto = {
       missionId: visit.missionId,
       visitId: visit.id,
-      title: `Rapport de visite - ${mission?.title || 'Sans titre'} - ${new Date().toLocaleDateString('fr-FR')}`,
+      title: `Rapport de visite - ${mission?.title || "Sans titre"} - ${new Date().toLocaleDateString("fr-FR")}`,
       content: reportContent,
       header,
       footer,
@@ -281,7 +268,9 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
       conformityPercentage: highRisks > 0 ? 50 : mediumRisks > 0 ? 75 : 95,
     };
 
-    const report = await this.reportService.create(user, createReportDto);
+    // A visit has one report. Use the visitId unique index as an atomic
+    // concurrency guard when web and mobile generate at the same time.
+    const report = await this.reportService.createOrUpdateGeneratedReport(user, createReportDto);
 
     // Mark visit as report generated without re-saving loaded relations.
     // Re-saving the whole visit entity on first generation can cause TypeORM

@@ -89,7 +89,7 @@ function durationColor(ms: number) {
 
 // ── Console format: stylish, human-readable ──────────────────────────────
 const consoleFormat = winston.format.printf((info) => {
-    const { timestamp, level, message, context, requestId, http, stack, ms } = info as any;
+    const { timestamp, level, message, context, requestId, http, stack, ms, error } = info as any;
     const lvl = LEVEL_BADGE[level] || LEVEL_BADGE.info;
     const ts = `${COLORS.gray}${timestamp}${COLORS.reset}`;
     const ctx = context ? `${COLORS.magenta}[${context}]${COLORS.reset} ` : '';
@@ -104,7 +104,27 @@ const consoleFormat = winston.format.printf((info) => {
         const dur = http.durationMs != null ? durationColor(http.durationMs) : '';
         const ip = http.ip ? `${COLORS.dim}${http.ip}${COLORS.reset}` : '';
         const user = http.userId ? ` ${COLORS.dim}user=${http.userId}${COLORS.reset}` : '';
-        return `${ts} ${lvl} ${ctx}${rid}${method} ${url} ${status} ${dur} ${ip}${user}`;
+        const details = error || http.error;
+        const errorSummary = details?.message
+            ? `
+  ${COLORS.red}error=${details.name || "Error"}: ${details.message}${COLORS.reset}`
+            : "";
+        const databaseDetails = [
+            details?.code && `code=${details.code}`,
+            details?.errno != null && `errno=${details.errno}`,
+            details?.sqlState && `sqlState=${details.sqlState}`,
+        ].filter(Boolean).join(" ");
+        const dbLine = databaseDetails
+            ? `
+  ${COLORS.red}${databaseDetails}${COLORS.reset}`
+            : "";
+        const bodyKeys = http.bodyKeys?.length
+            ? `
+  ${COLORS.dim}bodyKeys=${http.bodyKeys.join(",")}${COLORS.reset}`
+            : "";
+        const stackTrace = stack ? `
+${COLORS.red}${stack}${COLORS.reset}` : "";
+        return `${ts} ${lvl} ${ctx}${rid}${method} ${url} ${status} ${dur} ${ip}${user}${errorSummary}${dbLine}${bodyKeys}${stackTrace}`;
     }
 
     let out = `${ts} ${lvl} ${ctx}${rid}${message}`;

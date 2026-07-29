@@ -79,13 +79,6 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
   const [pdfFileName, setPdfFileName] = useState('');
 
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
-  const getSuggestedPdfFileName = (report: Report | null = selectedReport) => generatePdfService.getSuggestedReportFilename({
-    reportType: 'vc',
-    client: report?.client || mission.client,
-    address: report?.address || mission.address,
-    project: mission.title || report?.title,
-    date: report?.visit?.visitDate || report?.visit?.createdAt || report?.createdAt,
-  });
 
   useEffect(() => {
     fetchReports();
@@ -207,7 +200,7 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
     setRecipientSearch('');
     setNewRecipientEmail('');
     setNewRecipientName('');
-    setPdfFileName(getSuggestedPdfFileName());
+    setPdfFileName(generatePdfService.getReportFilename(mission.title, mission.type || 'SPS'));
     try {
       const data = await mailingListAPI.getByMission(missionId);
       const entries = Array.isArray(data) ? data : [];
@@ -256,7 +249,7 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
     const selectedCc = mailingEntries
       .filter((entry) => selectedRecipientIds.includes(entry.id))
       .map((entry) => entry.email);
-    const normalizedFileName = normalizePdfFileName(pdfFileName, getSuggestedPdfFileName());
+    const normalizedFileName = normalizePdfFileName(pdfFileName, generatePdfService.getReportFilename(mission.title, mission.type || 'SPS'));
     setPdfFileName(normalizedFileName);
     setShowRecipientsModal(false);
     await sendReportToClient(selectedCc, normalizedFileName);
@@ -274,10 +267,70 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
   const sendReportToClient = async (selectedCc: string[], fileName: string) => {
     if (!selectedReport || selectedReport.status === 'envoye_au_client' || selectedReport.missionStatus === 'terminee') return;
 
+    let photos: any[] = [];
+    try {
+      const visitResponse = selectedReport.visit;
+      if (visitResponse?.photos) {
+        visitResponse.photos.forEach((photo: any) => {
+          const riskLevelMap: { [key: string]: string } = {
+            'faible': 'low', 'moyen': 'medium', 'eleve': 'high',
+            'low': 'low', 'medium': 'medium', 'high': 'high'
+          };
+          const observationText = photo.analysis?.observation || '';
+          const recommendationText = photo.analysis?.recommendation || '';
+          const refText = photo.analysis?.references || '';
+          const observations = Array.isArray(observationText) ? observationText : observationText.split('. ');
+          const recommendations = Array.isArray(recommendationText) ? recommendationText : recommendationText.split('. ');
+          const refs = Array.isArray(refText) ? refText : refText.split('. ');
+
+          photos.push({
+            ...photo,
+            id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+            groupId: photo.groupId || photo.id,
+            isDirectiveOnly: photo.isDirectiveOnly || false,
+            uri: photo.uri || photo.s3Url,
+            s3Url: photo.s3Url,
+            timestamp: new Date(photo.createdAt || Date.now()),
+            aiAnalysis: photo.analysis ? {
+              observations: observations.filter((s: string) => s.length > 0),
+              recommendations: recommendations.filter((s: string) => s.length > 0),
+              riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+              confidence: photo.analysis.confidence || 0,
+              references: refs.filter((s: string) => s.length > 0),
+            } : undefined,
+            comment: photo.comment || '',
+            validated: photo.validated || true
+          });
+        });
+      }
+    } catch (error) {
+      console.log('Could not load visit photos:', error);
+    }
 
     try {
+      const pdfData: any = {
+        title: selectedReport.title || mission.title,
+        mission: mission.title,
+        missionType: mission.type || 'SPS',
+        client: mission.client,
+        date: selectedReport.createdAt || '',
+        conformity: selectedReport.conformityPercentage,
+        header: selectedReport.header || '',
+        content: selectedReport.content || 'Contenu non disponible',
+        footer: selectedReport.footer || '',
+        observations: selectedReport.observations || '',
+        photos,
+      };
 
+      const pdfHtml = await generatePdfService.generateReportPDF(pdfData);
       setSendingToClient(true);
+
+      const resp = await generatePdfService.generateServerPDF(selectedReport.id, pdfHtml || '', fileName);
+      if (!resp) {
+        Swal.fire({ icon: 'error', title: 'Erreur', text: 'Échec de la génération du PDF' });
+        setSendingToClient(false);
+        return;
+      }
 
       const message = `Bonjour ${selectedReport.contactFirstName || ''},
 Veuillez trouver ci-joint le rapport de visite suivant:
@@ -293,20 +346,28 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 Cordialement.
 ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}` : ''}`;
 
-      const missionType = mission.type || 'SPS';
-      const subject = `Rapport ${missionType} – ${mission.title} – ${selectedReport.createdAt || ''}`;
-      const response = await generatePdfService.generateStoreAndSendReportPDF(
-        selectedReport.id,
-        {
-          fileName,
-          email: selectedReport.contactEmail || '',
-          subject,
-          message,
-          cc: selectedCc,
-        },
+      const missionType = generatePdfService.getMissionTypeLabel(pdfData);
+      const subject = `Rapport ${missionType} – ${pdfData.mission} – ${pdfData.date}`;
+      const pdfUrl = (resp as any)?.url;
+
+      const response = await generatePdfService.sendReportPDFByEmail(
+        selectedReport.contactEmail || '',
+        subject,
+        message,
+        '',
+        pdfUrl || '',
+        false,
+        fileName,
+        selectedReport.missionId || mission.id,
+        selectedCc
       );
 
       if (response.ok || response.success) {
+        await reportsAPI.update(selectedReport.id, {
+          status: 'envoye_au_client',
+          recipientEmail: selectedReport.contactEmail,
+          reportFileUrl: pdfUrl,
+        });
         Swal.fire({
           title: 'Rapport envoyé',
           text: `Le rapport a été envoyé au client avec succès.`,
@@ -320,11 +381,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
         Swal.fire({ icon: 'error', title: 'Erreur', text: 'Échec de l\'envoi du mail.' });
       }
     } catch (error) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Erreur',
-        text: error instanceof Error ? error.message : 'Échec de l\'envoi du mail.',
-      });
+      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Échec de l\'envoi du mail.' });
     } finally {
       setSendingToClient(false);
     }
@@ -339,11 +396,39 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     e?.stopPropagation();
     setGeneratingPdf(true);
     try {
+      const visitPhotos = report.visit?.photos || [];
+      const riskLevelMap: Record<string, string> = { faible: 'low', moyen: 'medium', eleve: 'high', low: 'low', medium: 'medium', high: 'high' };
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
       const ok = await generatePdfService.downloadReportPDF({
         reportId: report.id,
         title: report.title || mission.title,
         mission: mission.title,
-      }, getSuggestedPdfFileName(report));
+        missionType: mission.type || 'SPS',
+        client: mission.client,
+        date: report.createdAt || '',
+        conformity: report.conformityPercentage,
+        header: report.header || '',
+        content: report.content || '',
+        footer: report.footer || '',
+        observations: report.observations || '',
+        photos: photosForPdf,
+      }, `${mission.title || 'rapport'}_${mission.type || 'SPS'}`);
 
       if (ok) {
         Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 1800, showConfirmButton: false });
@@ -362,11 +447,39 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     if (!selectedReport) return;
     setGeneratingPdf(true);
     try {
+      const visitPhotos = selectedReport.visit?.photos || reportPhotos || [];
+      const riskLevelMap: Record<string, string> = { faible: 'low', moyen: 'medium', eleve: 'high', low: 'low', medium: 'medium', high: 'high' };
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
       const ok = await generatePdfService.downloadReportPDF({
         reportId: selectedReport.id,
         title: selectedReport.title || mission.title,
         mission: mission.title,
-      }, getSuggestedPdfFileName(selectedReport));
+        missionType: mission.type || 'SPS',
+        client: mission.client,
+        date: selectedReport.createdAt || '',
+        conformity: selectedReport.conformityPercentage,
+        header: selectedReport.header || editedHeader || '',
+        content: selectedReport.content || editedContent || '',
+        footer: selectedReport.footer || editedFooter || '',
+        observations: selectedReport.observations || editedObservations || '',
+        photos: photosForPdf,
+      }, `${mission.title || 'rapport'}_${mission.type || 'SPS'}`);
 
       if (ok) {
         Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 1800, showConfirmButton: false });

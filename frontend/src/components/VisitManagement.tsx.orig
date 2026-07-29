@@ -195,13 +195,6 @@ export default function VisitManagement() {
       .trim();
     return `${baseName || fallback.replace(/\.pdf$/i, '')}.pdf`;
   };
-  const getSuggestedVisitPdfFileName = () => generatePdfService.getSuggestedReportFilename({
-    reportType: 'vc',
-    client: selectedVisit?.mission?.client,
-    address: selectedVisit?.mission?.address,
-    project: selectedVisit?.mission?.title || visitReport?.title,
-    date: selectedVisit?.visitDate || visitReport?.createdAt,
-  });
   // Photo upload
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -786,13 +779,42 @@ export default function VisitManagement() {
     if (!visitReport || !selectedVisit) return;
     setGeneratingVisitPdf(true);
     try {
+      const visitPhotos = visitReport.visit?.photos || selectedVisit.photos || [];
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const riskLevelMap: Record<string, string> = { faible: 'low', moyen: 'medium', eleve: 'high', low: 'low', medium: 'medium', high: 'high' };
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const pdfData = {
+        reportId: visitReport.id,
+        title: visitReport.title || selectedVisit.mission?.title || 'Rapport',
+        mission: selectedVisit.mission?.title || '',
+        missionType: selectedVisit.mission?.type || 'SPS',
+        client: selectedVisit.mission?.client || '',
+        date: new Date(visitReport.createdAt).toLocaleDateString('fr-FR'),
+        conformity: visitReport.conformityPercentage,
+        header: visitReport.header || editedHeader || '',
+        content: visitReport.content || editedContent || '',
+        footer: visitReport.footer || editedFooter || '',
+        observations: visitReport.observations || editedObservations || '',
+        photos: photosForPdf,
+      };
       const ok = await generatePdfService.downloadReportPDF(
-        {
-          reportId: visitReport.id,
-          title: visitReport.title || selectedVisit.mission?.title || 'Rapport',
-          mission: selectedVisit.mission?.title || '',
-        },
-        getSuggestedVisitPdfFileName(),
+        pdfData,
+        `${selectedVisit.mission?.title || 'rapport'}_${generatePdfService.getMissionTypeLabel(pdfData)}`,
       );
       if (ok) {
         Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 2000, showConfirmButton: false });
@@ -812,7 +834,7 @@ export default function VisitManagement() {
     setRecipientSearch('');
     setNewRecipientEmail('');
     setNewRecipientName('');
-    setPdfFileName(getSuggestedVisitPdfFileName());
+    setPdfFileName(generatePdfService.getReportFilename(selectedVisit.mission?.title || visitReport.title || 'rapport', selectedVisit.mission?.type || 'SPS'));
     try {
       const data = await mailingListAPI.getByMission(selectedVisit.missionId);
       const entries = Array.isArray(data) ? data : [];
@@ -859,7 +881,7 @@ export default function VisitManagement() {
     const selectedCc = mailingEntries
       .filter((entry) => selectedRecipientIds.includes(entry.id))
       .map((entry) => entry.email);
-    const fileName = normalizePdfFileName(pdfFileName, getSuggestedVisitPdfFileName());
+    const fileName = normalizePdfFileName(pdfFileName, generatePdfService.getReportFilename(selectedVisit.mission?.title || visitReport.title || 'rapport', selectedVisit.mission?.type || 'SPS'));
     setPdfFileName(fileName);
     setShowRecipientsModal(false);
     await sendVisitReportToClient(selectedCc, fileName);
@@ -869,6 +891,39 @@ export default function VisitManagement() {
     if (!visitReport || !selectedVisit) return;
     setSendingVisitReport(true);
     try {
+      const visitPhotos = visitReport.visit?.photos || selectedVisit.photos || [];
+      const photosForPdf = visitPhotos.map((photo: any) => {
+        const riskLevelMap: Record<string, string> = { faible: 'low', moyen: 'medium', eleve: 'high', low: 'low', medium: 'medium', high: 'high' };
+        const obs = photo.analysis?.observation || [];
+        const recs = photo.analysis?.recommendation || [];
+        const refs = photo.analysis?.references || [];
+        return {
+          ...photo,
+          aiAnalysis: photo.analysis ? {
+            observations: Array.isArray(obs) ? obs : [obs],
+            recommendations: Array.isArray(recs) ? recs : [recs],
+            references: Array.isArray(refs) ? refs : [refs],
+            riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+            confidence: photo.analysis.confidence || 0,
+          } : undefined,
+          comment: photo.comment || '',
+        };
+      });
+
+      const pdfData = {
+        title: visitReport.title || selectedVisit.mission?.title || 'Rapport',
+        mission: selectedVisit.mission?.title || '',
+        missionType: selectedVisit.mission?.type || 'SPS',
+        client: selectedVisit.mission?.client || '',
+        date: new Date(visitReport.createdAt).toLocaleDateString('fr-FR'),
+        conformity: visitReport.conformityPercentage,
+        header: visitReport.header || editedHeader || '',
+        content: visitReport.content || editedContent || '',
+        footer: visitReport.footer || editedFooter || '',
+        observations: visitReport.observations || editedObservations || '',
+        photos: photosForPdf,
+      };
+      const pdfHtml = await generatePdfService.generateReportPDF(pdfData);
 
       const primaryEmail = selectedVisit.mission?.contactEmail || visitReport.mission?.contactEmail || selectedCc[0] || '';
       const cc = primaryEmail === selectedCc[0] ? selectedCc.slice(1) : selectedCc;
@@ -888,12 +943,12 @@ Le rapport complet avec les photos est disponible en pièce jointe PDF.
 
 Cordialement.
 ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}` : ''}`;
-      const missionType = selectedVisit.mission?.type || 'SPS';
-      const reportDate = new Date(visitReport.createdAt).toLocaleDateString('fr-FR');
-      const subject = `Rapport ${missionType} - ${selectedVisit.mission?.title || ''} - ${reportDate}`;
+      const missionType = generatePdfService.getMissionTypeLabel(pdfData);
+      const subject = `Rapport ${missionType} - ${pdfData.mission} - ${pdfData.date}`;
       const response = await generatePdfService.generateStoreAndSendReportPDF(
         visitReport.id,
         {
+          html: pdfHtml || '',
           fileName,
           email: primaryEmail,
           subject,
@@ -904,6 +959,11 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
       const pdfUrl = (response as any)?.url;
 
       if (response.ok || response.success) {
+        await reportsAPI.update(visitReport.id, {
+          status: 'envoye_au_client',
+          recipientEmail: primaryEmail,
+          reportFileUrl: pdfUrl,
+        });
         setVisitReport((prev: any) => prev ? { ...prev, status: 'envoye_au_client', recipientEmail: primaryEmail, reportFileUrl: pdfUrl } : prev);
         setSelectedVisit((prev) => prev ? {
           ...prev,

@@ -112,15 +112,14 @@ export class UpdateReportDto {
 }
 
 export class GenerateReportPdfDto {
+  @IsString()
+  @MaxLength(45_000_000)
+  html: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(180)
   fileName?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  forceRegenerate?: boolean;
 }
 
 export class SendReportPdfDto extends GenerateReportPdfDto {

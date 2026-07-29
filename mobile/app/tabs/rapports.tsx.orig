@@ -24,6 +24,7 @@ import { getSuggestedReportFilename, reportService, ReportStatus } from '@/servi
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { downloadBase64File, getReportStatusInfo } from '@/utils/missionHelpers';
 import * as Linking from 'expo-linking';
+import { pdfService } from '@/services/pdfService';
 import { visitService } from '@/services/visitService';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -697,10 +698,79 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
       setShowPdfLoadingModal(true);
       setPdfLoadingProgress('Préparation du document...');
 
+      let photos: any[] = [];
+      // console.log('selectedReport >>> : ', selectedReport);
+      if (selectedReport.visit) {
+        try {
+          if (selectedReport.visit.photos) {
+            photos = selectedReport.visit.photos
+              .map((photo: any) => {
+                const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
+                  'faible': 'low',
+                  'moyen': 'medium',
+                  'eleve': 'high',
+                  'low': 'low',
+                  'medium': 'medium',
+                  'high': 'high'
+                };
+
+                let refs = photo.analysis?.references;
+                if (refs && !Array.isArray(refs)) {
+                  refs = refs.split(', ').filter((s: string) => s.length > 0);
+                }
+
+                let observations = photo.analysis?.observation;
+                if (observations && !Array.isArray(observations)) {
+                  observations = observations.split(', ').filter((s: string) => s.length > 0);
+                }
+
+                let recommendations = photo.analysis?.recommendation;
+                if (recommendations && !Array.isArray(recommendations)) {
+                  recommendations = recommendations.split(', ').filter((s: string) => s.length > 0);
+                }
+
+                return {
+                  id: photo.id || `photo-${Date.now()}-${Math.random()}`,
+                  uri: photo.uri || photo.s3Url,
+                  s3Url: photo.s3Url,
+                  groupId: photo.groupId || photo.id || `photo-${Date.now()}-${Math.random()}`,
+                  timestamp: new Date(photo.createdAt || Date.now()),
+                  aiAnalysis: photo.analysis ? {
+                    observations: observations ? observations : [],
+                    recommendations: recommendations ? recommendations : [],
+                    references: refs ? refs : [],
+                    riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
+                    confidence: (photo.analysis.confidence || 0)
+                  } : undefined,
+                  comment: photo.comment || '',
+                  validated: photo.validated || true
+                };
+              });
+          }
+        } catch (error) {
+          console.log('Could not load visit photos:', error);
+        }
+      }
+
+      setPdfLoadingProgress('Chargement des photos...');
+
+      const pdfData: any = {
+        title: selectedReport.title,
+        mission: selectedReport.mission,
+        type: selectedReport.type || selectedReport.missionData?.type || '',
+        client: selectedReport.client,
+        date: selectedReport.date,
+        conformity: selectedReport.conformity,
+        header: selectedReport.reportHeader || '',
+        content: selectedReport.reportContent || 'Contenu non disponible',
+        footer: selectedReport.reportFooter || '',
+        photos: photos,
+      };
 
       setPdfLoadingProgress('Génération du PDF...');
 
-      const generatedPdf = await reportService.generateServerPdf(selectedReport.id, fileName);
+      const pdfHtml = await pdfService.generateHTMLContent(pdfData);
+      const generatedPdf = await reportService.generateServerPdf(selectedReport.id, pdfHtml, fileName);
       const reportFileUrl = generatedPdf.data?.url || '';
       if (!reportFileUrl) {
         throw new Error(generatedPdf.error || 'Le serveur n’a pas généré de PDF valide');
@@ -737,7 +807,7 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
         selectedReport?.date
       );
       const missionAddress = cleanMailValue(selectedReport?.location);
-      const photoCount = selectedReport?.visit?.photos?.length || selectedReport?.photos || 0;
+      const photoCount = photos.length || selectedReport?.visit?.photos?.length || selectedReport?.photos || 0;
       const coordinatorName = userProfile
         ? `${cleanMailValue(userProfile.firstName, '')} ${cleanMailValue(userProfile.lastName, '')}`.trim()
         : '';
@@ -968,19 +1038,10 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
     setShowReportModal(true);
   };
 
-  const downloadReportFile = async (report: any) => {
-    if (!report?.id) return;
+  const downloadReportFile = async (reportUrl: string) => {
+    if (!reportUrl) return;
     try {
       setLoadingReport(true);
-      const fileName = getDefaultPdfFileName(report);
-      const generatedPdf = await reportService.generateServerPdf(report.id, fileName);
-      const reportUrl = generatedPdf.data?.url;
-      if (!reportUrl) {
-        throw new Error(generatedPdf.error || 'Le serveur n’a pas généré de PDF valide');
-      }
-      setReports(prev =>
-        prev.map(item => item.id === report.id ? { ...item, reportFileUrl: reportUrl } : item)
-      );
       const response: any = await uploadService.downloadFile(
         reportUrl,
         "/reports",
@@ -990,13 +1051,12 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
         const { base64, contentType, fileName } = response.data.data;
         downloadBase64File(base64, contentType, fileName);
       }
+      setLoadingReport(false);
     } catch (error) {
       console.error(error);
-      Alert.alert('Erreur', 'Impossible de récupérer le rapport PDF.');
-    } finally {
       setLoadingReport(false);
     }
-  };
+  }
 
   const filteredMailingEntries = mailingEntries.filter((entry: any) => {
     const query = recipientSearch.trim().toLowerCase();
@@ -1113,9 +1173,10 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
                           </View>
                         </View>
                         <View style={styles.rapportBtnContainer}>
-                          <TouchableOpacity
-                            onPress={() => downloadReportFile(rapport)}
-                          >
+                          {rapport.reportFileUrl &&
+                            <TouchableOpacity
+                              onPress={() => downloadReportFile(rapport.reportFileUrl)}
+                            >
                               <LinearGradient
                                 colors={rapport.originalStatus ? getReportStatusInfo(rapport.originalStatus).gradient : ['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)']}
                                 style={styles.statusBadge}
@@ -1123,7 +1184,8 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
                                 <Download size={10} color="#FFFFFF" />
                                 <Text style={styles.statusText}>Fichier PDF</Text>
                               </LinearGradient>
-                          </TouchableOpacity>
+                            </TouchableOpacity>
+                          }
 
                           <LinearGradient
                             colors={rapport.originalStatus ? getReportStatusInfo(rapport.originalStatus).gradient : ['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)']}

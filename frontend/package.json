@@ -30,7 +30,6 @@
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
-    "html2pdf.js": "^0.12.1",
     "postcss": "^8.4.35",
     "react-is": "^19.2.7",
     "sweetalert2": "^11.26.3",

@@ -1,5 +1,7 @@
-import { api, apiRequest } from './api';
+import { api, apiRequest, getApiBaseUrl } from './api';
+import { tokenStorage } from './tokenStorage';
 import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export interface UploadResult {
   data: {
@@ -74,27 +76,45 @@ export const uploadService = {
   },
 
   async uploadReportsFile(file: Blob | string, fileName: string): Promise<UploadResult> {
-    const formData = new FormData();
+    if (typeof file === "string" && Platform.OS !== "web") {
+      const token = await tokenStorage.getToken();
+      const result = await FileSystem.uploadAsync(
+        `${getApiBaseUrl()}/upload/reports_file`,
+        file,
+        {
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: "file",
+          mimeType: "application/pdf",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        },
+      );
 
-    if (typeof file === 'string' && Platform.OS !== 'web') {
-      // Mobile: file is a URI
-      formData.append('file', {
-        uri: file,
-        type: 'application/pdf',
-        name: fileName,
-      } as any);
-    } else {
-      // Web: file is a Blob
-      formData.append('file', file as Blob, fileName);
+      let payload: any = {};
+      try {
+        payload = result.body ? JSON.parse(result.body) : {};
+      } catch {
+        throw new Error(`Réponse invalide du serveur (HTTP ${result.status})`);
+      }
+
+      if (result.status < 200 || result.status >= 300) {
+        const message = Array.isArray(payload?.message)
+          ? payload.message.join(" • ")
+          : payload?.message || payload?.error || `Upload refusé (HTTP ${result.status})`;
+        throw new Error(message);
+      }
+
+      return payload as UploadResult;
     }
 
-    const response = await api.post<UploadResponse>('/upload/reports_file', formData);
+    const formData = new FormData();
+    formData.append("file", file as Blob, fileName);
+    const response = await api.post<UploadResponse>("/upload/reports_file", formData);
 
     if (!response.data || response.data?.data && Array.isArray(response.data.data)) {
-      throw new Error(response.error || 'Upload failed');
+      throw new Error(response.error || "Upload failed");
     }
 
-    return response.data;
+    return response.data as unknown as UploadResult;
   },
 
   async uploadMultipleFiles(files: (Blob | string)[], fileNames?: string[]): Promise<UploadResult[]> {

@@ -49,22 +49,7 @@ export class ReportController {
     @Param('id') id: string,
     @Body() body: GenerateReportPdfDto,
   ) {
-    return this.reportService.generateAndStorePdf(id, user, body.fileName, body.forceRegenerate);
-  }
-
-  @Post('by-visit/:visitId/pdf')
-  @RequirePermission('reports', 'write')
-  async generatePdfByVisit(
-    @CurrentUser() user: User,
-    @Param('visitId') visitId: string,
-    @Body() body: GenerateReportPdfDto,
-  ) {
-    return this.reportService.generateAndStorePdfByVisit(
-      visitId,
-      user,
-      body.fileName,
-      body.forceRegenerate,
-    );
+    return this.reportService.generateAndStorePdf(id, user, body.html, body.fileName);
   }
 
   @Put(':id')
@@ -97,9 +82,9 @@ export class ReportController {
       body.email,
       body.subject,
       body.message,
+      body.html,
       body.fileName,
       body.cc,
-      body.forceRegenerate,
     );
   }
 }

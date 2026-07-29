@@ -59,14 +59,23 @@ export class UploadController {
     };
   }
 
-  @Post('reports_file')
-  @UseInterceptors(FileInterceptor('file'))
+  @Post("reports_file")
+  @UseInterceptors(FileInterceptor("file", {
+    limits: { fileSize: 30 * 1024 * 1024 },
+  }))
   async uploadReportsFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      throw new BadRequestException('Aucun fichier fourni');
+      throw new BadRequestException("Aucun fichier fourni");
     }
 
-    return await this.uploadService.uploadFile(file, 'reports_files');
+    this.logger.log({
+      event: "report_file_upload_received",
+      name: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+    } as any);
+
+    return await this.uploadService.uploadFile(file, "reports_files");
   }
 
   @Post('client_reports_file')

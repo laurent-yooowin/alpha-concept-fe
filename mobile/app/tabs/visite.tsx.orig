@@ -5287,7 +5287,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                   <TouchableOpacity
                                     onPress={() => handleDeleteAttachedPhotoMobile(photo, group.groupId)}
                                     style={{
-                                      position: 'absolute', top: 8, left: 8,
+                                      position: 'absolute', top: 8, right: 8,
                                       backgroundColor: 'rgba(239, 68, 68, 0.9)', borderRadius: 12,
                                       width: 28, height: 28, alignItems: 'center', justifyContent: 'center',
                                     }}

@@ -30,6 +30,9 @@ const normalizeApiUrl = (rawUrl?: string) => {
   return url;
 };
 const API_URL = normalizeApiUrl(RAW_API_URL);
+
+// Native file uploads need the resolved development host (not localhost).
+export const getApiBaseUrl = () => API_URL;
 const PUBLIC_ENDPOINT_PREFIXES = ['/auth/', '/public/'];
 
 export interface ApiResponse<T> {
