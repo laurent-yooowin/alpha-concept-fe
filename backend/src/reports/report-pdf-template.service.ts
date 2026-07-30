@@ -4,7 +4,7 @@ import { UploadService } from '../upload/upload.service';
 import { MailService } from '../mail/mail.service';
 import { createHash } from 'crypto';
 
-export const REPORT_PDF_TEMPLATE_VERSION = 'backend-v3-org-cover';
+export const REPORT_PDF_TEMPLATE_VERSION = 'backend-v4-first-page-margin';
 
 @Injectable()
 export class ReportPdfTemplateService {
@@ -265,10 +265,10 @@ export class ReportPdfTemplateService {
 <head>
   <meta charset="UTF-8">
   <style>
-    @page { size: A4; margin: 15mm; }
+    @page { size: A4; margin: 8mm 15mm; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1E293B; background: #FFFFFF; padding: 20px; }
-    .first-page { height: calc(267mm - 40px); overflow: hidden; break-after: page; page-break-after: always; }
+    .first-page { height: calc(281mm - 40px); overflow: hidden; break-after: page; page-break-after: always; }
     .first-page-content { width: 100%; transform-origin: top left; }
     .observations-title { margin-top: 0; }
     .conclusion-section { break-inside: avoid-page; page-break-inside: avoid; }
