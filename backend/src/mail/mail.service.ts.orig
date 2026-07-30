@@ -181,8 +181,20 @@ export class MailService {
       //   options.sender = from;
       // }
 
-      await this.mailerService.sendMail(options);
-      return { success: true, message: 'Email envoyé avec succès.' };
+      const info = await this.mailerService.sendMail(options) as {
+        accepted?: string[];
+        rejected?: string[];
+        messageId?: string;
+        response?: string;
+      };
+      this.logger.log(
+        `Rapport remis au serveur SMTP (messageId=${info.messageId || 'inconnu'}, accepted=${info.accepted?.length || 0}, rejected=${info.rejected?.length || 0}, response=${info.response || 'inconnue'})`,
+      );
+      return {
+        success: true,
+        message: 'Email remis au serveur d’envoi.',
+        messageId: info.messageId,
+      };
     } catch (error) {
       console.error('Erreur envoi mail:', error);
       throw new Error('Échec de l’envoi de l’email');

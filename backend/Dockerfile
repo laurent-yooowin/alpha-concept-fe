@@ -1,6 +1,8 @@
 # Build stage
 FROM node:22-alpine AS builder
 
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -14,8 +16,20 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install dumb-init + nc (optional)
-RUN apk add --no-cache dumb-init netcat-openbsd
+# Chromium and fonts are required by the server-side PDF renderer.
+RUN apk add --no-cache \
+    ca-certificates \
+    chromium \
+    dumb-init \
+    font-noto-emoji \
+    freetype \
+    harfbuzz \
+    netcat-openbsd \
+    nss \
+    ttf-freefont
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
