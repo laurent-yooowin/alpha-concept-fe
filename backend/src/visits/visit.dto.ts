@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsString, IsOptional, IsDateString, IsBoolean, IsNumber, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsBoolean, IsNumber, IsArray, IsUUID } from 'class-validator';
 
 export class CreateVisitDto {
   @IsString()
@@ -22,6 +22,11 @@ export class CreateVisitDto {
   @Transform(({ value }) => value === null ? undefined : value)
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  customPromptIds?: string[];
 }
 
 export class UpdateVisitDto {
@@ -44,6 +49,11 @@ export class UpdateVisitDto {
   @Transform(({ value }) => value === null ? undefined : value)
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  customPromptIds?: string[];
 
   @IsOptional()
   @Transform(({ value }) => value === null ? undefined : value)

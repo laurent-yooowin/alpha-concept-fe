@@ -21,6 +21,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { OrganizationScopeGuard } from './common/guards/organization-scope.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { MailingListModule } from './mailing-list/mailing-list.module';
+import { CustomPromptModule } from './custom-prompts/custom-prompt.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { MailingListModule } from './mailing-list/mailing-list.module';
     ClientModule,
     HyperAdminModule,
     MailingListModule,
+    CustomPromptModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: OrganizationScopeGuard },

@@ -179,10 +179,10 @@ export class VisitService {
         const refList = Array.isArray(references) ? references : (references ? [references] : []);
 
         return `━━━━━━━━━━━━━━━━━━━━━
-Rapport ${groupIndex} - Directives du coordonnateur (sans photo) - Niveau de risque: ${riskLevel}
+Rapport ${groupIndex} - Sans photo - Niveau de risque: ${riskLevel}
 
 Observations:
-${obsList.length > 0 ? obsList.map(obs => `• ${obs}`).join('\n') : `• ${(firstPhoto as any).userDirectives || 'Aucune observation'}`}
+${obsList.length > 0 ? obsList.map(obs => `• ${obs}`).join('\n') : '• Aucune observation'}
 
 Recommandations:
 ${recList.map(rec => `• ${rec}`).join('\n')}
@@ -190,8 +190,6 @@ ${recList.map(rec => `• ${rec}`).join('\n')}
 🏛️ Références:
 ${refList.map(ref => `• ${ref}`).join('\n')}
 
-📋 Directives:
-${(firstPhoto as any).userDirectives || ''}
 
 💬 Commentaires:
 ${firstPhoto.comment || ''}
@@ -226,8 +224,6 @@ ${recList.map(rec => `• ${rec}`).join('\n')}
 🏛️ Références:
 ${refList.map(ref => `• ${ref}`).join('\n')}
 
-📋 Directives:
-${(firstPhoto as any).userDirectives || ''}
 
 💬 Commentaires:
 ${firstPhoto.comment || ''}

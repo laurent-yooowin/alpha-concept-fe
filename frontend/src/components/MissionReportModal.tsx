@@ -441,7 +441,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl max-w-5xl w-full max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl max-w-6xl w-full max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-6 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
           <div>
@@ -572,76 +572,6 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                 </div>
               )}
 
-              {/* Action buttons */}
-              <div className="flex gap-3 pt-4 border-t border-slate-200">
-                <button
-                  onClick={() => { setSelectedReport(null); setIsEditing(false); }}
-                  className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
-                >
-                  Retour
-                </button>
-
-                <button
-                  onClick={handleDownloadGeneratedPdf}
-                  disabled={generatingPdf}
-                  className="flex items-center gap-2 bg-slate-700 text-white px-6 py-3 rounded-lg hover:bg-slate-800 transition-colors font-medium disabled:opacity-50"
-                >
-                  <Download className="w-4 h-4" />
-                  {generatingPdf ? 'Génération...' : 'Télécharger PDF'}
-                </button>
-
-                {selectedReport.status !== 'envoye_au_client' && selectedReport.status !== 'annule' && selectedReport.missionStatus !== 'terminee' && (
-                  <>
-                    {isEditing ? (
-                      <>
-                        <button
-                          onClick={() => setIsEditing(false)}
-                          className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
-                        >
-                          Annuler
-                        </button>
-                        <button
-                          onClick={handleSaveEdits}
-                          className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          Enregistrer
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setIsEditing(true)}
-                          className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition-colors font-medium"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                          Modifier
-                        </button>
-                        {!isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
-                          <button
-                            onClick={handleSendToClient}
-                            disabled={sendingToClient}
-                            className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium disabled:opacity-50"
-                          >
-                            <Send className="w-4 h-4" />
-                            {sendingToClient ? 'Envoi...' : 'Envoyer au client'}
-                          </button>
-                        )}
-                        {isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
-                          <button
-                            onClick={handleSendToClient}
-                            disabled={sendingToClient}
-                            className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium disabled:opacity-50"
-                          >
-                            <Send className="w-4 h-4" />
-                            {sendingToClient ? 'Envoi...' : 'Envoyer au client'}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
             </div>
           ) : (
             /* ─── REPORTS LIST ─── */
@@ -692,6 +622,78 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
             </div>
           )}
         </div>
+
+        {selectedReport && (
+          <div className="flex-shrink-0 border-t border-slate-200 bg-white p-6 flex flex-wrap gap-3">
+            <button
+              onClick={() => { setSelectedReport(null); setIsEditing(false); }}
+              className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+            >
+              Retour
+            </button>
+
+            <button
+              onClick={handleDownloadGeneratedPdf}
+              disabled={generatingPdf}
+              className="flex items-center gap-2 bg-slate-700 text-white px-6 py-3 rounded-lg hover:bg-slate-800 transition-colors font-medium disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              {generatingPdf ? 'Génération...' : 'Télécharger PDF'}
+            </button>
+
+            {selectedReport.status !== 'envoye_au_client' && selectedReport.status !== 'annule' && selectedReport.missionStatus !== 'terminee' && (
+              <>
+                {isEditing ? (
+                  <>
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      onClick={handleSaveEdits}
+                      className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      Enregistrer
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setIsEditing(true)}
+                      className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-6 py-3 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                      Modifier
+                    </button>
+                    {!isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
+                      <button
+                        onClick={handleSendToClient}
+                        disabled={sendingToClient}
+                        className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium disabled:opacity-50"
+                      >
+                        <Send className="w-4 h-4" />
+                        {sendingToClient ? 'Envoi...' : 'Envoyer au client'}
+                      </button>
+                    )}
+                    {isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
+                      <button
+                        onClick={handleSendToClient}
+                        disabled={sendingToClient}
+                        className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium disabled:opacity-50"
+                      >
+                        <Send className="w-4 h-4" />
+                        {sendingToClient ? 'Envoi...' : 'Envoyer au client'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {showRecipientsModal && selectedReport && (

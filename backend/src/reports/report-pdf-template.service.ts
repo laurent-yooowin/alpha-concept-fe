@@ -300,7 +300,7 @@ export class ReportPdfTemplateService {
     .analysis-block { min-height: 86px; break-inside: auto; page-break-inside: auto; background: #F8FAFC; padding: 15px; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid #3B82F6; orphans: 2; widows: 2; }
     .analysis-heading { font-size: 14px; font-weight: bold; color: #1E293B; margin-bottom: 10px; display: flex; align-items: center; }
     .analysis-list { margin-left: 20px; color: #475569; }
-    .analysis-list li { margin-bottom: 6px; line-height: 1.5; font-size: 13px; }
+    .analysis-list li { margin-bottom: 6px; line-height: 1.5; font-size: 13px; white-space: pre-line; }
     .empty-value { color: #94A3B8; font-style: italic; }
     .comment-section { background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 15px; border-radius: 8px; margin-top: 15px; }
     .comment-heading { font-size: 14px; font-weight: bold; color: #92400E; margin-bottom: 8px; }

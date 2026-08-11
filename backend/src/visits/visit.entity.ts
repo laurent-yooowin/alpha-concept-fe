@@ -82,6 +82,8 @@ export class Visit {
     };
     comment?: string;
     userDirectives?: string;
+    customPromptIds?: string[];
+    appliedCustomPrompts?: { id: string; name: string; content: string }[];
     validated: boolean;
   }[];
 
@@ -90,6 +92,9 @@ export class Visit {
 
   @Column({ type: 'text', nullable: true })
   notes: string;
+
+  @Column({ type: 'json', nullable: true })
+  customPromptIds: string[] | null;
 
   @Column({ default: false })
   reportGenerated: boolean;

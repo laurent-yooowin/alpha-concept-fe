@@ -23,6 +23,7 @@ export interface Visit {
   photos: Photo[];
   photoCount: number;
   notes?: string;
+  customPromptIds?: string[];
   reportGenerated: boolean;
   createdAt: string;
   updatedAt: string;
@@ -33,6 +34,7 @@ export interface CreateVisitData {
   missionId: string;
   visitDate: string;
   photos?: Photo[];
+  customPromptIds?: string[];
   notes?: string;
 }
 
@@ -40,6 +42,7 @@ export interface UpdateVisitData {
   visitDate?: string;
   photos?: Photo[];
   notes?: string;
+  customPromptIds?: string[];
   reportGenerated?: boolean;
 }
 

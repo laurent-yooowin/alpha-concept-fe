@@ -49,12 +49,12 @@ interface MailingEntry {
 
 export default function ReportManagement() {
   const { profile: currentUser } = useAuth();
-  const [reports, setReports] = useState < Report[] > ([]);
-  const [filteredReports, setFilteredReports] = useState < Report[] > ([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [filteredReports, setFilteredReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState < string > ('all');
-  const [selectedReport, setSelectedReport] = useState < Report | null > (null);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
   const [editedHeader, setEditedHeader] = useState('');
   const [editedContent, setEditedContent] = useState('');
@@ -963,7 +963,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
 
       {showViewModal && selectedReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-xl max-w-4xl w-full my-8">
+          <div className="bg-white rounded-xl max-w-6xl w-full my-8">
             <div className="p-6 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900">Rapport SPS</h2>

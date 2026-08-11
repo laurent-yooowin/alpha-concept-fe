@@ -15,6 +15,9 @@ import {
 import Swal from 'sweetalert2';
 import PhotoReportEditor from './PhotoReportEditor';
 import MissionReportModal from './MissionReportModal';
+import CustomPromptSelector from './CustomPromptSelector';
+import ReanalysisConfigModal from './ReanalysisConfigModal';
+import AppliedCustomPromptsReadOnly from './AppliedCustomPromptsReadOnly';
 
 // ─── TYPES ───────────────────────────────────────
 interface PhotoAnalysis {
@@ -24,8 +27,8 @@ interface PhotoAnalysis {
   riskLevel: 'faible' | 'moyen' | 'eleve' | 'low' | 'medium' | 'high';
   confidence: number;
   unreadableSections?: string[];
+  appliedCustomPrompts?: Array<{ id: string; name: string; content: string }>;
 }
-
 interface Photo {
   id: string;
   uri: string;
@@ -33,6 +36,8 @@ interface Photo {
   analysis?: PhotoAnalysis;
   comment?: string;
   userDirectives?: string;
+  customPromptIds?: string[];
+  appliedCustomPrompts?: Array<{ id: string; name: string; content: string }>;
   isDirectiveOnly?: boolean;
   validated: boolean;
   groupId?: string;
@@ -49,6 +54,7 @@ interface Visit {
   notes?: string;
   reportGenerated: boolean;
   createdAt: string;
+  customPromptIds?: string[];
   updatedAt: string;
   mission?: {
     id: string;
@@ -71,6 +77,8 @@ interface ReportGroup {
   isDirectiveOnly: boolean;
   directives: string;
   comment: string;
+  customPromptIds: string[];
+  appliedCustomPrompts: Array<{ id: string; name: string; content: string }>;
   analysis?: {
     observations: string[];
     recommendations: string[];
@@ -208,6 +216,7 @@ export default function VisitManagement() {
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadDirectives, setUploadDirectives] = useState('');
+  const [uploadPromptIds, setUploadPromptIds] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -221,7 +230,9 @@ export default function VisitManagement() {
   const [tempGroupReferences, setTempGroupReferences] = useState<string[]>([]);
   const [tempGroupDirectives, setTempGroupDirectives] = useState('');
   const [tempGroupComments, setTempGroupComments] = useState('');
+  const [groupCustomPromptIds, setGroupCustomPromptIds] = useState<string[]>([]);
   const [isRegeneratingGroup, setIsRegeneratingGroup] = useState(false);
+  const [showGroupReanalysisModal, setShowGroupReanalysisModal] = useState(false);
 
   // Attach photos to group
   const groupAttachInputRef = useRef<HTMLInputElement>(null);
@@ -231,11 +242,15 @@ export default function VisitManagement() {
   const [showDirectiveModal, setShowDirectiveModal] = useState(false);
   const [directiveOnlyText, setDirectiveOnlyText] = useState('');
   const [directiveOnlyComment, setDirectiveOnlyComment] = useState('');
+  const [directivePromptIds, setDirectivePromptIds] = useState<string[]>([]);
   const [isAnalyzingDirective, setIsAnalyzingDirective] = useState(false);
 
   // Global regeneration
   const [isRegeneratingAll, setIsRegeneratingAll] = useState(false);
   const [regeneratingProgress, setRegeneratingProgress] = useState('');
+  const [showGlobalReanalysisModal, setShowGlobalReanalysisModal] = useState(false);
+  const [globalReanalysisPromptIds, setGlobalReanalysisPromptIds] = useState<string[]>([]);
+  const [globalReanalysisDirectives, setGlobalReanalysisDirectives] = useState('');
 
   // Image base64 cache
   const [imageCache, setImageCache] = useState<Record<string, string>>({});
@@ -248,6 +263,12 @@ export default function VisitManagement() {
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
 
   // ─── DATA LOADING ──────────────────────────────
+  const getPromptSelection = (customPromptIds = selectedVisit?.customPromptIds || []) => ({
+    visitId: selectedVisit?.id,
+    missionType: selectedVisit?.mission?.type,
+    customPromptIds,
+  });
+
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
@@ -305,6 +326,8 @@ export default function VisitManagement() {
         isDirectiveOnly: first?.isDirectiveOnly || false,
         directives: first?.userDirectives || '',
         comment: first?.comment || '',
+        customPromptIds: first?.customPromptIds || selectedVisit.customPromptIds || [],
+        appliedCustomPrompts: first?.appliedCustomPrompts || [],
         analysis: first?.analysis ? {
           observations: obs,
           recommendations: recs,
@@ -369,9 +392,12 @@ export default function VisitManagement() {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     const previews = files.map(f => URL.createObjectURL(f));
-    setPendingFiles(files);
-    setPendingPreviews(previews);
-    setUploadDirectives('');
+    setPendingFiles(prev => [...prev, ...files]);
+    setPendingPreviews(prev => [...prev, ...previews]);
+    if (!showUploadModal) {
+      setUploadDirectives('');
+      setUploadPromptIds(selectedVisit?.customPromptIds || []);
+    }
     setShowUploadModal(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -396,6 +422,7 @@ export default function VisitManagement() {
     const batchGroupId = `group-${Date.now()}`;
     const uploadedS3Urls: string[] = [];
     const newPhotos: Photo[] = [];
+    const groupPromptIds = uploadPromptIds;
 
     try {
       // Step 1: Upload all photos
@@ -415,6 +442,7 @@ export default function VisitManagement() {
               userDirectives: uploadDirectives,
               comment: '',
               timestamp: new Date(),
+              customPromptIds: groupPromptIds,
             });
           }
         } catch (error) {
@@ -432,7 +460,12 @@ export default function VisitManagement() {
         setIsAnalyzing(true);
         setUploadProgress(`Analyse IA de ${uploadedS3Urls.length} photo(s)...`);
         try {
-          const analysis = await aiService.analyzeBatchPhotos(uploadedS3Urls, uploadDirectives || undefined);
+          const analysis = await aiService.analyzeBatchPhotos(
+            uploadedS3Urls,
+            uploadDirectives || undefined,
+            undefined,
+            getPromptSelection(groupPromptIds),
+          );
           const photoAnalysis: PhotoAnalysis = {
             observation: analysis.observations,
             recommendation: analysis.recommendations,
@@ -441,7 +474,7 @@ export default function VisitManagement() {
             confidence: analysis.confidence,
             unreadableSections: analysis.unreadableSections,
           };
-          newPhotos.forEach(p => { p.analysis = photoAnalysis; });
+          newPhotos.forEach(p => { p.analysis = photoAnalysis; p.customPromptIds = groupPromptIds; p.appliedCustomPrompts = analysis.appliedCustomPrompts || []; });
         } catch (error) {
           console.error('Erreur analyse IA:', error);
           Swal.fire({ icon: 'warning', title: 'Analyse IA échouée', text: 'Les photos ont été uploadées mais l\'analyse a échoué.' });
@@ -478,10 +511,16 @@ export default function VisitManagement() {
   const handleDirectiveOnlyAnalysis = async () => {
     if (!selectedVisit || !directiveOnlyText.trim()) return;
     setIsAnalyzingDirective(true);
+    const groupPromptIds = directivePromptIds;
     try {
       const mission = selectedVisit.mission;
       const missionContext = mission ? { title: mission.title, client: mission.client, address: mission.address, type: mission.type } : undefined;
-      const analysis = await aiService.analyzeDirectives(directiveOnlyText, missionContext);
+      const analysis = await aiService.analyzeDirectives(
+        directiveOnlyText,
+        missionContext,
+        undefined,
+        getPromptSelection(groupPromptIds),
+      );
 
       const directivePhoto: Photo = {
         id: `directive-${Date.now()}`,
@@ -498,6 +537,8 @@ export default function VisitManagement() {
           riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
           confidence: analysis.confidence,
         },
+        customPromptIds: groupPromptIds,
+        appliedCustomPrompts: analysis.appliedCustomPrompts || [],
       };
 
       const updatedPhotos = [...(selectedVisit.photos || []), directivePhoto];
@@ -520,18 +561,26 @@ export default function VisitManagement() {
   };
 
   // ─── GROUP REPORT EDITING ──────────────────────
-  const openGroupDetail = async (group: ReportGroup) => {
+  const openGroupDetail = async (group: ReportGroup, editMode = false) => {
     setSelectedGroupId(group.groupId);
     setTempGroupDirectives(group.directives);
     setTempGroupComments(group.comment);
+    setGroupCustomPromptIds(group.customPromptIds);
     if (group.analysis) {
       setTempGroupObservations([...group.analysis.observations]);
       setTempGroupRecommendations([...group.analysis.recommendations]);
       setTempGroupReferences([...group.analysis.references]);
     }
-    setEditingGroupReport(false);
+    setEditingGroupReport(editMode);
     setShowGroupDetail(true);
     await loadGroupImages(group.photos);
+  };
+
+  const openGroupReanalysis = (group: ReportGroup) => {
+    setSelectedGroupId(group.groupId);
+    setTempGroupDirectives(group.directives || '');
+    setGroupCustomPromptIds(group.customPromptIds || []);
+    setShowGroupReanalysisModal(true);
   };
 
   const saveGroupReportEdits = async () => {
@@ -540,7 +589,6 @@ export default function VisitManagement() {
       if ((p.groupId || p.id) === selectedGroupId) {
         return {
           ...p,
-          userDirectives: tempGroupDirectives,
           comment: tempGroupComments,
           analysis: p.analysis ? {
             ...p.analysis,
@@ -568,13 +616,8 @@ export default function VisitManagement() {
     const group = photoGroups.find(g => g.groupId === selectedGroupId);
     if (!group) return;
 
-    // Validate directives field
-    if (!tempGroupDirectives.trim() && !group.isDirectiveOnly) {
-      const s3Urls = group.photos.filter(p => p.s3Url).map(p => p.s3Url!);
-      if (s3Urls.length === 0) { Swal.fire({ icon: 'error', title: 'Erreur', text: 'Aucune photo uploadée dans ce groupe' }); return; }
-    }
-    if (!tempGroupDirectives.trim()) {
-      Swal.fire({ icon: 'warning', title: 'Directives requises', text: 'Veuillez remplir le champ directives avant de réanalyser.' });
+    if (group.isDirectiveOnly && !tempGroupDirectives.trim() && groupCustomPromptIds.length === 0) {
+      Swal.fire({ icon: 'warning', title: 'Prompt ou directive requis', text: 'Ajoutez des directives ou sélectionnez au moins un prompt personnalisé pour réanalyser ce rapport sans photo.' });
       return;
     }
 
@@ -593,11 +636,11 @@ export default function VisitManagement() {
       if (group.isDirectiveOnly) {
         const mission = selectedVisit.mission;
         const missionContext = mission ? { title: mission.title, client: mission.client, address: mission.address, type: mission.type } : undefined;
-        analysis = await aiService.analyzeDirectives(tempGroupDirectives || group.directives, missionContext, previousReport);
+        analysis = await aiService.analyzeDirectives(tempGroupDirectives, missionContext, previousReport, getPromptSelection(groupCustomPromptIds));
       } else {
         const s3Urls = group.photos.filter(p => p.s3Url).map(p => p.s3Url!);
         if (s3Urls.length === 0) { Swal.fire({ icon: 'error', title: 'Erreur', text: 'Aucune photo uploadée dans ce groupe' }); return; }
-        analysis = await aiService.analyzeBatchPhotos(s3Urls, tempGroupDirectives || undefined, previousReport);
+        analysis = await aiService.analyzeBatchPhotos(s3Urls, tempGroupDirectives || undefined, previousReport, getPromptSelection(groupCustomPromptIds));
       }
 
       const photoAnalysis: PhotoAnalysis = {
@@ -611,7 +654,7 @@ export default function VisitManagement() {
 
       const updatedPhotos = selectedVisit.photos.map(p => {
         if ((p.groupId || p.id) === selectedGroupId) {
-          return { ...p, analysis: photoAnalysis, userDirectives: tempGroupDirectives };
+          return { ...p, analysis: photoAnalysis, userDirectives: tempGroupDirectives, customPromptIds: groupCustomPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
         }
         return p;
       });
@@ -624,6 +667,7 @@ export default function VisitManagement() {
       setTempGroupRecommendations([...analysis.recommendations]);
       setTempGroupReferences([...analysis.references]);
 
+      setShowGroupReanalysisModal(false);
       Swal.fire({ icon: 'success', title: 'Rapport régénéré', timer: 1500, showConfirmButton: false });
     } catch (error) {
       console.error('Erreur régénération:', error);
@@ -634,16 +678,7 @@ export default function VisitManagement() {
 
   // ─── GLOBAL RE-ANALYSIS ────────────────────────
   const regenerateAllGroups = async () => {
-    if (!selectedVisit || photoGroups.length === 0 || !selectedVisit.notes?.trim()) {
-      Swal.fire({ icon: 'info', title: 'Info', text: 'Veuillez saisir des directives globales (notes) avant de regénérer.' });
-      return;
-    }
-    const confirm = await Swal.fire({
-      title: 'Regénérer tous les groupes',
-      text: `Regénérer les ${photoGroups.length} groupe(s) avec les directives globales ?`,
-      icon: 'question', showCancelButton: true, confirmButtonText: 'Regénérer', cancelButtonText: 'Annuler',
-    });
-    if (!confirm.isConfirmed) return;
+    if (!selectedVisit || photoGroups.length === 0) return;
 
     setIsRegeneratingAll(true);
     try {
@@ -655,15 +690,17 @@ export default function VisitManagement() {
 
         try {
           const previousReport = group.analysis ? JSON.stringify(group.analysis) : undefined;
+          const directivesToApply = globalReanalysisDirectives.trim() || group.directives || '';
+          const groupPromptIds = globalReanalysisPromptIds;
           let analysis: AIAnalysis;
 
           if (group.isDirectiveOnly) {
             const mission = selectedVisit.mission;
-            analysis = await aiService.analyzeDirectives(selectedVisit.notes!, mission ? { title: mission.title, client: mission.client, address: mission.address, type: mission.type } : undefined, previousReport);
+            analysis = await aiService.analyzeDirectives(directivesToApply, mission ? { title: mission.title, client: mission.client, address: mission.address, type: mission.type } : undefined, previousReport, getPromptSelection(groupPromptIds));
           } else {
             const s3Urls = group.photos.filter(p => p.s3Url).map(p => p.s3Url!);
             if (s3Urls.length === 0) continue;
-            analysis = await aiService.analyzeBatchPhotos(s3Urls, selectedVisit.notes!, previousReport);
+            analysis = await aiService.analyzeBatchPhotos(s3Urls, directivesToApply || undefined, previousReport, getPromptSelection(groupPromptIds));
           }
 
           const photoAnalysis: PhotoAnalysis = {
@@ -676,7 +713,7 @@ export default function VisitManagement() {
 
           updatedPhotos = updatedPhotos.map(p => {
             if ((p.groupId || p.id) === group.groupId) {
-              return { ...p, analysis: photoAnalysis, userDirectives: selectedVisit.notes };
+              return { ...p, analysis: photoAnalysis, userDirectives: directivesToApply, customPromptIds: groupPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
             }
             return p;
           });
@@ -685,8 +722,9 @@ export default function VisitManagement() {
         }
       }
 
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds });
+      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds } : null);
+      setShowGlobalReanalysisModal(false);
       const result = await Swal.fire({
         icon: 'success', title: 'Regénération terminée',
         text: 'Tous les groupes ont été régénérés.',
@@ -1066,7 +1104,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-        <div className="bg-white rounded-xl max-w-4xl w-full my-8 max-h-[90vh] flex flex-col">
+        <div className="bg-white rounded-xl max-w-6xl w-full my-8 max-h-[90vh] flex flex-col">
           {/* Header */}
           <div className="p-6 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
             <div>
@@ -1099,6 +1137,9 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
           {/* Content - Order: Observations → Recommandations → Références → Directives → Notes → Photos */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {!editingGroupReport && group.appliedCustomPrompts.length ? (
+              <AppliedCustomPromptsReadOnly prompts={group.appliedCustomPrompts} />
+            ) : null}
             {/* Observations */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -1118,7 +1159,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                 </div>
               ) : (
                 obs.length > 0 ? (
-                  <ul className="space-y-1">{obs.map((item, i) => <li key={i} className="text-s text-slate-600 flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span> {item}</li>)}</ul>
+                  <ul className="space-y-1">{obs.map((item, i) => <li key={i} className="text-s text-slate-600 flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span><span className="whitespace-pre-line">{item}</span></li>)}</ul>
                 ) : <p className="text-s text-slate-400 italic">Aucune observation</p>
               )}
             </div>
@@ -1171,17 +1212,12 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
               )}
             </div>
 
-            {/* Directives */}
-            <div>
-              <h4 className="text-s font-semibold text-slate-700 mb-2">📋 Directives</h4>
-              {editingGroupReport ? (
-                <textarea value={tempGroupDirectives} onChange={e => setTempGroupDirectives(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-s focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none" rows={3}
-                  placeholder="Directives pour ce groupe..." />
-              ) : (
-                <div className="bg-slate-50 rounded-lg p-3 text-s text-slate-700">{group.directives || <span className="text-slate-400 italic">Aucune directive</span>}</div>
-              )}
-            </div>
+            {!editingGroupReport && group.directives && (
+              <div>
+                <h4 className="text-s font-semibold text-slate-700 mb-2">📋 Directives utilisées lors de la dernière analyse</h4>
+                <div className="bg-slate-50 rounded-lg p-3 text-s text-slate-700">{group.directives}</div>
+              </div>
+            )}
 
             {/* Comments */}
             <div>
@@ -1241,17 +1277,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
             )}
           </div>
 
-          {/* Footer with re-analysis */}
-          <div className="p-4 border-t border-slate-200 flex flex-wrap gap-2">
-            <button onClick={regenerateGroupReport} disabled={isRegeneratingGroup}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 text-s font-medium disabled:opacity-50">
-              {isRegeneratingGroup ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {isRegeneratingGroup ? 'Analyse...' : 'Réanalyser avec directives'}
-            </button>
-            <button onClick={() => handleDeleteGroup(selectedGroupId)} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 text-s font-medium">
-              <Trash2 className="w-4 h-4" /> Supprimer le groupe
-            </button>
-          </div>
+
         </div>
       </div>
     );
@@ -1262,19 +1288,27 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     if (!showUploadModal) return null;
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] flex flex-col">
+        <div className="bg-white rounded-xl max-w-2xl w-full max-h-[95vh] flex flex-col space-y-2">
           <div className="p-6 border-b border-slate-200 flex items-center justify-between">
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Upload className="w-5 h-5 text-blue-600" /> Photos sélectionnées ({pendingFiles.length})</h2>
             <button onClick={cancelUpload} className="p-2 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5" /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <CustomPromptSelector
+              missionType={selectedVisit?.mission?.type}
+              selectedIds={uploadPromptIds}
+              onChange={setUploadPromptIds}
+            />
+            <button onClick={() => fileInputRef.current?.click()} className="w-full rounded-lg border border-dashed border-blue-300 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">
+              <Plus className="mr-1 inline h-4 w-4" /> Ajouter des photos
+            </button>
             {/* Photo previews */}
             <div className="grid grid-cols-3 gap-3">
               {pendingPreviews.map((preview, i) => (
                 <div key={i} className="relative group">
                   <img src={preview} alt={`Preview ${i + 1}`} className="w-full h-28 object-cover rounded-lg border border-slate-200" />
                   <button onClick={() => removePendingFile(i)}
-                    className="absolute top-1 right-1 w-6 h-6 bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    className="absolute top-1 right-1 w-6 h-6 bg-red-600 text-white rounded-full flex items-center justify-center hover:bg-red-700">
                     <X className="w-3.5 h-3.5" />
                   </button>
                   <span className="absolute bottom-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">{i + 1}</span>
@@ -1316,6 +1350,11 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
             <button onClick={() => setShowDirectiveModal(false)} className="p-2 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5" /></button>
           </div>
           <div className="p-6 space-y-4">
+            <CustomPromptSelector
+              missionType={selectedVisit?.mission?.type}
+              selectedIds={directivePromptIds}
+              onChange={setDirectivePromptIds}
+            />
             <div>
               <label className="block text-s font-medium text-slate-700 mb-2">Directives *</label>
               <textarea value={directiveOnlyText} onChange={e => setDirectiveOnlyText(e.target.value)}
@@ -1356,6 +1395,32 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
         {renderUploadModal()}
         {renderDirectiveModal()}
         {renderGroupDetailModal()}
+        {showGroupReanalysisModal && selectedVisit && selectedGroupId && (() => {
+          const group = photoGroups.find((item) => item.groupId === selectedGroupId);
+          return <ReanalysisConfigModal
+            title="Réanalyse prompts/directives"
+            missionType={selectedVisit.mission?.type}
+            selectedIds={groupCustomPromptIds}
+            directives={tempGroupDirectives}
+            loading={isRegeneratingGroup}
+            directiveRequired={group?.isDirectiveOnly}
+            onSelectedIdsChange={setGroupCustomPromptIds}
+            onDirectivesChange={setTempGroupDirectives}
+            onCancel={() => setShowGroupReanalysisModal(false)}
+            onConfirm={regenerateGroupReport}
+          />;
+        })()}
+        {showGlobalReanalysisModal && selectedVisit && <ReanalysisConfigModal
+          title="Réanalyse globale"
+          missionType={selectedVisit.mission?.type}
+          selectedIds={globalReanalysisPromptIds}
+          directives={globalReanalysisDirectives}
+          loading={isRegeneratingAll}
+          onSelectedIdsChange={setGlobalReanalysisPromptIds}
+          onDirectivesChange={setGlobalReanalysisDirectives}
+          onCancel={() => setShowGlobalReanalysisModal(false)}
+          onConfirm={regenerateAllGroups}
+        />}
 
         {/* Hidden file input for group attach */}
         <input ref={groupAttachInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onAttachFilesSelected} />
@@ -1379,7 +1444,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-s font-medium">
                   <Upload className="w-4 h-4" /> Ajouter photos
                 </button>
-                <button onClick={() => setShowDirectiveModal(true)}
+                <button onClick={() => { setDirectivePromptIds(selectedVisit?.customPromptIds || []); setShowDirectiveModal(true); }}
                   className="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100 text-s font-medium">
                   <MessageSquare className="w-4 h-4" /> Directive
                 </button>
@@ -1454,10 +1519,14 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                 <Camera className="w-5 h-5 text-blue-600" /> Rapports d'analyse ({photoGroups.length})
               </h3>
               {canRegenerate && photoGroups.length > 0 && (
-                <button onClick={regenerateAllGroups} disabled={isRegeneratingAll}
+                <button onClick={() => {
+                  setGlobalReanalysisPromptIds(selectedVisit.customPromptIds || []);
+                  setGlobalReanalysisDirectives(selectedVisit.notes || '');
+                  setShowGlobalReanalysisModal(true);
+                }} disabled={isRegeneratingAll}
                   className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 text-s font-medium disabled:opacity-50">
                   {isRegeneratingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                  Regénérer tout (directives globales)
+                  Réanalyser avec prompts/directives
                 </button>
               )}
             </div>
@@ -1469,45 +1538,48 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
               return (
                 <div key={group.groupId} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <button onClick={() => setExpandedPhoto(isExpanded ? null : group.groupId)}
-                    className="w-full flex-1 px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-s font-bold">{index + 1}</span>
-                      <div className="text-left">
+                  <div className="flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors">
+                    <button onClick={() => setExpandedPhoto(isExpanded ? null : group.groupId)}
+                      className="flex flex-1 items-center gap-3 text-left min-w-0">
+                      {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400 shrink-0" /> : <ChevronDown className="w-5 h-5 text-slate-400 shrink-0" />}
+                      <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-s font-bold shrink-0">{index + 1}</span>
+                      <div className="text-left min-w-0">
                         <span className="font-medium text-slate-900">{group.isDirectiveOnly ? '📝 Directives' : `📸 ${group.photos.length} photo(s)`}</span>
                         {!group.isDirectiveOnly && <span className="ml-2 text-s text-slate-400">— Groupe {index + 1}</span>}
                       </div>
-                      {group.analysis?.riskLevel && <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getRiskColor(group.analysis.riskLevel)}`}>{getRiskLabel(group.analysis.riskLevel)}</span>}
+                      {group.analysis?.riskLevel && <span className={`px-2 py-0.5 rounded-full text-xs font-medium border shrink-0 ${getRiskColor(group.analysis.riskLevel)}`}>{getRiskLabel(group.analysis.riskLevel)}</span>}
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      {canRegenerate && (
+                        <>
+                          <button onClick={(e) => { e.stopPropagation(); openGroupDetail(group, true); }} className="flex items-center gap-1 px-2 py-1 text-s bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100">
+                            <Pencil className="w-3 h-3" /> Modifier
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); openGroupReanalysis(group); }} className="flex items-center gap-1 px-2 py-1 text-s bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100">
+                            <RotateCcw className="w-3 h-3" /> Réanalyser
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteGroup(group.groupId); }} className="flex items-center gap-1 px-2 py-1 text-s bg-red-50 text-red-700 rounded-lg hover:bg-red-100">
+                            <Trash2 className="w-3 h-3" /> Supprimer
+                          </button>
+                        </>
+                      )}
                     </div>
-                    {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
-                  </button>
-                  <div className="flex items-center gap-1 px-3">
-                    {canRegenerate && (
-                      <>
-                        <button onClick={(e) => { e.stopPropagation(); openGroupDetail(group); }} className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100">
-                          <Pencil className="w-3 h-3" /> Modifier
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); openGroupDetail(group); }} className="flex items-center gap-1 px-2 py-1 text-xs bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100">
-                          <RotateCcw className="w-3 h-3" /> Réanalyser
-                        </button>
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteGroup(group.groupId); }} className="p-1 text-red-500 hover:bg-red-50 rounded-lg">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </>
-                    )}
                   </div>
 
                   {isExpanded && (
                     <div className="px-5 pb-5 border-t border-slate-100">
                       {/* Analysis first - Order: Observations → Recommendations → References → Directives → Notes → Photos */}
                       <div className="mt-4 space-y-4">
+                        {group.appliedCustomPrompts.length > 0 && (
+                          <AppliedCustomPromptsReadOnly prompts={group.appliedCustomPrompts} />
+                        )}
                         <div className={`grid grid-cols-1 ${!group.isDirectiveOnly ? 'lg:grid-cols-2' : ''} gap-6`}>
                           {/* Analysis column */}
                           <div>
                             {obs.length > 0 && (
                               <div className="mb-4">
                                 <h4 className="text-s font-semibold text-slate-700 mb-2">🔍 Observations</h4>
-                                <ul className="space-y-1">{obs.map((o, i) => <li key={i} className="text-s text-slate-600 flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span> {o}</li>)}</ul>
+                                <ul className="space-y-1">{obs.map((o, i) => <li key={i} className="text-s text-slate-600 flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span><span className="whitespace-pre-line">{o}</span></li>)}</ul>
                               </div>
                             )}
                             {recs.length > 0 && (
@@ -1623,7 +1695,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
         {/* Report detail modal */}
         {showReportModal && visitReport && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <div className="bg-white rounded-xl max-w-4xl w-full my-8">
+            <div className="bg-white rounded-xl max-w-6xl w-full my-8">
               <div className="p-6 border-b border-slate-200 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-bold text-slate-900">Rapport de visite</h2>

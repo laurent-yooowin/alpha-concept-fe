@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Calendar, Camera, FileText, AlertTriangle, CheckCircle, Clock, MapPin, Image as ImageIcon, Upload, Sparkles, Loader2, Plus, Pencil, Save, Trash2, RotateCcw, MessageSquare, Eye, Download, Send, Edit2 } from 'lucide-react';
+import { X, Calendar, Camera, FileText, AlertTriangle, CheckCircle, Clock, MapPin, Image as ImageIcon, Upload, Sparkles, Loader2, Plus, Pencil, Save, Trash2, RotateCcw, MessageSquare, Eye, Download, Send, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
 import { visitService } from '../services/visitService';
 import { visitsAPI, reportsAPI, missionsAPI } from '../lib/api';
 import { filesService } from '../services/filesService';
@@ -9,6 +9,9 @@ import { generatePdfService } from '../services/generatePdfService';
 import { useAuth } from '../contexts/AuthContext';
 import MissionReportModal from './MissionReportModal';
 import Swal from 'sweetalert2';
+import CustomPromptSelector from './CustomPromptSelector';
+import ReanalysisConfigModal from './ReanalysisConfigModal';
+import AppliedCustomPromptsReadOnly from './AppliedCustomPromptsReadOnly';
 
 interface Visit {
   id: string;
@@ -17,6 +20,7 @@ interface Visit {
   photos: any[];
   photoCount: number;
   notes?: string;
+  customPromptIds?: string[];
   reportGenerated: boolean;
   createdAt: string;
   user?: { firstName: string; lastName: string };
@@ -69,6 +73,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadDirectives, setUploadDirectives] = useState('');
+  const [uploadPromptIds, setUploadPromptIds] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
 
@@ -76,6 +81,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   const [showDirectiveModal, setShowDirectiveModal] = useState(false);
   const [directiveOnlyText, setDirectiveOnlyText] = useState('');
   const [directiveOnlyComment, setDirectiveOnlyComment] = useState('');
+  const [directivePromptIds, setDirectivePromptIds] = useState<string[]>([]);
   const [isAnalyzingDirective, setIsAnalyzingDirective] = useState(false);
 
   // Group detail / edit
@@ -87,7 +93,10 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   const [tempGroupReferences, setTempGroupReferences] = useState<string[]>([]);
   const [tempGroupDirectives, setTempGroupDirectives] = useState('');
   const [tempGroupComments, setTempGroupComments] = useState('');
+  const [groupCustomPromptIds, setGroupCustomPromptIds] = useState<string[]>([]);
   const [isRegeneratingGroup, setIsRegeneratingGroup] = useState(false);
+  const [showGroupReanalysisModal, setShowGroupReanalysisModal] = useState(false);
+  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
 
   // Attach photos to group
   const [attachingToGroupId, setAttachingToGroupId] = useState<string | null>(null);
@@ -105,6 +114,9 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   const [savingNotes, setSavingNotes] = useState(false);
   const [isRegeneratingAll, setIsRegeneratingAll] = useState(false);
   const [regeneratingProgress, setRegeneratingProgress] = useState('');
+  const [showGlobalReanalysisModal, setShowGlobalReanalysisModal] = useState(false);
+  const [globalReanalysisPromptIds, setGlobalReanalysisPromptIds] = useState<string[]>([]);
+  const [globalReanalysisDirectives, setGlobalReanalysisDirectives] = useState('');
 
   useEffect(() => { fetchVisits(); }, []);
 
@@ -120,6 +132,12 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     } catch (error) { console.error('Error fetching visits:', error); }
     setLoading(false);
   };
+  const getPromptSelection = (customPromptIds = selectedVisit?.customPromptIds || []) => ({
+    visitId: selectedVisit?.id,
+    missionType: mission.type,
+    customPromptIds,
+  });
+
 
   const loadImageBase64 = async (url: string) => {
     if (!url || imageCache[url]) return;
@@ -155,12 +173,22 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   const onFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-    setPendingFiles(files);
-    setPendingPreviews(files.map(f => URL.createObjectURL(f)));
-    setUploadDirectives('');
+    const previews = files.map(f => URL.createObjectURL(f));
+    setPendingFiles(prev => [...prev, ...files]);
+    setPendingPreviews(prev => [...prev, ...previews]);
+    if (!showUploadModal) {
+      setUploadDirectives('');
+      setUploadPromptIds(selectedVisit?.customPromptIds || []);
+    }
     setShowUploadModal(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+  const removePendingFile = (index: number) => {
+    URL.revokeObjectURL(pendingPreviews[index]);
+    setPendingFiles(prev => prev.filter((_, currentIndex) => currentIndex !== index));
+    setPendingPreviews(prev => prev.filter((_, currentIndex) => currentIndex !== index));
+  };
+
 
   const cancelUpload = () => {
     pendingPreviews.forEach(p => URL.revokeObjectURL(p));
@@ -175,6 +203,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     const batchGroupId = `group-${Date.now()}`;
     const uploadedS3Urls: string[] = [];
     const newPhotos: any[] = [];
+    const groupPromptIds = uploadPromptIds;
 
     try {
       for (let i = 0; i < pendingFiles.length; i++) {
@@ -192,14 +221,14 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
       if (analyze && uploadedS3Urls.length > 0) {
         setUploadProgress(`Analyse IA de ${uploadedS3Urls.length} photo(s)...`);
         try {
-          const analysis = await aiService.analyzeBatchPhotos(uploadedS3Urls, uploadDirectives || undefined);
+          const analysis = await aiService.analyzeBatchPhotos(uploadedS3Urls, uploadDirectives || undefined, undefined, getPromptSelection(groupPromptIds));
           const photoAnalysis = {
             observation: analysis.observations, recommendation: analysis.recommendations,
             references: analysis.references,
             riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
             confidence: analysis.confidence,
           };
-          newPhotos.forEach(p => { p.analysis = photoAnalysis; });
+          newPhotos.forEach(p => { p.analysis = photoAnalysis; p.customPromptIds = groupPromptIds; p.appliedCustomPrompts = analysis.appliedCustomPrompts || []; });
         } catch (error) { console.error('AI analysis error:', error); }
       }
 
@@ -253,7 +282,8 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     setIsAnalyzingDirective(true);
     try {
       const missionContext = { title: mission.title, client: mission.client, address: mission.address, type: mission.type };
-      const analysis = await aiService.analyzeDirectives(directiveOnlyText, missionContext);
+      const groupPromptIds = directivePromptIds;
+      const analysis = await aiService.analyzeDirectives(directiveOnlyText, missionContext, undefined, getPromptSelection(groupPromptIds));
 
       const directivePhoto = {
         id: `directive-${Date.now()}`,
@@ -261,6 +291,8 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
         groupId: `directive-group-${Date.now()}`,
         userDirectives: directiveOnlyText,
         comment: directiveOnlyComment,
+        customPromptIds: groupPromptIds,
+        appliedCustomPrompts: analysis.appliedCustomPrompts || [],
         analysis: {
           observation: analysis.observations, recommendation: analysis.recommendations,
           references: analysis.references,
@@ -293,17 +325,26 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   };
 
   // ─── GROUP EDITING ──────────────────────────────
-  const openGroupDetail = async (groupId: string, groupPhotos: any[], autoEdit = true) => {
+  const openGroupDetail = async (groupId: string, groupPhotos: any[], editMode = false) => {
     const first = groupPhotos[0];
     setSelectedGroupId(groupId);
     setTempGroupDirectives(first?.userDirectives || '');
     setTempGroupComments(first?.comment || '');
+    setGroupCustomPromptIds(first?.customPromptIds || selectedVisit?.customPromptIds || []);
     setTempGroupObservations([...toArray(first?.analysis?.observation)]);
     setTempGroupRecommendations([...toArray(first?.analysis?.recommendation)]);
     setTempGroupReferences([...toArray(first?.analysis?.references)]);
-    setEditingGroupReport(autoEdit);
+    setEditingGroupReport(editMode);
     setShowGroupDetail(true);
     await loadGroupImages(groupPhotos);
+  };
+
+  const openGroupReanalysis = (groupId: string, groupPhotos: any[]) => {
+    const first = groupPhotos[0];
+    setSelectedGroupId(groupId);
+    setTempGroupDirectives(first?.userDirectives || '');
+    setGroupCustomPromptIds(first?.customPromptIds || []);
+    setShowGroupReanalysisModal(true);
   };
 
   const saveGroupReportEdits = async () => {
@@ -312,7 +353,6 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
       if ((p.groupId || p.id) === selectedGroupId) {
         return {
           ...p,
-          userDirectives: tempGroupDirectives,
           comment: tempGroupComments,
           analysis: p.analysis ? {
             ...p.analysis,
@@ -340,9 +380,8 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     const first = groupPhotos[0];
     const isDirectiveOnly = first?.isDirectiveOnly;
 
-    // Validate directives
-    if (!tempGroupDirectives.trim()) {
-      Swal.fire({ icon: 'warning', title: 'Directives requises', text: 'Veuillez remplir le champ directives avant de réanalyser.' });
+    if (isDirectiveOnly && !tempGroupDirectives.trim() && groupCustomPromptIds.length === 0) {
+      Swal.fire({ icon: 'warning', title: 'Prompt ou directive requis', text: 'Ajoutez des directives ou sélectionnez au moins un prompt personnalisé pour réanalyser ce rapport sans photo.' });
       return;
     }
 
@@ -363,11 +402,11 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
       let analysis: AIAnalysis;
       if (isDirectiveOnly) {
         const missionContext = { title: mission.title, client: mission.client, address: mission.address, type: mission.type };
-        analysis = await aiService.analyzeDirectives(tempGroupDirectives, missionContext, previousReport);
+        analysis = await aiService.analyzeDirectives(tempGroupDirectives, missionContext, previousReport, getPromptSelection(groupCustomPromptIds));
       } else {
         const s3Urls = groupPhotos.filter((p: any) => p.s3Url).map((p: any) => p.s3Url);
         if (s3Urls.length === 0) { Swal.fire({ icon: 'error', title: 'Erreur', text: 'Aucune photo dans ce groupe' }); return; }
-        analysis = await aiService.analyzeBatchPhotos(s3Urls, tempGroupDirectives, previousReport);
+        analysis = await aiService.analyzeBatchPhotos(s3Urls, tempGroupDirectives, previousReport, getPromptSelection(groupCustomPromptIds));
       }
 
       const photoAnalysis = {
@@ -379,7 +418,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
       const updatedPhotos = selectedVisit.photos.map((p: any) => {
         if ((p.groupId || p.id) === selectedGroupId) {
-          return { ...p, analysis: photoAnalysis, userDirectives: tempGroupDirectives };
+          return { ...p, analysis: photoAnalysis, userDirectives: tempGroupDirectives, customPromptIds: groupCustomPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
         }
         return p;
       });
@@ -389,14 +428,14 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
       setTempGroupObservations([...analysis.observations]);
       setTempGroupRecommendations([...analysis.recommendations]);
       setTempGroupReferences([...analysis.references]);
-      // Auto-save directives after reanalysis
-      await saveGroupReportEdits();
+      setShowGroupReanalysisModal(false);
       Swal.fire({ icon: 'success', title: 'Rapport régénéré et sauvegardé', timer: 1500, showConfirmButton: false });
     } catch (error) {
       Swal.fire({ icon: 'error', title: 'Erreur', text: "L'analyse IA a échoué" });
     }
     setIsRegeneratingGroup(false);
   };
+
 
   const handleDeleteGroup = async (groupId: string) => {
     if (!selectedVisit) return;
@@ -457,15 +496,6 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     if (!selectedVisit) return;
     const groups = photoGroups(selectedVisit.photos);
     if (groups.length === 0) return;
-    if (!selectedVisit.notes?.trim()) {
-      Swal.fire({ icon: 'info', title: 'Info', text: 'Veuillez saisir des directives globales (notes) avant de regénérer.' });
-      return;
-    }
-    const confirm = await Swal.fire({
-      title: 'Regénérer tout', text: `Regénérer les ${groups.length} groupe(s) avec les directives globales ?`,
-      icon: 'question', showCancelButton: true, confirmButtonText: 'Regénérer', cancelButtonText: 'Annuler',
-    });
-    if (!confirm.isConfirmed) return;
 
     setIsRegeneratingAll(true);
     let updatedPhotos = [...selectedVisit.photos];
@@ -486,15 +516,17 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
           riskLevel: first.analysis.riskLevel,
           confidence: first.analysis.confidence,
         }) : undefined;
+        const directivesToApply = globalReanalysisDirectives.trim() || first?.userDirectives || '';
+        const groupPromptIds = globalReanalysisPromptIds;
 
         try {
           let analysis: AIAnalysis;
           if (first?.isDirectiveOnly) {
-            analysis = await aiService.analyzeDirectives(selectedVisit.notes!, { title: mission.title, client: mission.client, address: mission.address, type: mission.type }, previousReport);
+            analysis = await aiService.analyzeDirectives(directivesToApply, { title: mission.title, client: mission.client, address: mission.address, type: mission.type }, previousReport, getPromptSelection(groupPromptIds));
           } else {
             const s3Urls = groupPhotos.filter((p: any) => p.s3Url).map((p: any) => p.s3Url);
             if (s3Urls.length === 0) continue;
-            analysis = await aiService.analyzeBatchPhotos(s3Urls, selectedVisit.notes!, previousReport);
+            analysis = await aiService.analyzeBatchPhotos(s3Urls, directivesToApply || undefined, previousReport, getPromptSelection(groupPromptIds));
           }
           const photoAnalysis = {
             observation: analysis.observations, recommendation: analysis.recommendations,
@@ -503,13 +535,14 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
             confidence: analysis.confidence,
           };
           updatedPhotos = updatedPhotos.map(p => {
-            if ((p.groupId || p.id) === groupId) return { ...p, analysis: photoAnalysis, userDirectives: selectedVisit.notes };
+            if ((p.groupId || p.id) === groupId) return { ...p, analysis: photoAnalysis, userDirectives: directivesToApply, customPromptIds: groupPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
             return p;
           });
         } catch (error) { console.error(`Erreur groupe ${i + 1}:`, error); }
       }
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds });
+      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds } : null);
+      setShowGlobalReanalysisModal(false);
       const result = await Swal.fire({
         icon: 'success', title: 'Regénération terminée',
         text: 'Tous les groupes ont été régénérés.',
@@ -604,7 +637,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60] overflow-y-auto">
-        <div className="bg-white rounded-xl max-w-4xl w-full my-8 max-h-[90vh] flex flex-col">
+        <div className="bg-white rounded-xl max-w-6xl w-full my-8 max-h-[90vh] flex flex-col">
           {/* Header */}
           <div className="p-6 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
             <div>
@@ -638,6 +671,9 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
           {/* Content - Order: Observations → Recommandations → Références → Directives → Notes → Photos */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {!editingGroupReport && first?.appliedCustomPrompts?.length ? (
+              <AppliedCustomPromptsReadOnly prompts={first.appliedCustomPrompts} />
+            ) : null}
             {/* Observations */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -657,7 +693,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                 </div>
               ) : (
                 obs.length > 0 ? (
-                  <ul className="space-y-1">{obs.map((o: string, i: number) => <li key={i} className="text-s text-slate-600 flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span> {o}</li>)}</ul>
+                  <ul className="space-y-1">{obs.map((o: string, i: number) => <li key={i} className="text-s text-slate-600 flex items-start gap-2"><span className="text-red-400 mt-0.5">•</span><span className="whitespace-pre-line">{o}</span></li>)}</ul>
                 ) : <p className="text-s text-slate-400 italic">Aucune observation</p>
               )}
             </div>
@@ -710,13 +746,12 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
               )}
             </div>
 
-            {/* Directives - always editable */}
-            <div>
-              <h4 className="text-s font-semibold text-slate-700 mb-2">📋 Directives</h4>
-              <textarea value={tempGroupDirectives} onChange={e => setTempGroupDirectives(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-s focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none" rows={3}
-                placeholder="Directives pour ce groupe..." />
-            </div>
+            {!editingGroupReport && first?.userDirectives && (
+              <div>
+                <h4 className="text-s font-semibold text-slate-700 mb-2">📋 Directives utilisées lors de la dernière analyse</h4>
+                <div className="bg-slate-50 rounded-lg p-3 text-s text-slate-700 whitespace-pre-wrap">{first.userDirectives}</div>
+              </div>
+            )}
 
             {/* Comments */}
             <div>
@@ -774,24 +809,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
             )}
           </div>
 
-          <div className="p-4 border-t border-slate-200 flex flex-wrap gap-2">
-            {(() => {
-              const visitReportStatus = selectedVisit?.report?.status;
-              const visitCanModify = canModify && visitReportStatus !== 'envoye_au_client';
-              return visitCanModify ? (
-                <>
-                  <button onClick={regenerateGroupReport} disabled={isRegeneratingGroup}
-                    className="flex items-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 text-s font-medium disabled:opacity-50">
-                    {isRegeneratingGroup ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    {isRegeneratingGroup ? 'Analyse...' : 'Réanalyser avec directives'}
-                  </button>
-                  <button onClick={() => handleDeleteGroup(selectedGroupId!)} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 text-s font-medium">
-                    <Trash2 className="w-4 h-4" /> Supprimer
-                  </button>
-                </>
-              ) : null;
-            })()}
-          </div>
+
         </div>
       </div>
     );
@@ -799,7 +817,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] flex flex-col relative">
+      <div className="bg-white rounded-xl max-w-6xl w-full max-h-[90vh] flex flex-col relative">
         {/* Header */}
         <div className="p-6 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
           <div>
@@ -835,9 +853,26 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
         {/* Upload modal */}
         {showUploadModal && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 rounded-xl p-4">
-            <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4">
+            <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] p-6 space-y-4">
               <h3 className="font-bold text-slate-900">Photos sélectionnées ({pendingFiles.length})</h3>
-              <div className="grid grid-cols-3 gap-2">{pendingPreviews.map((p, i) => <img key={i} src={p} className="w-full h-20 object-cover rounded-lg border" />)}</div>
+              <CustomPromptSelector
+                missionType={mission.type}
+                selectedIds={uploadPromptIds}
+                onChange={setUploadPromptIds}
+              />
+              <button onClick={() => fileInputRef.current?.click()} className="w-full rounded-lg border border-dashed border-blue-300 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50">
+                <Plus className="mr-1 inline h-4 w-4" /> Ajouter des photos
+              </button>
+              <div className="grid grid-cols-3 gap-2">
+                {pendingPreviews.map((preview, index) => (
+                  <div key={preview} className="relative">
+                    <img src={preview} className="h-20 w-full rounded-lg border object-cover" />
+                    <button onClick={() => removePendingFile(index)} aria-label="Supprimer cette photo" className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
               <textarea value={uploadDirectives} onChange={e => setUploadDirectives(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-s" rows={3} placeholder="Directives pour l'analyse IA (optionnel)..." />
               <div className="flex gap-2">
@@ -854,8 +889,13 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
         {/* Directive-only modal */}
         {showDirectiveModal && (
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 rounded-xl p-4">
-            <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4">
+            <div className="bg-white rounded-xl max-w-4xl w-full p-6 space-y-4">
               <h3 className="font-bold text-slate-900">📝 Analyse sans photo</h3>
+              <CustomPromptSelector
+                missionType={mission.type}
+                selectedIds={directivePromptIds}
+                onChange={setDirectivePromptIds}
+              />
               <div>
                 <label className="block text-s font-medium text-slate-700 mb-1">Directives *</label>
                 <textarea value={directiveOnlyText} onChange={e => setDirectiveOnlyText(e.target.value)}
@@ -879,6 +919,33 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
             </div>
           </div>
         )}
+
+        {showGroupReanalysisModal && selectedVisit && selectedGroupId && (() => {
+          const groupPhotos = selectedVisit.photos.filter((photo: any) => (photo.groupId || photo.id) === selectedGroupId);
+          return <ReanalysisConfigModal
+            title="Réanalyse prompts/directives"
+            missionType={mission.type}
+            selectedIds={groupCustomPromptIds}
+            directives={tempGroupDirectives}
+            loading={isRegeneratingGroup}
+            directiveRequired={Boolean(groupPhotos[0]?.isDirectiveOnly)}
+            onSelectedIdsChange={setGroupCustomPromptIds}
+            onDirectivesChange={setTempGroupDirectives}
+            onCancel={() => setShowGroupReanalysisModal(false)}
+            onConfirm={regenerateGroupReport}
+          />;
+        })()}
+        {showGlobalReanalysisModal && selectedVisit && <ReanalysisConfigModal
+          title="Réanalyse globale"
+          missionType={mission.type}
+          selectedIds={globalReanalysisPromptIds}
+          directives={globalReanalysisDirectives}
+          loading={isRegeneratingAll}
+          onSelectedIdsChange={setGlobalReanalysisPromptIds}
+          onDirectivesChange={setGlobalReanalysisDirectives}
+          onCancel={() => setShowGlobalReanalysisModal(false)}
+          onConfirm={regenerateAllGroups}
+        />}
 
         {/* Create visit form */}
         {showCreateForm && (
@@ -906,7 +973,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
             </div>
           ) : selectedVisit ? (
             <div>
-              <button onClick={() => setSelectedVisit(null)} className="text-s text-blue-600 hover:underline mb-4 flex items-center gap-1">← Retour à la liste</button>
+              <button onClick={() => { setSelectedVisit(null); setExpandedPhoto(null); }} className="text-s text-blue-600 hover:underline mb-4 flex items-center gap-1">← Retour à la liste</button>
 
               {/* Visit info + actions */}
               <div className="bg-slate-50 rounded-lg p-4 mb-6">
@@ -933,7 +1000,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                                 className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-s font-medium">
                                 <Upload className="w-4 h-4" /> Photos
                               </button>
-                              <button onClick={() => setShowDirectiveModal(true)}
+                              <button onClick={() => { setDirectivePromptIds(selectedVisit?.customPromptIds || []); setShowDirectiveModal(true); }}
                                 className="flex items-center gap-2 px-3 py-2 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100 text-s font-medium">
                                 <MessageSquare className="w-4 h-4" /> Sans photo
                               </button>
@@ -961,10 +1028,14 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                       const visitReportStatus = selectedVisit?.report?.status;
                       const visitCanModify = canModify && visitReportStatus !== 'envoye_au_client';
                       return visitCanModify && photoGroups(selectedVisit.photos).length > 0 ? (
-                        <button onClick={regenerateAllGroups} disabled={isRegeneratingAll}
+                        <button onClick={() => {
+                          setGlobalReanalysisPromptIds(selectedVisit.customPromptIds || []);
+                          setGlobalReanalysisDirectives(selectedVisit.notes || '');
+                          setShowGlobalReanalysisModal(true);
+                        }} disabled={isRegeneratingAll}
                           className="flex items-center gap-1 text-s text-amber-700 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg hover:bg-amber-100 disabled:opacity-50">
                           {isRegeneratingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-                          Regénérer tout
+                          Réanalyser avec prompts/directives
                         </button>
                       ) : null;
                     })()}
@@ -975,39 +1046,37 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                     const obs = toArray(first?.analysis?.observation);
                     const recs = toArray(first?.analysis?.recommendation);
                     const refs = toArray(first?.analysis?.references);
+                    const isExpanded = expandedPhoto === groupId;
 
                     return (
-                      <div key={groupId} className="border border-slate-200 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
+                      <div key={groupId} className="border border-slate-200 rounded-lg overflow-hidden">
+                        <div className="flex items-center justify-between p-4">
+                          <button onClick={() => setExpandedPhoto(isExpanded ? null : groupId)}
+                            className="flex flex-1 items-center gap-2 text-left hover:text-blue-700 transition-colors">
+                            {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
                             <span className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-s font-bold">{gIdx + 1}</span>
                             <span className="font-medium text-slate-900">{first?.isDirectiveOnly ? '📝 Directives' : `📸 ${groupPhotos.length} photo(s)`}</span>
                             {first?.analysis?.riskLevel && (
                               <span className={`px-2 py-0.5 rounded-full text-s font-medium border ${getRiskColor(first.analysis.riskLevel)}`}>{getRiskLabel(first.analysis.riskLevel)}</span>
                             )}
-                          </div>
+                          </button>
                           <div className="flex items-center gap-1">
                             {(() => {
                               const visitReportStatus = selectedVisit?.report?.status;
                               const visitCanModify = canModify && visitReportStatus !== 'envoye_au_client';
                               return visitCanModify ? (
                                 <>
-                                  <button onClick={() => openGroupDetail(groupId, groupPhotos)}
+                                  <button onClick={() => openGroupDetail(groupId, groupPhotos, true)}
                                     className="flex items-center gap-1 px-2 py-1 text-s bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100">
                                     <Pencil className="w-3 h-3" /> Modifier
                                   </button>
-                                  <button onClick={() => {
-                                    const s3Urls = groupPhotos.filter((p: any) => p.s3Url).map((p: any) => p.s3Url);
-                                    if (first?.isDirectiveOnly || s3Urls.length > 0) {
-                                      openGroupDetail(groupId, groupPhotos, true);
-                                    }
-                                  }}
+                                  <button onClick={() => openGroupReanalysis(groupId, groupPhotos)}
                                     className="flex items-center gap-1 px-2 py-1 text-s bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100">
                                     <RotateCcw className="w-3 h-3" /> Réanalyser
                                   </button>
                                   <button onClick={() => handleDeleteGroup(groupId)}
-                                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg">
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    className="flex items-center gap-1 px-2 py-1 text-s bg-red-50 text-red-700 rounded-lg hover:bg-red-100">
+                                    <Trash2 className="w-3 h-3" /> Supprimer
                                   </button>
                                 </>
                               ) : null;
@@ -1015,64 +1084,72 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                           </div>
                         </div>
 
-                        {/* Observations as blocks */}
-                        <div className="mb-3">
-                          <h4 className="text-s font-semibold text-slate-700 mb-1">🔍 Observations</h4>
-                          {obs.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">{obs.map((o: string, i: number) => <span key={i} style={{ whiteSpace: 'pre-line' }} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-s bg-red-50 text-red-700 border border-red-200">{o}</span>)}</div>
-                          ) : <p className="text-s text-slate-400 italic">Aucune</p>}
-                        </div>
-                        {/* Recommandations as blocks */}
-                        <div className="mb-3">
-                          <h4 className="text-s font-semibold text-slate-700 mb-1">💡 Recommandations</h4>
-                          {recs.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">{recs.map((r: string, i: number) => <span key={i} style={{ whiteSpace: 'pre-line' }} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-s bg-blue-50 text-blue-700 border border-blue-200">{r}</span>)}</div>
-                          ) : <p className="text-s text-slate-400 italic">Aucune</p>}
-                        </div>
-                        {/* Références as blocks */}
-                        <div className="mb-3">
-                          <h4 className="text-s font-semibold text-slate-700 mb-1">🏛️ Références</h4>
-                          {refs.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">{refs.map((r: string, i: number) => <span key={i} style={{ whiteSpace: 'pre-line' }} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-s bg-purple-50 text-purple-700 border border-purple-200">{r}</span>)}</div>
-                          ) : <p className="text-s text-slate-400 italic">Aucune</p>}
-                        </div>
-                        {first?.userDirectives && (
-                          <div className="mb-3">
-                            <h4 className="text-s font-semibold text-slate-700 mb-1">📋 Directives</h4>
-                            <p style={{ whiteSpace: 'pre-line' }} className="text-s text-slate-600 bg-slate-50 rounded-lg p-2">{first.userDirectives}</p>
-                          </div>
-                        )}
-                        {first?.comment && (
-                          <div className="mb-3">
-                            <h4 className="text-s font-semibold text-slate-700 mb-1">💬 Notes</h4>
-                            <p style={{ whiteSpace: 'pre-line' }} className="text-s text-slate-500 italic">{first.comment}</p>
-                          </div>
-                        )}
+                        {isExpanded && (
+                          <div className="px-4 pb-4 border-t border-slate-100">
+                            {first?.appliedCustomPrompts?.length > 0 && (
+                              <div className="mb-3 mt-4"><AppliedCustomPromptsReadOnly prompts={first.appliedCustomPrompts} /></div>
+                            )}
 
-                        {/* Photos at the end */}
-                        {!first?.isDirectiveOnly && (
-                          <div className="grid grid-cols-3 gap-2 mt-3">
-                            {groupPhotos.map((photo: any, index: number) => {
-                              const src = photo.s3Url || photo.uri;
-                              return (
-                                <div key={photo.id || index} className="relative">
-                                  {src ? (
-                                    <img src={imageCache[src] || src} alt={`Photo ${index + 1}`}
-                                      className="w-full h-24 object-cover rounded-lg border border-slate-200"
-                                      onError={() => { if (photo.s3Url && !imageCache[photo.s3Url]) loadImageBase64(photo.s3Url); }} />
-                                  ) : (
-                                    <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center"><ImageIcon className="w-6 h-6 text-slate-400" /></div>
-                                  )}
-                                  <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">{index + 1}</span>
-                                </div>
-                              );
-                            })}
-                            {canModify && (
-                              <button onClick={() => { setAttachingToGroupId(groupId); groupAttachInputRef.current?.click(); }}
-                                className="w-full h-24 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-500">
-                                <Plus className="w-5 h-5" />
-                                <span className="text-[10px]">Joindre</span>
-                              </button>
+                            {/* Observations as blocks */}
+                            <div className="mb-3">
+                              <h4 className="text-s font-semibold text-slate-700 mb-1">🔍 Observations</h4>
+                              {obs.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">{obs.map((o: string, i: number) => <span key={i} style={{ whiteSpace: 'pre-line' }} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-s bg-red-50 text-red-700 border border-red-200">{o}</span>)}</div>
+                              ) : <p className="text-s text-slate-400 italic">Aucune</p>}
+                            </div>
+                            {/* Recommandations as blocks */}
+                            <div className="mb-3">
+                              <h4 className="text-s font-semibold text-slate-700 mb-1">💡 Recommandations</h4>
+                              {recs.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">{recs.map((r: string, i: number) => <span key={i} style={{ whiteSpace: 'pre-line' }} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-s bg-blue-50 text-blue-700 border border-blue-200">{r}</span>)}</div>
+                              ) : <p className="text-s text-slate-400 italic">Aucune</p>}
+                            </div>
+                            {/* Références as blocks */}
+                            <div className="mb-3">
+                              <h4 className="text-s font-semibold text-slate-700 mb-1">🏛️ Références</h4>
+                              {refs.length > 0 ? (
+                                <div className="flex flex-wrap gap-1.5">{refs.map((r: string, i: number) => <span key={i} style={{ whiteSpace: 'pre-line' }} className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-s bg-purple-50 text-purple-700 border border-purple-200">{r}</span>)}</div>
+                              ) : <p className="text-s text-slate-400 italic">Aucune</p>}
+                            </div>
+                            {first?.userDirectives && (
+                              <div className="mb-3">
+                                <h4 className="text-s font-semibold text-slate-700 mb-1">📋 Directives</h4>
+                                <p style={{ whiteSpace: 'pre-line' }} className="text-s text-slate-600 bg-slate-50 rounded-lg p-2">{first.userDirectives}</p>
+                              </div>
+                            )}
+                            {first?.comment && (
+                              <div className="mb-3">
+                                <h4 className="text-s font-semibold text-slate-700 mb-1">💬 Notes</h4>
+                                <p style={{ whiteSpace: 'pre-line' }} className="text-s text-slate-500 italic">{first.comment}</p>
+                              </div>
+                            )}
+
+                            {/* Photos at the end */}
+                            {!first?.isDirectiveOnly && (
+                              <div className="grid grid-cols-3 gap-2 mt-3">
+                                {groupPhotos.map((photo: any, index: number) => {
+                                  const src = photo.s3Url || photo.uri;
+                                  return (
+                                    <div key={photo.id || index} className="relative">
+                                      {src ? (
+                                        <img src={imageCache[src] || src} alt={`Photo ${index + 1}`}
+                                          className="w-full h-24 object-cover rounded-lg border border-slate-200"
+                                          onError={() => { if (photo.s3Url && !imageCache[photo.s3Url]) loadImageBase64(photo.s3Url); }} />
+                                      ) : (
+                                        <div className="w-full h-24 bg-slate-100 rounded-lg flex items-center justify-center"><ImageIcon className="w-6 h-6 text-slate-400" /></div>
+                                      )}
+                                      <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">{index + 1}</span>
+                                    </div>
+                                  );
+                                })}
+                                {canModify && (
+                                  <button onClick={() => { setAttachingToGroupId(groupId); groupAttachInputRef.current?.click(); }}
+                                    className="w-full h-24 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 hover:border-blue-400 hover:text-blue-500">
+                                    <Plus className="w-5 h-5" />
+                                    <span className="text-[10px]">Joindre</span>
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
@@ -1090,7 +1167,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                         className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-s font-medium">
                         <Upload className="w-4 h-4" /> Ajouter des photos
                       </button>
-                      <button onClick={() => setShowDirectiveModal(true)}
+                      <button onClick={() => { setDirectivePromptIds(selectedVisit?.customPromptIds || []); setShowDirectiveModal(true); }}
                         className="inline-flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100 text-s font-medium">
                         <MessageSquare className="w-4 h-4" /> Analyse sans photo
                       </button>
@@ -1135,7 +1212,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                     ? 'border-2 border-blue-400'
                     : 'border border-slate-200';
                 return (
-                  <div key={visit.id} onClick={() => setSelectedVisit(visit)}
+                  <div key={visit.id} onClick={() => { setSelectedVisit(visit); setExpandedPhoto(null); }}
                     className={`${borderClass} rounded-lg p-4 hover:bg-slate-50 cursor-pointer transition-colors`}>
                     <div className="flex items-center justify-between">
                       <div>

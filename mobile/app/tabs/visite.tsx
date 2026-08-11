@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight, RefreshCw, Save, NotebookPen, ImagePlus, Pencil, FolderDown } from 'lucide-react-native';
+import { Camera, ArrowLeft, RotateCcw, Check, X, Plus, FileText, Send, CreditCard as Edit3, Sparkles, Eye, MessageSquare, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, Trash2, Clipboard, ArrowRight, RefreshCw, Save, NotebookPen, ImagePlus, Pencil, FolderDown, ChevronDown, ChevronUp } from 'lucide-react-native';
 import * as MediaLibrary from 'expo-media-library';
 import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -29,6 +29,7 @@ import { visitService } from '@/services/visitService';
 import { reportService } from '@/services/reportService';
 import { uploadService } from '@/services/uploadService';
 import { aiService } from '@/services/aiService';
+import CustomPromptSelector from '@/components/CustomPromptSelector';
 import { getMissionStatusInfo } from '@/utils/missionHelpers';
 import * as Linking from 'expo-linking';
 import * as MailComposer from 'expo-mail-composer';
@@ -69,6 +70,8 @@ interface Photo {
   comment: string;
   userDirectives: string;
   validated: boolean;
+  customPromptIds?: string[];
+  appliedCustomPrompts?: Array<{ id: string; name: string; content: string }>;
 }
 
 interface ReportGroup {
@@ -79,6 +82,8 @@ interface ReportGroup {
   comment: string;
   aiAnalysis?: Photo['aiAnalysis'];
   timestamp: Date;
+  customPromptIds: string[];
+  appliedCustomPrompts: Array<{ id: string; name: string; content: string }>;
 }
 
 interface Mission {
@@ -165,10 +170,14 @@ export default function VisiteScreen() {
   // États pour visite existante
   const [hasExistingVisit, setHasExistingVisit] = useState(false);
   const [existingVisitId, setExistingVisitId] = useState<string | null>(null);
+  const [customPromptIds, setCustomPromptIds] = useState<string[]>([]);
   const [existingReportId, setExistingReportId] = useState<string | null>(null);
   const [showVisitDetailModal, setShowVisitDetailModal] = useState(false);
   const [reportStatus, setReportStatus] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveSignatureRef = useRef<string | null>(null);
+  const autoSaveInFlightRef = useRef(false);
   const [showVisitsModal, setShowVisitsModal] = useState(false);
   const [selection, setSelection] = useState({ start: 2, end: 2 });
 
@@ -176,6 +185,7 @@ export default function VisiteScreen() {
   const [showMultiPhotoModal, setShowMultiPhotoModal] = useState(false);
   const [pendingPhotos, setPendingPhotos] = useState<{ uri: string; id: string }[]>([]);
   const [multiPhotoDirectives, setMultiPhotoDirectives] = useState('');
+  const [newGroupCustomPromptIds, setNewGroupCustomPromptIds] = useState<string[]>([]);
   const [isAnalyzingMultiple, setIsAnalyzingMultiple] = useState(false);
   const [multiAnalysisProgress, setMultiAnalysisProgress] = useState('');
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
@@ -195,6 +205,7 @@ export default function VisiteScreen() {
   const [showDirectiveOnlyModal, setShowDirectiveOnlyModal] = useState(false);
   const [directiveOnlyText, setDirectiveOnlyText] = useState('');
   const [directiveOnlyComment, setDirectiveOnlyComment] = useState('');
+  const [directiveOnlyCustomPromptIds, setDirectiveOnlyCustomPromptIds] = useState<string[]>([]);
 
   // Selected group for detail view
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -208,6 +219,8 @@ export default function VisiteScreen() {
   const [groupDirectivesHeight, setGroupDirectivesHeight] = useState(80);
   const [groupCommentsHeight, setGroupCommentsHeight] = useState(80);
   const [isRegeneratingGroup, setIsRegeneratingGroup] = useState(false);
+  const [groupCustomPromptIds, setGroupCustomPromptIds] = useState<string[]>([]);
+  const [expandedAppliedPromptId, setExpandedAppliedPromptId] = useState<string | null>(null);
 
   // Group report editing states
   const [editingGroupReport, setEditingGroupReport] = useState(false);
@@ -271,8 +284,50 @@ export default function VisiteScreen() {
       comment: groupPhotos[0]?.comment || '',
       aiAnalysis: groupPhotos[0]?.aiAnalysis,
       timestamp: groupPhotos[0]?.timestamp,
+      customPromptIds: groupPhotos[0]?.customPromptIds || customPromptIds || [],
+      appliedCustomPrompts: groupPhotos[0]?.appliedCustomPrompts || [],
     }));
-  }, [photos]);
+  }, [photos, customPromptIds]);
+
+  const getPromptSelection = (selectedIds = customPromptIds) => ({
+    visitId: existingVisitId || undefined,
+    missionType: mission?.type,
+    customPromptIds: selectedIds,
+  });
+
+  useEffect(() => {
+    if (showMultiPhotoModal) setNewGroupCustomPromptIds(customPromptIds);
+  }, [showMultiPhotoModal]);
+
+  useEffect(() => {
+    if (showDirectiveOnlyModal) setDirectiveOnlyCustomPromptIds(customPromptIds);
+  }, [showDirectiveOnlyModal]);
+
+  useEffect(() => {
+    if (!showGroupDetail || !selectedGroupId) return;
+    const group = reportGroups.find(item => item.groupId === selectedGroupId);
+    setGroupCustomPromptIds(group?.customPromptIds || customPromptIds);
+    setTempGroupDirectives(group?.directives || '');
+    setExpandedAppliedPromptId(null);
+  }, [showGroupDetail, selectedGroupId]);
+
+  const handleCustomPromptChange = async (nextIds: string[]) => {
+    const previousIds = customPromptIds;
+    setCustomPromptIds(nextIds);
+    setHasChanges(true);
+    setReportSaved(false);
+    if (!existingVisitId) return;
+    const response = await visitService.updateVisit(existingVisitId, {
+      customPromptIds: nextIds,
+    });
+    if (response.error) {
+      setCustomPromptIds(previousIds);
+      Alert.alert(
+        'Erreur',
+        response.error || 'Impossible d’enregistrer la sélection de prompts.',
+      );
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -417,6 +472,7 @@ export default function VisiteScreen() {
       setPhotos([]);
       setReportContent('');
       setVisitNotes('');
+      setCustomPromptIds([]);
       setReportValidated(false);
       // console.log('selectedMission >>> ', selectedMission)
     }
@@ -533,7 +589,9 @@ export default function VisiteScreen() {
                 } : undefined,
                 comment: photo.comment || '',
                 userDirectives: photo.userDirectives || '',
-                validated: photo.validated || true
+                validated: photo.validated || true,
+                customPromptIds: Array.isArray(photo.customPromptIds) ? photo.customPromptIds : [],
+                appliedCustomPrompts: Array.isArray(photo.appliedCustomPrompts) ? photo.appliedCustomPrompts : []
               };
             }));
 
@@ -542,12 +600,14 @@ export default function VisiteScreen() {
           }
 
           setVisitNotes(visit?.notes || '');
+          setCustomPromptIds(Array.isArray(visit?.customPromptIds) ? visit.customPromptIds : []);
 
           if (visit && visit.reportGenerated) {
             setReportValidated(true);
           }
         } else {
           setVisitNotes('');
+          setCustomPromptIds([]);
           setExistingVisitId(null);
           setHasExistingVisit(false);
         }
@@ -572,7 +632,7 @@ export default function VisiteScreen() {
   const analyzePhoto = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
     try {
       // Use backend AI analysis
-      const response = await aiService.analyzePhoto(photoUri);
+      const response = await aiService.analyzePhoto(photoUri, getPromptSelection());
       console.log('analisis response >>> : ', response);
 
       if (response.data) {
@@ -692,7 +752,7 @@ export default function VisiteScreen() {
       // console.log('selectedPhoto.analysis >>> : ', selectedPhoto.aiAnalysis);
       const previousReport = JSON.stringify(selectedPhoto.aiAnalysis);
       // Use backend AI analysis
-      const response: any = await aiService.analyzePhotoWithDirectives(photoUri, tempDirectives, previousReport);
+      const response: any = await aiService.analyzePhotoWithDirectives(photoUri, tempDirectives, previousReport, getPromptSelection());
       // console.log('analyzePhotoWithDirectives response >>> : ', response);
 
       if (response.data) {
@@ -1192,6 +1252,7 @@ export default function VisiteScreen() {
           comment: '',
           userDirectives: multiPhotoDirectives,
           validated: false,
+          customPromptIds: newGroupCustomPromptIds,
         };
 
         setPhotos(prev => [...prev, newPhoto]);
@@ -1243,6 +1304,7 @@ export default function VisiteScreen() {
     setShowMultiPhotoModal(false);
     setAnalyzingPhoto(true);
     const batchGroupId = `group-${Date.now()}`;
+    const batchCustomPromptIds = [...newGroupCustomPromptIds];
     let unreadableSections = null;
 
     try {
@@ -1261,6 +1323,7 @@ export default function VisiteScreen() {
           comment: '',
           userDirectives: multiPhotoDirectives,
           validated: false,
+          customPromptIds: batchCustomPromptIds,
         };
 
         setPhotos(prev => [...prev, newPhoto]);
@@ -1297,7 +1360,7 @@ export default function VisiteScreen() {
         setMultiAnalysisProgress(`Analyse IA de ${uploadedPhotos.length} photo(s) en cours...`);
         try {
           const imageUrls = uploadedPhotos.map(p => p.s3Url);
-          const batchResult = await aiService.analyzeBatchPhotos(imageUrls, multiPhotoDirectives || undefined);
+          const batchResult = await aiService.analyzeBatchPhotos(imageUrls, multiPhotoDirectives || undefined, undefined, getPromptSelection(batchCustomPromptIds));
 
           if (batchResult?.data) {
             const batchAnalysis = batchResult.data;
@@ -1339,10 +1402,12 @@ export default function VisiteScreen() {
             // Apply the same batch analysis to all uploaded photos
             setPhotos(prev => prev.map(p => {
               if (uploadedPhotos.some(up => up.id === p.id)) {
-                return { ...p, aiAnalysis: sharedAnalysis };
+                return { ...p, aiAnalysis: sharedAnalysis, customPromptIds: batchCustomPromptIds, appliedCustomPrompts: batchAnalysis.appliedCustomPrompts || [] };
               }
               return p;
             }));
+            setHasChanges(true);
+            setReportSaved(false);
           }
         } catch (error) {
           console.error('Erreur analyse IA batch:', error);
@@ -1361,7 +1426,7 @@ export default function VisiteScreen() {
         };
       });
 
-      await saveVisit(mergedPhotos, true);
+      await saveVisit(photosRef.current, true);
       // Alert.alert('Succès', `${pendingPhotos.length} photo(s) traitée(s) avec succès.`);
 
       // Auto-show group report modal after analysis
@@ -1387,7 +1452,7 @@ export default function VisiteScreen() {
   // Analyze photo with directives (for batch, without depending on selectedPhoto)
   const analyzePhotoWithDirectivesForBatch = async (photoUri: string, directives: string): Promise<Photo['aiAnalysis']> => {
     try {
-      const response: any = await aiService.analyzePhotoWithDirectives(photoUri, directives, '');
+      const response: any = await aiService.analyzePhotoWithDirectives(photoUri, directives, '', getPromptSelection());
       if (response.data) {
         let refs = response.data.references;
         if (refs && !Array.isArray(refs)) {
@@ -1450,6 +1515,8 @@ export default function VisiteScreen() {
           ? { ...p, aiAnalysis: analysis }
           : p
       ));
+      setHasChanges(true);
+      setReportSaved(false);
       setShowPhotoDetail(false);
     } catch (error) {
       console.error('Erreur analyse IA:', error);
@@ -1485,6 +1552,7 @@ export default function VisiteScreen() {
             recommendations: tempGroupRecommendations,
             references: tempGroupReferences,
           } : p.aiAnalysis,
+          customPromptIds: groupCustomPromptIds,
         };
       }
       return p;
@@ -1514,7 +1582,15 @@ export default function VisiteScreen() {
     const group = reportGroups.find(g => g.groupId === selectedGroupId);
     if (!group) return;
 
-    const directivesToApply = tempGroupDirectives || group.directives;
+    const directivesToApply = tempGroupDirectives;
+    const selectedPromptIds = groupCustomPromptIds.length > 0 || group.customPromptIds.length === 0
+      ? groupCustomPromptIds
+      : group.customPromptIds;
+
+    if (group.isDirectiveOnly && !directivesToApply.trim() && selectedPromptIds.length === 0) {
+      Alert.alert('Prompt ou directive requis', 'Ajoutez des directives ou sélectionnez au moins un prompt personnalisé pour réanalyser ce rapport sans photo.');
+      return;
+    }
 
     setIsRegeneratingGroup(true);
     setAnalyzingPhoto(true);
@@ -1528,7 +1604,7 @@ export default function VisiteScreen() {
           type: mission.type,
         } : undefined;
 
-        const response = await aiService.analyzeDirectives(directivesToApply, missionContext);
+        const response = await aiService.analyzeDirectives(directivesToApply, missionContext, undefined, getPromptSelection(selectedPromptIds));
 
         if (response.data) {
           const aiData = response.data as any;
@@ -1543,7 +1619,7 @@ export default function VisiteScreen() {
 
           updatedPhotos = updatedPhotos.map(p => {
             if ((p.groupId || p.id) === selectedGroupId) {
-              return { ...p, aiAnalysis: sharedAnalysis, userDirectives: directivesToApply };
+              return { ...p, aiAnalysis: sharedAnalysis, userDirectives: directivesToApply, customPromptIds: selectedPromptIds, appliedCustomPrompts: aiData.appliedCustomPrompts || [] };
             }
             return p;
           });
@@ -1562,7 +1638,7 @@ export default function VisiteScreen() {
           return;
         }
 
-        const batchResult = await aiService.analyzeBatchPhotos(s3Urls, directivesToApply || undefined);
+        const batchResult = await aiService.analyzeBatchPhotos(s3Urls, directivesToApply || undefined, undefined, getPromptSelection(selectedPromptIds));
 
         if (batchResult?.data) {
           const batchAnalysis = batchResult.data;
@@ -1592,7 +1668,7 @@ export default function VisiteScreen() {
 
           updatedPhotos = updatedPhotos.map(p => {
             if ((p.groupId || p.id) === selectedGroupId) {
-              return { ...p, aiAnalysis: sharedAnalysis, userDirectives: directivesToApply };
+              return { ...p, aiAnalysis: sharedAnalysis, userDirectives: directivesToApply, customPromptIds: selectedPromptIds, appliedCustomPrompts: batchAnalysis.appliedCustomPrompts || [] };
             }
             return p;
           });
@@ -1615,14 +1691,14 @@ export default function VisiteScreen() {
 
   // Regenerate ALL groups with global directives
   const regenerateAllGroupsWithGlobalDirectives = async () => {
-    if (reportGroups.length === 0 || !visitNotes.trim()) {
-      Alert.alert('Info', 'Veuillez saisir des directives globales avant de regénérer.');
+    if (reportGroups.length === 0 || (!visitNotes.trim() && customPromptIds.length === 0)) {
+      Alert.alert('Info', 'Sélectionnez au moins un prompt personnalisé ou saisissez des directives globales avant de réanalyser.');
       return;
     }
 
     setIsRegeneratingAllGroups(true);
     setAnalyzingPhoto(true);
-    setRegeneratingAllProgress('Regénération en cours...');
+    setRegeneratingAllProgress('Réanalyse en cours...');
 
     try {
       let nextPhotos = [...photos];
@@ -1630,6 +1706,8 @@ export default function VisiteScreen() {
       for (let i = 0; i < reportGroups.length; i++) {
         const group = reportGroups[i];
         setRegeneratingAllProgress(`Groupe ${i + 1}/${reportGroups.length} en cours...`);
+        const directivesToApply = visitNotes.trim() || group.directives || '';
+        const groupPromptIds = group.customPromptIds || customPromptIds;
 
         try {
           // Build previousReport from existing group analysis
@@ -1654,10 +1732,10 @@ export default function VisiteScreen() {
               type: mission.type,
             } : undefined;
 
-            const response = await aiService.analyzeDirectives(visitNotes, missionContext, previousReport);
+            const response = await aiService.analyzeDirectives(directivesToApply, missionContext, previousReport, getPromptSelection(groupPromptIds));
             if (response?.data) {
               const aiData = response.data as any;
-              const obs = aiData.observations || aiData.nonConformities || [visitNotes];
+              const obs = aiData.observations || aiData.nonConformities || [directivesToApply];
               const sharedAnalysis: Photo['aiAnalysis'] = {
                 observations: Array.isArray(obs) ? obs : [obs],
                 recommendations: aiData.recommendations || [],
@@ -1668,7 +1746,7 @@ export default function VisiteScreen() {
 
               nextPhotos = nextPhotos.map(p => {
                 if ((p.groupId || p.id) === group.groupId) {
-                  return { ...p, aiAnalysis: sharedAnalysis, userDirectives: visitNotes };
+                  return { ...p, aiAnalysis: sharedAnalysis, userDirectives: directivesToApply, customPromptIds: groupPromptIds, appliedCustomPrompts: aiData.appliedCustomPrompts || [] };
                 }
                 return p;
               });
@@ -1679,7 +1757,7 @@ export default function VisiteScreen() {
           const s3Urls = group.photos.filter(p => p.s3Url).map(p => p.s3Url!);
           if (s3Urls.length === 0) continue;
 
-          const batchResult = await aiService.analyzeBatchPhotos(s3Urls, visitNotes, previousReport);
+          const batchResult = await aiService.analyzeBatchPhotos(s3Urls, directivesToApply || undefined, previousReport, getPromptSelection(groupPromptIds));
           if (batchResult?.data) {
             const batchAnalysis = batchResult.data;
             const nonPhotoConformityMsgExists = batchAnalysis.nonConformities && batchAnalysis.nonConformities.length > 0;
@@ -1708,7 +1786,7 @@ export default function VisiteScreen() {
 
             nextPhotos = nextPhotos.map(p => {
               if ((p.groupId || p.id) === group.groupId) {
-                return { ...p, aiAnalysis: sharedAnalysis, userDirectives: visitNotes };
+                return { ...p, aiAnalysis: sharedAnalysis, userDirectives: directivesToApply, customPromptIds: groupPromptIds, appliedCustomPrompts: batchAnalysis.appliedCustomPrompts || [] };
               }
               return p;
             });
@@ -1722,7 +1800,7 @@ export default function VisiteScreen() {
       await saveVisit(nextPhotos, true);
       setHasChanges(true);
       setReportSaved(false);
-      Alert.alert('Succès', 'Tous les groupes ont été regénérés avec les directives globales.');
+      Alert.alert('Succès', 'Tous les groupes ont été réanalysés avec les prompts et directives sélectionnés.');
     } catch (error) {
       console.error('Erreur régénération globale:', error);
       Alert.alert('Erreur', "La regénération globale a échoué.");
@@ -1861,6 +1939,7 @@ export default function VisiteScreen() {
           previousAnalysis,
           previousUnreadable,
           group?.directives || undefined,
+          getPromptSelection(),
         );
 
         if (enhancedResult?.data) {
@@ -2231,7 +2310,7 @@ export default function VisiteScreen() {
 
       // Enhanced re-analysis
       const enhancedResult = await aiService.analyzeBatchEnhanced(
-        allS3Urls, previousAnalysis, previousUnreadable, group?.directives || undefined,
+        allS3Urls, previousAnalysis, previousUnreadable, group?.directives || undefined, getPromptSelection(),
       );
 
       if (enhancedResult?.data) {
@@ -2265,8 +2344,10 @@ export default function VisiteScreen() {
           }
           return p;
         }));
+        setHasChanges(true);
+        setReportSaved(false);
 
-        await saveVisit(undefined, true);
+        await saveVisit(photosRef.current, true);
 
         const resolved = previousUnreadable.length - (us?.length || 0);
         const remaining = us?.length || 0;
@@ -2366,6 +2447,9 @@ export default function VisiteScreen() {
         : p
     ));
 
+    setHasChanges(true);
+    setReportSaved(false);
+
     if (selectedPhoto?.id === photoId) {
       setSelectedPhoto(prev => prev ? { ...prev, validated: true } : null);
     }
@@ -2389,7 +2473,7 @@ export default function VisiteScreen() {
         type: mission.type,
       } : undefined;
 
-      const response = await aiService.analyzeDirectives(directiveOnlyText, missionContext);
+      const response = await aiService.analyzeDirectives(directiveOnlyText, missionContext, undefined, getPromptSelection(directiveOnlyCustomPromptIds));
 
       const groupId = `directive-${Date.now()}`;
       let aiAnalysis: Photo['aiAnalysis'] = {
@@ -2422,6 +2506,8 @@ export default function VisiteScreen() {
         userDirectives: directiveOnlyText,
         validated: true,
         aiAnalysis,
+        customPromptIds: directiveOnlyCustomPromptIds,
+        appliedCustomPrompts: response.data?.appliedCustomPrompts || [],
       };
 
       const updatedPhotos = [...photos, newPhoto];
@@ -2454,6 +2540,8 @@ export default function VisiteScreen() {
           riskLevel: 'low',
           confidence: 100,
         },
+        customPromptIds: directiveOnlyCustomPromptIds,
+        appliedCustomPrompts: [],
       };
       const updatedPhotos = [...photos, newPhoto];
       setPhotos(updatedPhotos);
@@ -2547,7 +2635,7 @@ export default function VisiteScreen() {
     const photosData = photosParam && photosParam.length > 0 ? photosParam : photosRef.current;
     const hasDirectiveOnly = photosData.some((p: any) => p.isDirectiveOnly);
     const hasAtLeastOneUploadedPhoto = photosData.some((p: any) => !!p.s3Url);
-    if (!hasAtLeastOneUploadedPhoto && !hasDirectiveOnly) {
+    if (!hasAtLeastOneUploadedPhoto && !hasDirectiveOnly && !existingVisitId) {
       if (!silent) {
         Alert.alert('Erreur', 'Veuillez prendre au moins une photo ou ajouter des directives');
       }
@@ -2582,6 +2670,8 @@ export default function VisiteScreen() {
         comment: p.comment,
         userDirectives: p.userDirectives,
         validated: p.validated,
+        customPromptIds: p.customPromptIds || [],
+        appliedCustomPrompts: p.appliedCustomPrompts || [],
       }));
 
       let visitResponse;
@@ -2591,6 +2681,7 @@ export default function VisiteScreen() {
           visitDate: new Date().toISOString(),
           photos: visitPhotos,
           notes: visitNotes,
+          customPromptIds,
         });
       } else {
         visitResponse = await visitService.createVisit({
@@ -2598,6 +2689,7 @@ export default function VisiteScreen() {
           visitDate: new Date().toISOString(),
           photos: visitPhotos,
           notes: visitNotes,
+          customPromptIds,
         });
         visitId = visitResponse.data?.id;
         setExistingVisitId(visitId);
@@ -2615,14 +2707,41 @@ export default function VisiteScreen() {
         loadExistingVisitData(mission.id, visitId);
         Alert.alert('Succès', 'La visite a été enregistrée avec succès');
       }
+      return true;
     } catch (error: any) {
       if (!silent) {
         Alert.alert('Erreur', error.message || 'Impossible d\'enregistrer la visite');
       }
+      return false;
     } finally {
       setSavingVisit(false);
     }
   };
+
+  // Persist every local visit change automatically, including generated and regenerated analyses.
+  useEffect(() => {
+    if (!hasChanges || !mission) return;
+    const snapshot = photosRef.current;
+    const signature = JSON.stringify({ photos: snapshot, notes: visitNotes, customPromptIds });
+    if (signature === autoSaveSignatureRef.current) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(async () => {
+      if (autoSaveInFlightRef.current) return;
+      autoSaveInFlightRef.current = true;
+      try {
+        const saved = await saveVisit(snapshot, true);
+        if (saved) {
+          autoSaveSignatureRef.current = signature;
+          setHasChanges(false);
+        }
+      } finally {
+        autoSaveInFlightRef.current = false;
+      }
+    }, 450);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [hasChanges, mission, visitNotes, customPromptIds, photos]);
 
   const saveReportAndVisit = async () => {
     if (!mission) {
@@ -2840,6 +2959,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
           visitDate: new Date().toISOString(),
           photos: visitPhotos,
           notes: visitNotes,
+          customPromptIds,
         });
         // console.log('Updated existing visit:', existingVisitId);
       } else {
@@ -2849,6 +2969,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
           visitDate: new Date().toISOString(),
           photos: visitPhotos,
           notes: visitNotes,
+          customPromptIds,
         });
         visitId = visitResponse.data?.id;
         setExistingVisitId(visitId);
@@ -3672,7 +3793,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                         </View>
                       </View>
 
-                      <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false}>
+                      <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
                         {/* Photo */}
                         <Image source={{ uri: selectedPhoto.uri }} style={styles.detailPhotoImage} />
 
@@ -3958,7 +4079,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                     </View>
                   </View>
 
-                  <ScrollView ref={reportScrollRef} style={styles.reportContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <ScrollView ref={reportScrollRef} style={styles.reportContent} showsVerticalScrollIndicator={false} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
                     {editingReport && (reportStatus !== 'envoye_au_client' && (!mission || (mission as any).originalStatus !== 'terminee')) ? (
                       <View>
                         <Text style={styles.editSectionLabel}>EN-TÊTE</Text>
@@ -4143,6 +4264,11 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                           );
                         })}
 
+                        <CustomPromptSelector
+                          missionType={mission.type}
+                          selectedIds={customPromptIds}
+                          onChange={handleCustomPromptChange}
+                        />
                         {/* Global Directives Section */}
                         <View style={{ marginTop: 5, marginBottom: 16 }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
@@ -4211,7 +4337,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                     ) : (
                                       <>
                                         <RefreshCw size={16} color="#FFFFFF" />
-                                        <Text style={{ color: '#FFFFFF', fontFamily: 'Inter-SemiBold', fontSize: 12 }}>Regénérer</Text>
+                                        <Text style={{ color: '#FFFFFF', fontFamily: 'Inter-SemiBold', fontSize: 12 }}>Réanalyser</Text>
                                       </>
                                     )}
                                   </LinearGradient>
@@ -4430,7 +4556,12 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                     </TouchableOpacity>
                   </View>
 
-                  <ScrollView style={{ flex: 1, paddingHorizontal: 24 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <ScrollView style={{ flex: 1, paddingHorizontal: 24 }} showsVerticalScrollIndicator={false} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                    <CustomPromptSelector
+                      missionType={mission.type}
+                      selectedIds={newGroupCustomPromptIds}
+                      onChange={setNewGroupCustomPromptIds}
+                    />
                     {/* Pending photos grid */}
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
                       {pendingPhotos.map((photo, index) => (
@@ -4758,6 +4889,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                         setTempGroupObservations([...(group.aiAnalysis?.observations || [])]);
                                         setTempGroupRecommendations([...(group.aiAnalysis?.recommendations || [])]);
                                         setTempGroupReferences([...(group.aiAnalysis?.references || [])]);
+                                        setGroupCustomPromptIds(group.customPromptIds);
                                         setEditingGroupReport(true);
                                       }
                                     }}
@@ -4775,14 +4907,43 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                             )}
                             <TouchableOpacity
                               style={styles.closePhotoDetailButton}
-                              onPress={() => { setShowGroupDetail(false); setSelectedGroupId(null); setEditingGroupDirectives(false); setEditingGroupComments(false); setEditingGroupReport(false); }}
+                              onPress={() => { setShowGroupDetail(false); setSelectedGroupId(null); setEditingGroupDirectives(false); setEditingGroupComments(false); setEditingGroupReport(false); setExpandedAppliedPromptId(null); }}
                             >
                               <X size={20} color="#FFFFFF" />
                             </TouchableOpacity>
                           </View>
                         </View>
 
-                        <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false}>
+                        <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
+                          {editingGroupReport ? (
+                            <CustomPromptSelector
+                              missionType={mission.type}
+                              selectedIds={groupCustomPromptIds}
+                              onChange={setGroupCustomPromptIds}
+                            />
+                          ) : group.appliedCustomPrompts.length > 0 ? (
+                            <View style={styles.commentsSection}>
+                              <Text style={styles.commentsSectionTitle}>PROMPTS UTILISÉS LORS DE LA DERNIÈRE ANALYSE</Text>
+                              {group.appliedCustomPrompts.map((prompt) => {
+                                const isExpanded = expandedAppliedPromptId === prompt.id;
+                                return (
+                                  <View key={prompt.id} style={styles.appliedPromptItem}>
+                                    <TouchableOpacity
+                                      style={styles.appliedPromptHeader}
+                                      activeOpacity={0.8}
+                                      onPress={() => setExpandedAppliedPromptId(isExpanded ? null : prompt.id)}
+                                    >
+                                      <Text style={styles.appliedPromptName}>• {prompt.name}</Text>
+                                      {isExpanded ? <ChevronUp size={16} color="#CBD5E1" /> : <ChevronDown size={16} color="#CBD5E1" />}
+                                    </TouchableOpacity>
+                                    {isExpanded && (
+                                      <Text style={styles.appliedPromptContent}>{prompt.content}</Text>
+                                    )}
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          ) : null}
                           {/* AI Analysis */}
                           {group.aiAnalysis && (
                             <View style={styles.aiAnalysisSection}>
@@ -4922,6 +5083,15 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                       </LinearGradient>
                                     </TouchableOpacity>
                                   </View>
+                                  <TouchableOpacity
+                                    style={{ borderRadius: 12, overflow: 'hidden', marginTop: 10 }}
+                                    onPress={regenerateGroupReport}
+                                    disabled={isRegeneratingGroup}
+                                  >
+                                    <LinearGradient colors={isRegeneratingGroup ? ['#64748B', '#475569'] : ['#8B5CF6', '#7C3AED']} style={styles.saveCommentsGradient}>
+                                      {isRegeneratingGroup ? <ActivityIndicator size={14} color="#FFFFFF" /> : <Text style={styles.saveEditableReportText}>Réanalyse prompts/directives</Text>}
+                                    </LinearGradient>
+                                  </TouchableOpacity>
                                 </>
                               ) : (
                                 <>
@@ -5093,7 +5263,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                           {isRegeneratingGroup ? (
                                             <ActivityIndicator size={12} color="#FFFFFF" />
                                           ) : (
-                                            <Text style={styles.saveCommentsText}>{`Regénérer\nrapport`}</Text>
+                                            <Text style={styles.saveCommentsText}>{`Réanalyse\nprompts/directives`}</Text>
                                           )}
                                         </LinearGradient>
                                       </TouchableOpacity>
@@ -5611,7 +5781,12 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                     </TouchableOpacity>
                   </View>
 
-                  <ScrollView style={{ flex: 1, paddingHorizontal: 24 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <ScrollView style={{ flex: 1, paddingHorizontal: 24 }} showsVerticalScrollIndicator={false} nestedScrollEnabled={true} keyboardShouldPersistTaps="handled">
+                    <CustomPromptSelector
+                      missionType={mission.type}
+                      selectedIds={directiveOnlyCustomPromptIds}
+                      onChange={setDirectiveOnlyCustomPromptIds}
+                    />
                     <View style={{ backgroundColor: '#374151', borderRadius: 16, padding: 16, marginBottom: 20 }}>
                       <Text style={{ fontSize: 12, fontFamily: 'Inter-Bold', color: '#94A3B8', letterSpacing: 1, marginBottom: 8 }}>
                         DIRECTIVES DU COORDONNATEUR *
@@ -6329,6 +6504,35 @@ const styles = StyleSheet.create({
   commentsDisplay: {
     minHeight: 40,
     justifyContent: 'center',
+  },
+  appliedPromptItem: {
+    borderTopWidth: 1,
+    borderTopColor: '#4B5563',
+    paddingTop: 10,
+    marginTop: 10,
+  },
+  appliedPromptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  appliedPromptName: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#FFFFFF',
+    lineHeight: 20,
+  },
+  appliedPromptContent: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#1F2937',
+    fontSize: 13,
+    fontFamily: 'Inter-Regular',
+    color: '#E5E7EB',
+    lineHeight: 19,
   },
   commentsText: {
     fontSize: 14,

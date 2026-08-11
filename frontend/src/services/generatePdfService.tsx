@@ -616,6 +616,7 @@ export const generatePdfService = {
           margin-bottom: 6px;
           line-height: 1.5;
           font-size: 13px;
+          white-space: pre-line;
         }
     
         .comment-section {

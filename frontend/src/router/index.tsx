@@ -14,6 +14,7 @@ import HyperAdminLayout from '../components/hyperAdmin/HyperAdminLayout';
 import HyperAdminDashboard from '../components/hyperAdmin/HyperAdminDashboard';
 import HyperAdminOrganizations from '../components/hyperAdmin/HyperAdminOrganizations';
 import HyperAdminUsers from '../components/hyperAdmin/HyperAdminUsers';
+import CustomPromptManagement from '../components/CustomPromptManagement';
 import Privacy from '../components/privacy';
 import Cgu from '../components/cgu';
 
@@ -61,6 +62,7 @@ export const router = createBrowserRouter([
       { path: 'missions', element: <MissionManagement /> },
       { path: 'dispatch', element: <MissionDispatch /> },
       { path: 'visits', element: <VisitManagement /> },
+      { path: 'custom-prompts', element: <CustomPromptManagement /> },
       { path: 'reports', element: <ReportManagement /> },
       { path: 'mailing-list', element: <MailingListManagement /> },
       { path: 'logs', element: <ActivityLogs /> },

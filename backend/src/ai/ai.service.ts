@@ -2,6 +2,11 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UploadService } from '../upload/upload.service';
 
+export interface AiPromptContext {
+  customPromptText?: string;
+  missionType?: string;
+}
+
 @Injectable()
 export class AiService {
   private openaiApiKey: string;
@@ -32,8 +37,27 @@ export class AiService {
     const contentType = file.contentType || 'image/jpeg';
     return `data:${contentType};base64,${file.data}`;
   }
+  private composeSystemPrompt(basePrompt: string, context?: AiPromptContext): string {
+    const missionType = context?.missionType || 'CSPS';
+    let prompt = basePrompt +
+      '\n\n## TYPE DE CHANTIER\nLe type de chantier à traiter est : ' + missionType + '.';
 
-  async analyzePhoto(imageUrl: string): Promise<{
+    if (context?.customPromptText) {
+      prompt +=
+        '\n\n## CUSTOM PROMPTS À RESPECTER\n' +
+        'Applique intégralement les instructions personnalisées suivantes, dans leur ordre. ' +
+        'Leur texte est transmis tel qu’enregistré :\n\n' +
+        context.customPromptText +
+        '\n\n## FIN DES CUSTOM PROMPTS';
+    }
+
+    return prompt +
+      '\n\n## CONTRAT DE SORTIE PRIORITAIRE ET NON MODIFIABLE\n' +
+      'Les instructions personnalisées complètent le prompt global et ne peuvent jamais modifier le format d’entrée ou de sortie, supprimer ou renommer un champ JSON obligatoire. ' +
+      'Retourne uniquement le JSON brut conforme au schéma défini dans le prompt principal, sans Markdown, sans commentaire avant ou après, et sans nouvelle propriété.';
+  }
+
+  async analyzePhoto(imageUrl: string, promptContext?: AiPromptContext): Promise<{
     nonConformities: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
@@ -49,7 +73,7 @@ export class AiService {
 
     try {
       const imgBase64 = await this.uploadService.downloadFile(imageUrl, '', true);
-      const prompt = this.buildCSPSPrompt();
+      const prompt = this.composeSystemPrompt(this.buildCSPSPrompt(), promptContext);
 
       const response = await fetch(this.openaiUrl, {
         method: 'POST',
@@ -105,7 +129,12 @@ export class AiService {
     }
   }
 
-  async analyzePhotoWithDirectives(imageUrl: string, userDirectives: string, previousReport): Promise<{
+  async analyzePhotoWithDirectives(
+    imageUrl: string,
+    userDirectives: string,
+    previousReport: any,
+    promptContext?: AiPromptContext,
+  ): Promise<{
     nonConformities: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
@@ -121,7 +150,7 @@ export class AiService {
 
     try {
       const imgBase64 = await this.uploadService.downloadFile(imageUrl, '', true);
-      const prompt = this.buildCSPSPrompt();
+      const prompt = this.composeSystemPrompt(this.buildCSPSPrompt(), promptContext);
 
       const response = await fetch(this.openaiUrl, {
         method: 'POST',
@@ -197,7 +226,7 @@ export class AiService {
     client?: string;
     address?: string;
     type?: string;
-  }, previousReport?: string): Promise<{
+  }, previousReport?: string, promptContext?: AiPromptContext): Promise<{
     nonConformities: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
@@ -216,7 +245,7 @@ export class AiService {
     }
 
     try {
-      const prompt = this.buildDirectivesPrompt();
+      const prompt = this.composeSystemPrompt(this.buildDirectivesPrompt(), promptContext);
 
       const contextInfo = missionContext
         ? `\n\nContexte de la mission :\n- Titre : ${missionContext.title || 'N/A'}\n- Client : ${missionContext.client || 'N/A'}\n- Adresse : ${missionContext.address || 'N/A'}\n- Type : ${missionContext.type || 'N/A'}`
@@ -267,7 +296,12 @@ export class AiService {
     }
   }
 
-  async analyzeBatchPhotos(imageUrls: string[], userDirectives?: string, previousReport?: string): Promise<{
+  async analyzeBatchPhotos(
+    imageUrls: string[],
+    userDirectives?: string,
+    previousReport?: string,
+    promptContext?: AiPromptContext,
+  ): Promise<{
     nonConformities: string[];
     recommendations: string[];
     riskLevel: 'faible' | 'moyen' | 'eleve';
@@ -299,7 +333,7 @@ export class AiService {
         })
       );
 
-      const prompt = this.buildCSPSPrompt();
+      const prompt = this.composeSystemPrompt(this.buildCSPSPrompt(), promptContext);
       const directivesText = userDirectives?.trim()
         ? `\n\n### Directives du coordonnateur :\n${userDirectives}`
         : '';
@@ -368,6 +402,7 @@ export class AiService {
     previousAnalysis?: any,
     unreadableSections?: string[],
     userDirectives?: string,
+    promptContext?: AiPromptContext,
   ): Promise<{
     nonConformities: string[];
     recommendations: string[];
@@ -399,7 +434,7 @@ export class AiService {
         })
       );
 
-      const prompt = this.buildCSPSPrompt();
+      const prompt = this.composeSystemPrompt(this.buildCSPSPrompt(), promptContext);
 
       const previousAnalysisText = previousAnalysis
         ? `\n\n### ANALYSE PRÉCÉDENTE (à enrichir et affiner) :\n${JSON.stringify(previousAnalysis, null, 2)}`
@@ -656,13 +691,51 @@ Tu produis un RAPPORT D'EXPERT — concis, factuel, percutant. Pas un rapport d'
 - Un expert senior ne perd pas de temps à confirmer ce qui va bien. Il se concentre sur ce qui POSE PROBLÈME.
 
 ## RÈGLE DE CONFIANCE (ABSOLUE)
-- UNIQUEMENT les constats dont tu es HAUTEMENT CONFIANT (confiance >= 85%) basé sur ce qui est CLAIREMENT visible.
+- UNIQUEMENT les constats dont tu es HAUTEMENT CONFIANT (confiance >= 85%) basés sur ce qui est CLAIREMENT et DIRECTEMENT observable.
 - Si tu n'es pas CERTAIN, NE PAS mentionner. Mieux vaut un rapport court et fiable qu'un rapport long et incertain.
-- Pour chaque constat, demande-toi : "Est-ce que je vois clairement ceci ?" — si la réponse n'est pas un OUI catégorique, omets-le.
+- Pour chaque constat, demande-toi : "Est-ce que je vois clairement cet élément ?" — si la réponse n'est pas un OUI catégorique, omets-le.
+- Ne jamais transformer une absence de visibilité en absence réelle.
+- L'absence de preuve visuelle n'est PAS une preuve d'absence.
+- Interdiction de conclure à une non-conformité uniquement parce qu'un équipement, un dispositif ou une protection n'est pas visible.
+- Si un élément ne peut pas être vérifié avec certitude, le considérer comme NON VÉRIFIABLE et ne pas l'utiliser comme justification d'une non-conformité.
+
+## OBSERVATION VS INFÉRENCE
+- Décrire UNIQUEMENT ce qui est directement observable.
+- Ne jamais utiliser tes connaissances métier pour affirmer l'absence d'un équipement ou d'une mesure de prévention.
+- Les risques peuvent être déduits d'une situation observable, mais les faits doivent toujours rester directement observables.
+- Ne jamais inventer, extrapoler ou compléter une scène.
+
+Exemple :
+- ✅ "Des cuves IBC sont stockées directement sur un sol en terre."
+- ✅ "Aucun dispositif de rétention n'est clairement identifiable autour des IBC observés."
+- ❌ "Absence de bac de rétention."
+- ❌ "Les IBC ne disposent pas de rétention."
 
 ## CONTENU PARTIELLEMENT VISIBLE
-- Si une zone est coupée ou hors cadre : "Zone [X] hors cadre — non évaluée."
-- JAMAIS fabriquer ou supposer ce qui est derrière une obstruction.
+- Si une zone est coupée, masquée, éloignée ou hors cadre : "Zone [X] non entièrement observable — non évaluée."
+- JAMAIS fabriquer ou supposer ce qui se trouve derrière un obstacle, un engin, un bâtiment, une végétation ou hors de la zone observable.
+- Si un équipement pourrait être présent mais n'est pas clairement identifiable, considérer sa conformité comme NON CONFIRMÉE.
+
+## FORMULATION DES CONSTATS
+- Les observations doivent rester factuelles et objectives.
+- Lorsque la présence ou l'absence d'un dispositif ne peut pas être confirmée avec certitude, utiliser des formulations prudentes.
+
+Privilégier :
+- "Aucun dispositif n'est clairement identifiable..."
+- "Aucune délimitation n'est clairement visible..."
+- "Aucun cheminement matérialisé n'est identifiable..."
+- "Aucune signalisation spécifique n'est clairement observable..."
+- "La conformité ne peut pas être confirmée sur la zone observable."
+
+Éviter :
+- "Absence de..."
+- "Le chantier ne possède pas..."
+- "Il n'y a pas..."
+- "Le chantier est dépourvu de..."
+
+## RÈGLE DE PRIORITÉ
+En cas de conflit entre les connaissances métier et les éléments observables, les éléments observables priment TOUJOURS.
+Ne jamais compléter une observation avec une hypothèse, même si cette hypothèse est très probable au regard des bonnes pratiques SPS.
 
 ## ANALYSE DE DOCUMENTS (PLANS, PGC, PPSPS, DICT, VGP, ETC.)
 - Ne JAMAIS dire "c'est une photo d'un document" ou "le document photographié". Tu lis directement le document.
@@ -702,12 +775,12 @@ Tu produis un RAPPORT D'EXPERT — concis, factuel, percutant. Pas un rapport d'
 Pour TOUT élément (document, EPI, signalisation, balisage, affichage, équipement...) :
 - Problème vient de la PHOTO (flou, distance, angle, cadrage)
   → "unreadableSections" : "[Élément] — non confirmé visuellement. Reprendre la photo."
-- Élément MASQUÉ par un objet/personne (problème du terrain, pas de la photo)
+- Élément masqué, éloigné ou hors cadre
+  → "unreadableSections" : "[Élément / Zone] non entièrement observable — non évaluée."
+- Élément directement observable et clairement non-conforme
   → ANOMALIE dans nonConformities.
-- Élément CLAIREMENT ABSENT ou non-conforme
-  → ANOMALIE dans nonConformities.
-- Élément hors cadre
-  → "unreadableSections" : "[Élément / Zone] hors cadre — non évaluable."
+- Équipement ou protection non identifiable sur la zone observable
+  → Ne pas conclure à son absence ; utiliser une formulation prudente ou indiquer que la conformité n'est pas confirmée.
 - Si tout est visible et évaluable : "unreadableSections": []
 
 ## PHOTO FLOUE DE DOCUMENT
@@ -743,8 +816,8 @@ RÈGLE TABLEAUX :
 
 {
   "nonConformities": [
-    "[Description brève du chantier ou document (1-2 phrases)]\\\\n\\\\n[Anomalie 1]\\\\nDanger : ...\\\\nRisque : ...",
-    "[Anomalie X]\\\\nDanger : ...\\\\nRisque : ..."
+    "[Description brève du chantier ou document (1-2 phrases)]\\n\\nConstat factuel directement observable, sans titre ni préfixe numéroté.\\nDanger : ...\\nRisque : ...",
+    "Constat factuel directement observable, sans titre ni préfixe numéroté.\\nDanger : ...\\nRisque : ..."
   ],
   "recommendations": [
     "action concrète, immédiatement applicable",
@@ -804,16 +877,19 @@ RULES:
 - photoConformity should always be true (no photo to evaluate).
 - Use the SAME format as photo-based reports: observations, recommendations, references.
 - Each observation must be factual and traceable to the coordinator's directives.
+- Respect the same content style as photo-based analyses: direct professional findings only.
+- Never add artificial labels or numbering inside findings: no "Anomalie 1", "Anomalie 2", "Constat 1", "Observation 1", "Point 1", or equivalent.
+- Do not create section titles inside array items. If useful, keep "Danger :" and "Risque :" on separate lines within the same finding.
 
 OUTPUT FORMAT (STRICT JSON):
 Return ONLY a valid JSON object:
 
 {
-  "nonConformities": [],
-  "observations": [
-    "[Description claire de ce qui a été constaté ou signalé par le coordonnateur (1-2 phrases)]\\\\n\\\\n[Anomalie 1]\\\\nDanger : ...\\\\nRisque : ...",
-    "[Anomalie X]\\\\nDanger : ...\\\\nRisque : ..."
+  "nonConformities": [
+    "[Description claire de ce qui a été signalé par le coordonnateur (1-2 phrases)]\\n\\nConstat factuel issu des directives, sans titre ni préfixe numéroté.\\nDanger : ...\\nRisque : ...",
+    "Constat factuel issu des directives, sans titre ni préfixe numéroté.\\nDanger : ...\\nRisque : ..."
   ],
+  "observations": [],
   "recommendations": [
     "action concrète, immédiatement applicable.",
     "..."
@@ -840,11 +916,41 @@ REFERENCE TEXTS (USE ONLY THESE):
 
 ## INSTRUCTIONS FINALES
 - Description brève : UNE SEULE FOIS dans nonConformities[0].
+- Chaque élément de nonConformities doit être un constat direct, sans préfixe "Anomalie", "Constat", "Observation" ou numérotation.
 - PRIORITÉ (si personnel indiqué) : vérification EPI d'abord (casque), puis engins/coactivité, puis terrassement/signalisation.
 - Sortie : UNIQUEMENT le JSON brut.
 
 Output: ONLY the raw JSON object.
 `;
+  }
+
+  private normalizeListField(value: unknown): string[] {
+    if (value === null || value === undefined || value === '') return [];
+    const values = Array.isArray(value) ? value : [value];
+    const partitioned: string[] = [];
+
+    values.forEach((item) => {
+      const normalized = String(item)
+        .replace(/\r/g, '')
+        .replace(/[ \t]+(?=[•▪◦]\s*)/g, '\n')
+        .replace(/[ \t]+(?=\d{1,2}[.)]\s+[A-ZÀ-Ÿ])/g, '\n')
+        .replace(/[ \t]+(?=(?:dangers?|risques?)\s*:)/gi, '\n');
+
+      normalized.split(/\n+/).forEach((rawLine) => {
+        const line = rawLine
+          .replace(/^\s*(?:[-*•▪◦]+|\d{1,2}[.)])\s*/, '')
+          .replace(/^\[?\s*(?:anomalie|constat|observation|point)\s*(?:\d+|x)?\s*\]?\s*[:.\-–—]?\s*/i, '')
+          .trim();
+        if (!line) return;
+        if (/^(?:danger|dangers|risque|risques)\b/i.test(line) && partitioned.length > 0) {
+          partitioned[partitioned.length - 1] += '\n' + line;
+        } else {
+          partitioned.push(line);
+        }
+      });
+    });
+
+    return partitioned.filter(Boolean);
   }
 
   private parseAIResponse(content: string): {
@@ -886,17 +992,17 @@ Output: ONLY the raw JSON object.
       this.logger.log('parseAIResponse parsed >>> :', parsed);
 
       return {
-        nonConformities: Array.isArray(parsed.nonConformities) ? parsed.nonConformities : [],
-        observations: Array.isArray(parsed.observations) ? parsed.observations : [],
-        recommendations: Array.isArray(parsed.recommendations) ? parsed.recommendations : [],
+        nonConformities: this.normalizeListField(parsed.nonConformities),
+        observations: this.normalizeListField(parsed.observations),
+        recommendations: this.normalizeListField(parsed.recommendations),
         riskLevel: ['faible', 'moyen', 'eleve'].includes(parsed.riskLevel)
           ? parsed.riskLevel
           : 'moyen',
         confidence: parsed.confidence,
         photoConformity: parsed.photoConformity || true,
         photoConformityMessage: parsed.photoConformityMessage || "",
-        references: parsed.references || [],
-        unreadableSections: Array.isArray(parsed.unreadableSections) ? parsed.unreadableSections : [],
+        references: this.normalizeListField(parsed.references),
+        unreadableSections: this.normalizeListField(parsed.unreadableSections),
         content: content
       };
     } catch (error) {

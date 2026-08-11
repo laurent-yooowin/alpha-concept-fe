@@ -1,29 +1,55 @@
-import { Controller, Post, Body, UseGuards, Optional } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AiService } from './ai.service';
-import { IsNotEmpty, IsOptional, IsString, } from 'class-validator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CustomPromptService, ResolvedCustomPrompts } from '../custom-prompts/custom-prompt.service';
+import { User } from '../user/user.entity';
+import { AiPromptContext, AiService } from './ai.service';
 
-class AnalyzePhotoDto {
+class PromptSelectionDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('4', { each: true })
+  customPromptIds?: string[];
+
+  @IsOptional()
+  @IsUUID('4')
+  visitId?: string;
+
+  @IsOptional()
+  @IsString()
+  missionType?: string;
+}
+
+class AnalyzePhotoDto extends PromptSelectionDto {
   @IsString()
   @IsNotEmpty()
   imageUrl: string;
 }
 
-class AnalyzePhotoDirectivesDto {
+class AnalyzePhotoDirectivesDto extends PromptSelectionDto {
   @IsString()
   @IsNotEmpty()
   imageUrl: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   userDirectives?: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   previousReport?: string;
 }
 
-class AnalyzeDirectivesDto {
+class AnalyzeDirectivesDto extends PromptSelectionDto {
   @IsString()
   @IsNotEmpty()
   userDirectives: string;
@@ -41,7 +67,8 @@ class AnalyzeDirectivesDto {
   previousReport?: string;
 }
 
-class AnalyzeBatchPhotosDto {
+class AnalyzeBatchPhotosDto extends PromptSelectionDto {
+  @IsArray()
   @IsString({ each: true })
   @IsNotEmpty({ each: true })
   imageUrls: string[];
@@ -55,7 +82,8 @@ class AnalyzeBatchPhotosDto {
   previousReport?: string;
 }
 
-class AnalyzeBatchEnhancedDto {
+class AnalyzeBatchEnhancedDto extends PromptSelectionDto {
+  @IsArray()
   @IsString({ each: true })
   @IsNotEmpty({ each: true })
   imageUrls: string[];
@@ -74,39 +102,97 @@ class AnalyzeBatchEnhancedDto {
 @Controller('ai')
 @UseGuards(JwtAuthGuard)
 export class AiController {
-  constructor(private readonly aiService: AiService) { }
+  constructor(
+    private readonly aiService: AiService,
+    private readonly customPromptService: CustomPromptService,
+  ) {}
+
+  private async resolvePromptContext(
+    user: User,
+    dto: PromptSelectionDto,
+  ): Promise<{ context: AiPromptContext; resolved: ResolvedCustomPrompts }> {
+    const resolved = await this.customPromptService.resolveForAnalysis(
+      user,
+      dto.customPromptIds,
+      dto.visitId,
+      dto.missionType,
+    );
+    return {
+      resolved,
+      context: {
+        customPromptText: resolved.combinedContent,
+        missionType: resolved.missionType,
+      },
+    };
+  }
+
+  private responseWithPromptMetadata(analysis: any, resolved: ResolvedCustomPrompts) {
+    return {
+      ...analysis,
+      appliedCustomPrompts: resolved.prompts.map((prompt) => ({
+        id: prompt.id,
+        name: prompt.name,
+        content: prompt.content,
+      })),
+    };
+  }
 
   @Post('analyze-photo')
-  async analyzePhoto(@Body() analyzePhotoDto: AnalyzePhotoDto) {
-    return this.aiService.analyzePhoto(analyzePhotoDto.imageUrl);
+  async analyzePhoto(@CurrentUser() user: User, @Body() dto: AnalyzePhotoDto) {
+    const { context, resolved } = await this.resolvePromptContext(user, dto);
+    const analysis = await this.aiService.analyzePhoto(dto.imageUrl, context);
+    return this.responseWithPromptMetadata(analysis, resolved);
   }
 
   @Post('analyze-photo-directives')
-  async analyzePhotoWithDirectives(@Body() analyzePhotoDirectivesDto: AnalyzePhotoDirectivesDto) {
-    return this.aiService.analyzePhotoWithDirectives(
-      analyzePhotoDirectivesDto.imageUrl,
-      analyzePhotoDirectivesDto.userDirectives,
-      analyzePhotoDirectivesDto.previousReport
+  async analyzePhotoWithDirectives(
+    @CurrentUser() user: User,
+    @Body() dto: AnalyzePhotoDirectivesDto,
+  ) {
+    const { context, resolved } = await this.resolvePromptContext(user, dto);
+    const analysis = await this.aiService.analyzePhotoWithDirectives(
+      dto.imageUrl,
+      dto.userDirectives,
+      dto.previousReport,
+      context,
     );
+    return this.responseWithPromptMetadata(analysis, resolved);
   }
 
   @Post('analyze-directives')
-  async analyzeDirectives(@Body() dto: AnalyzeDirectivesDto) {
-    return this.aiService.analyzeDirectives(dto.userDirectives, dto.missionContext, dto.previousReport);
+  async analyzeDirectives(@CurrentUser() user: User, @Body() dto: AnalyzeDirectivesDto) {
+    const { context, resolved } = await this.resolvePromptContext(user, dto);
+    const analysis = await this.aiService.analyzeDirectives(
+      dto.userDirectives,
+      dto.missionContext,
+      dto.previousReport,
+      context,
+    );
+    return this.responseWithPromptMetadata(analysis, resolved);
   }
 
   @Post('analyze-batch')
-  async analyzeBatchPhotos(@Body() dto: AnalyzeBatchPhotosDto) {
-    return this.aiService.analyzeBatchPhotos(dto.imageUrls, dto.userDirectives, dto.previousReport);
+  async analyzeBatchPhotos(@CurrentUser() user: User, @Body() dto: AnalyzeBatchPhotosDto) {
+    const { context, resolved } = await this.resolvePromptContext(user, dto);
+    const analysis = await this.aiService.analyzeBatchPhotos(
+      dto.imageUrls,
+      dto.userDirectives,
+      dto.previousReport,
+      context,
+    );
+    return this.responseWithPromptMetadata(analysis, resolved);
   }
 
   @Post('analyze-batch-enhanced')
-  async analyzeBatchEnhanced(@Body() dto: AnalyzeBatchEnhancedDto) {
-    return this.aiService.analyzeBatchEnhanced(
+  async analyzeBatchEnhanced(@CurrentUser() user: User, @Body() dto: AnalyzeBatchEnhancedDto) {
+    const { context, resolved } = await this.resolvePromptContext(user, dto);
+    const analysis = await this.aiService.analyzeBatchEnhanced(
       dto.imageUrls,
       dto.previousAnalysis,
       dto.unreadableSections,
       dto.userDirectives,
+      context,
     );
+    return this.responseWithPromptMetadata(analysis, resolved);
   }
 }
