@@ -7,6 +7,7 @@ import { Organization } from '../organizations/organization.entity';
 
 
 @Entity('missions')
+@Index('UQ_missions_org_id', ['organizationId', 'id'], { unique: true })
 export class Mission {
   @PrimaryGeneratedColumn('uuid')
   id: string;

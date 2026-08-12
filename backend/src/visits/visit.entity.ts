@@ -5,6 +5,7 @@ import { Report } from '../reports/report.entity';
 import { Organization } from '../organizations/organization.entity';
 
 @Entity('visits')
+@Index('UQ_visits_org_id', ['organizationId', 'id'], { unique: true })
 export class Visit {
   @PrimaryGeneratedColumn('uuid')
   id: string;

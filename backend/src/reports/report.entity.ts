@@ -15,6 +15,7 @@ export enum ReportStatus {
 }
 
 @Entity('reports')
+@Index('UQ_reports_org_id', ['organizationId', 'id'], { unique: true })
 export class Report {
   @PrimaryGeneratedColumn('uuid')
   id: string;
