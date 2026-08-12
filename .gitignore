@@ -87,3 +87,14 @@ ROADMAP.md
 prevention_rte.html
 AGENTS.md
 docs/PLAN_PREVENTION_ORGANISATIONS.md
+.codex/config.toml
+.codex/agents/ai.toml
+.codex/agents/backend.toml
+.codex/agents/devops.toml
+.gitignore
+.codex/agents/reviewer.toml
+.gitignore
+.codex/agents/explorer.toml
+.codex/agents/frontend.toml
+.codex/agents/security.toml
+.codex/agents/tester.toml
