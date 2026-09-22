@@ -1,6 +1,6 @@
 # Iteration 003 — File BullMQ, producteurs et déduplication
 
-STATUS: PROPOSED
+STATUS: COMPLETED
 
 ## Roadmap reference
 
@@ -175,18 +175,18 @@ Revue obligatoire : isolation tenant, payloads BullMQ, concurrence multi-réplic
 
 ## Acceptance criteria
 
-- [ ] Toute mutation analytique utile d'un rapport crée atomiquement un événement outbox tenant-scoped.
-- [ ] Une même organisation, rapport, type et version ne produit qu'un événement/job utile.
-- [ ] Redis indisponible ne perd aucun événement et ne bloque pas la mutation métier.
-- [ ] Le publisher fonctionne avec plusieurs réplicas sans double traitement utile.
-- [ ] Les jobs ont un délai de stabilisation de deux minutes et un backoff documenté.
-- [ ] Aucun contenu sensible ou source brute n'est présent dans outbox, jobs ou logs.
-- [ ] Les suppressions sont publiables après disparition du rapport.
-- [ ] La migration est réversible et les tests MySQL/Redis isolés passent.
-- [ ] Le backend compile et les mutations de rapports ne régressent pas.
-- [ ] La revue sécurité est approuvée.
-- [ ] Le reviewer retourne `REVIEW_STATUS: APPROVED`.
-- [ ] P2 est marqué Terminé.
+- [x] Toute mutation analytique utile d'un rapport crée atomiquement un événement outbox tenant-scoped.
+- [x] Une même organisation, rapport, type et version ne produit qu'un événement/job utile.
+- [x] Redis indisponible ne perd aucun événement et ne bloque pas la mutation métier.
+- [x] Le publisher fonctionne avec plusieurs réplicas sans double traitement utile.
+- [x] Les jobs ont un délai de stabilisation de deux minutes et un backoff documenté.
+- [x] Aucun contenu sensible ou source brute n'est présent dans outbox, jobs ou logs.
+- [x] Les suppressions sont publiables après disparition du rapport.
+- [x] La migration est réversible et les tests MySQL/Redis isolés passent.
+- [x] Le backend compile et les mutations de rapports ne régressent pas.
+- [x] La revue sécurité est approuvée.
+- [x] Le reviewer retourne `REVIEW_STATUS: APPROVED`.
+- [x] P2 est marqué Terminé.
 
 ## Risks
 
@@ -204,36 +204,36 @@ Les rapports alimentent une outbox fiable et une queue BullMQ dédupliquée, pr�
 
 ## Actual implementation
 
-Not started.
+Outbox MySQL tenant-scoped, producteurs transactionnels sur les rapports et publisher BullMQ interne avec délai, déduplication, reprise et claims multi-réplicas. Les mutations identiques ou techniques sont filtrées par une empreinte analytique.
 
 ## Files changed
 
-Not started.
+Migration `1830000010000-prevention-outbox.ts`; modules `prevention/outbox` et `prevention/queue`; intégration `ReportService`/`ReportModule`; dépendances backend; tests et harness; configurations Redis des trois Compose.
 
 ## Architecture decisions
 
-None yet.
+Payload minimal sans contenu source; `jobId` SHA-256 déterministe; horloge MySQL UTC pour toutes les échéances; retry 1/5/30 minutes puis FAILED; reprise bornée des deadlocks MySQL; authentification Redis obligatoire en production; aucun consumer avant P3.
 
 ## Database changes
 
-Not started.
+Table `prevention_outbox_events`, FK organisation CASCADE, unicité de déduplication, index de polling et migration réversible.
 
 ## API changes
 
-Not started.
+No API changes.
 
 ## Tests executed
 
-Not started.
+Exécutés par l'utilisateur : `npm run build` PASS; `npm run test:prevention-queue` 8/8 PASS; harness MySQL 8/Redis `up → down → up`, transactions, concurrence, rejeu, verrou expiré et panne/reprise PASS; trois configurations Compose PASS.
 
 ## Reviewer result
 
-Not started.
+`REVIEW_STATUS: APPROVED` après correction de l'empreinte analytique et extension du harness.
 
 ## Security result
 
-Not started.
+`SECURITY_STATUS: APPROVED` après validation tenant des relations, résolution legacy et authentification Redis production.
 
 ## Technical debt discovered
 
-None yet.
+Les rapports historiques sans organisation restent à traiter par le backfill P9. Les métriques et alertes complètes de retard/échec appartiennent à P10.

@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
+    "start:prevention-worker": "node dist/workers/prevention.worker.js",
+    "dev:prevention-worker": "ts-node-dev --respawn --transpile-only src/workers/prevention.worker.ts",
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",
     "migration:generate-dev": "typeorm-ts-node-commonjs migration:generate -d src/config/typeorm.config.ts ./src/migrations/$npm_config_name",
     "migration:run-dev": "typeorm-ts-node-commonjs migration:run -d src/config/typeorm.config.ts",
@@ -27,6 +29,7 @@
     "migration:generate": "typeorm migration:generate -d dist/config/typeorm.config.js dist/migrations/migration -o",
     "migration:run": "typeorm migration:run -d dist/config/typeorm.config.js",
     "migration:revert": "typeorm migration:revert -d dist/config/typeorm.config.js",
+    "test:prevention-queue": "node -r ts-node/register --test src/prevention/queue/prevention-queue.spec.ts src/prevention/worker/prevention-worker.spec.ts src/prevention/extraction/prevention-extraction.spec.ts src/prevention/statistics/prevention-score.spec.ts src/prevention/scheduler/prevention-scheduler.spec.ts src/prevention/api/prevention-api.spec.ts src/prevention/budget/prevention-budget.spec.ts src/reports/report-prevention-security.spec.ts",
     "create-hyper-admin-dev": "ts-node src/scripts/create-hyper-admin.ts",
     "create-hyper-admin": "node dist/scripts/create-hyper-admin.js"
   },
@@ -41,9 +44,11 @@
     "@nestjs/platform-express": "^10.3.0",
     "@nestjs/typeorm": "^10.0.1",
     "bcrypt": "^5.1.1",
+    "bullmq": "^5.81.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "csv-parse": "^5.5.6",
+    "ioredis": "^5.11.1",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.7.0",
     "nest-winston": "^1.10.2",

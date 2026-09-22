@@ -1,6 +1,13 @@
-import { Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { orgScope } from '../common/utils/org-scope';
 import { Report, ReportStatus } from './report.entity';
 import { CreateReportDto, UpdateReportDto } from './report.dto';
@@ -10,9 +17,35 @@ import { UpdateMissionDto } from '../missions/mission.dto';
 import { MailService } from '../mail/mail.service';
 import { Readable } from 'stream';
 import { ReportPdfTemplateService } from './report-pdf-template.service';
+import { PreventionOutboxService } from '../prevention/outbox/prevention-outbox.service';
+import { Mission } from '../missions/mission.entity';
+import { Visit } from '../visits/visit.entity';
+import { createHash } from 'crypto';
+
+export function resolveReportOrganizationId(
+  report: Pick<Report, 'organizationId'> & { visit?: Pick<Visit, 'organizationId'> | null },
+): string | null {
+  return report.visit?.organizationId ?? report.organizationId;
+}
+
+export function reportAnalyticalFingerprint(report: Partial<Report>): string {
+  const analyticalSource = {
+    missionId: report.missionId ?? null,
+    visitId: report.visitId ?? null,
+    title: report.title ?? null,
+    content: report.content ?? null,
+    status: report.status ?? null,
+    conformityPercentage: report.conformityPercentage ?? null,
+    observations: report.observations ?? null,
+    remarquesAdmin: report.remarquesAdmin ?? null,
+  };
+  return createHash('sha256').update(JSON.stringify(analyticalSource)).digest('hex');
+}
 
 @Injectable()
 export class ReportService {
+  private readonly logger = new Logger(ReportService.name);
+
   constructor(
     @InjectRepository(Report)
     private reportRepository: Repository<Report>,
@@ -21,7 +54,68 @@ export class ReportService {
     private readonly missionService: MissionService,
     private readonly mailService: MailService,
     private readonly reportPdfTemplateService: ReportPdfTemplateService,
+    private readonly dataSource: DataSource,
+    private readonly preventionOutboxService: PreventionOutboxService,
   ) { }
+
+  private async enqueueReportUpsert(
+    manager: EntityManager,
+    report: Report,
+  ): Promise<void> {
+    if (!report.organizationId) {
+      this.logger.warn(`Prevention event skipped for unscoped report id=${report.id}`);
+      return;
+    }
+    const persisted = await manager.getRepository(Report).findOneByOrFail({ id: report.id });
+    const [versionRow]: Array<{ aggregateVersion: string }> = await manager.query(
+      `SELECT DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS aggregateVersion
+       FROM reports WHERE id = ? AND organizationId = ?`,
+      [persisted.id, persisted.organizationId],
+    );
+    if (!versionRow?.aggregateVersion) {
+      throw new Error('Persisted report version could not be resolved');
+    }
+    await this.preventionOutboxService.enqueueReportEvent(manager, {
+      organizationId: persisted.organizationId,
+      reportId: persisted.id,
+      eventType: 'REPORT_UPSERTED',
+      aggregateVersion: versionRow.aggregateVersion,
+      occurredAt: new Date(persisted.updatedAt),
+    });
+  }
+
+  private async enqueueReportUpsertIfChanged(
+    manager: EntityManager,
+    report: Report,
+    previousFingerprint?: string,
+  ): Promise<void> {
+    if (
+      previousFingerprint !== undefined &&
+      previousFingerprint === reportAnalyticalFingerprint(report)
+    ) {
+      return;
+    }
+    await this.enqueueReportUpsert(manager, report);
+  }
+
+  private async assertReportRelationsInOrganization(
+    manager: EntityManager,
+    organizationId: string,
+    missionId: string,
+    visitId?: string,
+  ): Promise<void> {
+    if (!visitId) {
+      throw new NotFoundException('Visit not found');
+    }
+    const [mission, visit] = await Promise.all([
+      manager.getRepository(Mission).findOneBy({ id: missionId, organizationId }),
+      manager.getRepository(Visit).findOneBy({ id: visitId, organizationId, missionId }),
+    ]);
+    if (!mission || !visit) {
+      // Keep the same response for missing and cross-tenant references.
+      throw new NotFoundException('Mission or visit not found');
+    }
+  }
 
   async create(userOrId: User | string, createReportDto: CreateReportDto): Promise<Report> {
     const userId = typeof userOrId === 'string' ? userOrId : userOrId.id;
@@ -34,7 +128,20 @@ export class ReportService {
       organizationId,
     });
 
-    return this.reportRepository.save(report);
+    return this.dataSource.transaction(async (manager) => {
+      if (typeof userOrId !== 'string') {
+        if (!organizationId) throw new ForbiddenException('Organization scope is required');
+        await this.assertReportRelationsInOrganization(
+          manager,
+          organizationId,
+          createReportDto.missionId,
+          createReportDto.visitId,
+        );
+      }
+      const persisted = await manager.getRepository(Report).save(report);
+      await this.enqueueReportUpsertIfChanged(manager, persisted);
+      return persisted;
+    });
   }
 
   /**
@@ -45,20 +152,40 @@ export class ReportService {
   async createOrUpdateGeneratedReport(user: User, createReportDto: CreateReportDto): Promise<Report> {
     const userId = user.id;
     const organizationId = user.organizationId ?? null;
+    if (!organizationId) throw new ForbiddenException('Organization scope is required');
 
-    await this.reportRepository
-      .createQueryBuilder()
-      .insert()
-      .into(Report)
-      .values({
-        ...createReportDto,
-        userId,
+    return this.dataSource.transaction(async (manager) => {
+      await this.assertReportRelationsInOrganization(
+        manager,
         organizationId,
-      })
-      .orUpdate(["content", "header", "footer"], ["visitId"])
-      .execute();
+        createReportDto.missionId,
+        createReportDto.visitId,
+      );
+      const existing = await manager.getRepository(Report).findOneBy({
+        visitId: createReportDto.visitId,
+      });
+      const previousFingerprint = existing
+        ? reportAnalyticalFingerprint(existing)
+        : undefined;
+      await manager
+        .getRepository(Report)
+        .createQueryBuilder()
+        .insert()
+        .into(Report)
+        .values({
+          ...createReportDto,
+          userId,
+          organizationId,
+        })
+        .orUpdate(["content", "header", "footer"], ["visitId"])
+        .execute();
 
-    return this.reportRepository.findOneByOrFail({ visitId: createReportDto.visitId });
+      const persisted = await manager.getRepository(Report).findOneByOrFail({
+        visitId: createReportDto.visitId,
+      });
+      await this.enqueueReportUpsertIfChanged(manager, persisted, previousFingerprint);
+      return persisted;
+    });
   }
 
   async findAll(user: User, status?: ReportStatus): Promise<Report[]> {
@@ -201,6 +328,7 @@ export class ReportService {
 
   async update(id: string, user: User, updateReportDto: UpdateReportDto): Promise<Report> {
     const report = await this.findOne(id, user);
+    const previousFingerprint = reportAnalyticalFingerprint(report);
 
     if (!report) {
       throw new NotFoundException('Report not found');
@@ -246,21 +374,84 @@ export class ReportService {
       rest.userId = report.userId;
       rest.organizationId = report.organizationId;
     }
-    console.log("Updated report:", rest);
-    await this.reportRepository.save(rest);
+    await this.dataSource.transaction(async (manager) => {
+      const persisted = await manager.getRepository(Report).save(rest);
+      await this.enqueueReportUpsertIfChanged(manager, persisted, previousFingerprint);
+    });
     return this.findOne(id, user);
   }
 
   async delete(id: string, user: User): Promise<void> {
     const report = await this.findOne(id, user);
-    await this.reportRepository.remove(report);
+    const occurredAt = new Date();
+    await this.dataSource.transaction(async (manager) => {
+      const authoritativeOrganizationId = resolveReportOrganizationId(report);
+      if (authoritativeOrganizationId) {
+        await manager.query(
+          `INSERT INTO prevention_statistics_partitions
+            (id,organizationId,statDate,missionType,categoryKey,referenceDate,status,version,attempts,availableAt)
+           SELECT UUID(),organizationId,businessDate,missionType,
+             COALESCE(categoryId,'UNCATEGORIZED'),?,'PENDING',1,0,UTC_TIMESTAMP(6)
+           FROM prevention_findings
+           WHERE organizationId=? AND reportId=?
+           GROUP BY organizationId,businessDate,missionType,COALESCE(categoryId,'UNCATEGORIZED')
+           ON DUPLICATE KEY UPDATE status='PENDING',version=version+1,attempts=0,
+             referenceDate=GREATEST(referenceDate,VALUES(referenceDate)),
+             availableAt=UTC_TIMESTAMP(6),claimedAt=NULL,claimToken=NULL,lastError=NULL`,
+          [occurredAt.toISOString().slice(0, 10), authoritativeOrganizationId, report.id],
+        );
+        await manager.query(
+          `INSERT INTO prevention_score_partitions
+            (id,organizationId,patternKey,missionType,categoryKey,findingType,referenceDate,
+             status,version,availableAt)
+           SELECT UUID(),organizationId,patternKey,missionType,
+             COALESCE(categoryId,'UNCATEGORIZED'),findingType,?,
+             'PENDING',1,UTC_TIMESTAMP(6)
+           FROM prevention_findings
+           WHERE organizationId=? AND reportId=?
+           GROUP BY organizationId,patternKey,missionType,
+             COALESCE(categoryId,'UNCATEGORIZED'),findingType
+           ON DUPLICATE KEY UPDATE status='PENDING',version=version+1,
+             referenceDate=GREATEST(referenceDate,VALUES(referenceDate)),
+             availableAt=UTC_TIMESTAMP(6),claimedAt=NULL,claimToken=NULL`,
+          [occurredAt.toISOString().slice(0, 10), authoritativeOrganizationId, report.id],
+        );
+        await this.preventionOutboxService.enqueueReportEvent(manager, {
+          organizationId: authoritativeOrganizationId,
+          reportId: report.id,
+          eventType: 'REPORT_DELETED',
+          aggregateVersion: occurredAt.toISOString(),
+          occurredAt,
+        });
+      } else {
+        this.logger.warn(`Prevention delete event skipped for unscoped report id=${report.id}`);
+      }
+      await manager.getRepository(Report).remove(report);
+    });
   }
 
   async save(report: Report, user: User): Promise<void> {
     if (!report) {
       throw new NotFoundException('Report not found');
     }
-    await this.reportRepository.save(report);
+    const scopedReport = await this.findOne(report.id, user);
+    const previousFingerprint = reportAnalyticalFingerprint(scopedReport);
+    report.visitId = scopedReport.visitId;
+    report.missionId = scopedReport.missionId;
+    report.organizationId = resolveReportOrganizationId(scopedReport);
+    await this.dataSource.transaction(async (manager) => {
+      if (!report.organizationId) {
+        throw new ForbiddenException('Organization scope is required');
+      }
+      await this.assertReportRelationsInOrganization(
+        manager,
+        report.organizationId,
+        report.missionId,
+        report.visitId,
+      );
+      const persisted = await manager.getRepository(Report).save(report);
+      await this.enqueueReportUpsertIfChanged(manager, persisted, previousFingerprint);
+    });
   }
 
   async countByStatus(user: User): Promise<{ [key: string]: number }> {

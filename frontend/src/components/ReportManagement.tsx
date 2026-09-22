@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { mailingListAPI, missionsAPI, reportsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText, FileCheck, Clock, Loader2, Plus, X } from 'lucide-react';
@@ -49,6 +50,8 @@ interface MailingEntry {
 
 export default function ReportManagement() {
   const { profile: currentUser } = useAuth();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [reports, setReports] = useState<Report[]>([]);
   const [filteredReports, setFilteredReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +107,16 @@ export default function ReportManagement() {
   useEffect(() => {
     fetchReports();
   }, []);
+
+  useEffect(() => {
+    const reportId = searchParams.get('reportId');
+    if (!reportId || !reports.length) return;
+    const report = reports.find((candidate) => candidate.id === reportId);
+    if (report) {
+      openViewModal(report);
+      navigate(window.location.pathname, { replace: true });
+    }
+  }, [reports, searchParams, navigate]);
 
   // useLayoutEffect pour repositionner le curseur après le rendu
   useLayoutEffect(() => {
@@ -245,7 +258,7 @@ export default function ReportManagement() {
     }
   };
 
-  const openViewModal = (report: Report) => {
+  function openViewModal(report: Report) {
     setSelectedReport(report);
     setPhotos(report.visit?.photos || []);
     setEditedContent(report.content || '');
@@ -255,7 +268,7 @@ export default function ReportManagement() {
     setAdminRemarks(report.remarquesAdmin || '');
     setIsEditing(false);
     setShowViewModal(true);
-  };
+  }
 
   const handleValidateReport = async () => {
     if (!selectedReport) return;

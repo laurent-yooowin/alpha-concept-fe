@@ -17,6 +17,7 @@ import HyperAdminUsers from '../components/hyperAdmin/HyperAdminUsers';
 import CustomPromptManagement from '../components/CustomPromptManagement';
 import Privacy from '../components/privacy';
 import Cgu from '../components/cgu';
+import PreventionPage from '../components/prevention/PreventionPage';
 
 function LegacyOrgLoginRedirect() {
   const { slug = '' } = useParams();
@@ -66,6 +67,8 @@ export const router = createBrowserRouter([
       { path: 'reports', element: <ReportManagement /> },
       { path: 'mailing-list', element: <MailingListManagement /> },
       { path: 'logs', element: <ActivityLogs /> },
+      { path: 'prevention', element: <Navigate to="prevention/dashboard" replace /> },
+      { path: 'prevention/:section', element: <PreventionPage /> },
       { path: 'privacy-policy', element: <Privacy /> },
       { path: 'cgu-terms', element: <Cgu /> },
     ],

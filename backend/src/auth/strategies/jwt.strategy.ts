@@ -4,6 +4,14 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from '../auth.service';
 
+export function requireJwtSecret(config: ConfigService): string {
+  const secret = config.get<string>('JWT_SECRET');
+  if (!secret || secret.length < 32 || secret === 'your-secret-key-change-in-production') {
+    throw new Error('JWT_SECRET must contain at least 32 non-default characters');
+  }
+  return secret;
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -13,15 +21,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey:
-        configService.get<string>('JWT_SECRET') ||
-        'your-secret-key-change-in-production',
+      secretOrKey: requireJwtSecret(configService),
     });
   }
 
   async validate(payload: any) {
     const user = await this.authService.validateUser(payload.sub);
-    if (!user) {
+    if (!user || !user.isActive) {
       throw new UnauthorizedException();
     }
     // Trust the DB-side organizationId rather than the token claim

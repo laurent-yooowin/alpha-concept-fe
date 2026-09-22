@@ -20,10 +20,26 @@ services:
       - csps-dev-network
     command: --default-authentication-plugin=mysql_native_password
 
+  # Redis used by the API outbox publisher (the worker is introduced in P3)
+  redis:
+    image: redis:7-alpine
+    container_name: csps-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - csps-dev-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   # Backend API (Development Mode)
   backend-dev:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile.dev
     container_name: csps-backend-dev
     restart: unless-stopped
@@ -35,6 +51,11 @@ services:
       DATABASE_USER: ${DATABASE_USER:-csps_user}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-csps_password}
       DATABASE_NAME: ${DATABASE_NAME:-csps_db}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_TLS: ${REDIS_TLS:-false}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -50,11 +71,43 @@ services:
     networks:
       - csps-dev-network
     volumes:
-      - ./src:/app/src
-      - ./package.json:/app/package.json
-      - ./tsconfig.json:/app/tsconfig.json
+      - ./backend/src:/app/src
+      - ./backend/package.json:/app/package.json
+      - ./backend/tsconfig.json:/app/tsconfig.json
       - /app/node_modules
     command: npm run dev
+
+  # Independent NestJS worker runtime. P4 will add the BullMQ consumers.
+  prevention-worker-dev:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: csps-prevention-worker-dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_HOST: mysql
+      DATABASE_PORT: 3306
+      DATABASE_USER: ${DATABASE_USER:-csps_user}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-csps_password}
+      DATABASE_NAME: ${DATABASE_NAME:-csps_db}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_TLS: ${REDIS_TLS:-false}
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - csps-dev-network
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/package.json:/app/package.json
+      - ./backend/tsconfig.json:/app/tsconfig.json
+      - /app/node_modules
+    command: npm run dev:prevention-worker
+    stop_grace_period: 30s
 
 networks:
   csps-dev-network:
@@ -62,4 +115,6 @@ networks:
 
 volumes:
   mysql_dev_data:
+    driver: local
+  redis_dev_data:
     driver: local

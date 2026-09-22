@@ -1,0 +1,2 @@
+export const PREVENTION_QUEUE = Symbol('PREVENTION_QUEUE');
+export const PREVENTION_REDIS = Symbol('PREVENTION_REDIS');

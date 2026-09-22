@@ -5,7 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtStrategy, requireJwtSecret } from './strategies/jwt.strategy';
 import { UserModule } from '../user/user.module';
 import { MailModule } from '../mail/mail.module';
 import { Organization } from '../organizations/organization.entity';
@@ -20,7 +20,7 @@ import { Organization } from '../organizations/organization.entity';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'your-secret-key-change-in-production',
+        secret: requireJwtSecret(configService),
         signOptions: { expiresIn: '7d' },
       }),
       inject: [ConfigService],

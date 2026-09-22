@@ -356,6 +356,50 @@ export const dashboardAPI = {
   },
 };
 
+export type PreventionPreset =
+  | 'LAST_7_DAYS'
+  | 'LAST_30_DAYS'
+  | 'CURRENT_QUARTER'
+  | 'LAST_6_MONTHS'
+  | 'CURRENT_YEAR'
+  | 'LAST_12_MONTHS'
+  | 'CUSTOM';
+
+export interface PreventionQuery {
+  preset?: PreventionPreset;
+  from?: string;
+  to?: string;
+  missionType?: 'CSPS' | 'AEU' | 'DIVERS';
+  missionId?: string;
+  chantierId?: string;
+  categoryId?: string;
+  riskLevel?: 'faible' | 'moyen' | 'eleve';
+  status?: 'brouillon' | 'envoye' | 'valide' | 'refuse' | 'archive' | 'envoye_au_client' | 'annule';
+  page?: number;
+  limit?: number;
+  sortBy?: 'businessDate' | 'score' | 'occurrenceCount' | 'riskLevel' | 'findingCount';
+  sortOrder?: 'asc' | 'desc';
+}
+
+const preventionQuery = (query: PreventionQuery = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') params.set(key, String(value));
+  });
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : '';
+};
+
+export const preventionAPI = {
+  dashboard: (query: PreventionQuery = {}) => apiRequest(`/prevention/dashboard${preventionQuery(query)}`),
+  findings: (query: PreventionQuery = {}) => apiRequest(`/prevention/findings${preventionQuery(query)}`),
+  recommendations: (query: PreventionQuery = {}) => apiRequest(`/prevention/recommendations${preventionQuery(query)}`),
+  trends: (query: PreventionQuery = {}) => apiRequest(`/prevention/trends${preventionQuery(query)}`),
+  references: (query: PreventionQuery = {}) => apiRequest(`/prevention/references${preventionQuery(query)}`),
+  rebuild: () => apiRequest('/prevention/rebuild', { method: 'POST' }),
+  job: (id: string) => apiRequest(`/prevention/jobs/${encodeURIComponent(id)}`),
+};
+
 export const publicOrgAPI = {
   getBySlug: async (slug: string, options: RequestInit = {}) => {
     return apiRequest(`/public/organizations/by-slug/${encodeURIComponent(slug)}`, options);

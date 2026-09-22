@@ -112,6 +112,10 @@ export class PreventionFinding {
   @Column({ type: 'char', length: 64 })
   normalizedKey: string;
 
+  /** Stable hash of finding type and canonical content, independent of source group. */
+  @Column({ type: 'char', length: 64 })
+  patternKey: string;
+
   @Column({ type: 'text' })
   content: string;
 

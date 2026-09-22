@@ -8,9 +8,16 @@ import { MissionModule } from '../missions/mission.module';
 import { UploadModule } from '../upload/upload.module';
 import { ReportPdfTemplateService } from './report-pdf-template.service';
 import { MailModule } from '../mail/mail.module';
+import { PreventionQueueModule } from '../prevention/queue/prevention-queue.module';
 
 @Module({
-  imports: [forwardRef(()=> MissionModule), UploadModule, MailModule, TypeOrmModule.forFeature([Report])],
+  imports: [
+    forwardRef(() => MissionModule),
+    UploadModule,
+    MailModule,
+    TypeOrmModule.forFeature([Report]),
+    PreventionQueueModule.register(),
+  ],
   controllers: [ReportController],
   providers: [ReportService, ReportPdfTemplateService],
   exports: [ReportService],

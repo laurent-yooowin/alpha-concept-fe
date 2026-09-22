@@ -57,7 +57,7 @@ services:
   # Backend API (Production)
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
       args:
         NODE_ENV: production
@@ -71,6 +71,11 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_NAME: ${DATABASE_NAME}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_TLS: ${REDIS_TLS:-false}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -114,6 +119,52 @@ services:
         delay: 5s
         max_attempts: 3
         window: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Independent NestJS worker runtime. P4 will add the BullMQ consumers.
+  prevention-worker:
+    image: csps-backend:latest
+    restart: always
+    command: node dist/workers/prevention.worker.js
+    environment:
+      NODE_ENV: production
+      DATABASE_HOST: mysql
+      DATABASE_PORT: 3306
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_TLS: ${REDIS_TLS:-false}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - csps-prod-network
+    volumes:
+      - backend_logs:/app/logs
+    stop_grace_period: 30s
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
     logging:
       driver: "json-file"
       options:
@@ -165,21 +216,23 @@ services:
         max-size: "50m"
         max-file: "7"
 
-  # Redis for caching (optional, for future use)
+  # Redis queue backend (API publisher; worker container is introduced in P3)
   redis:
     image: redis:7-alpine
     container_name: csps-redis-prod
     restart: always
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction --save 60 1000 --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
     networks:
       - csps-prod-network
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 3
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
     deploy:
       resources:
         limits:
