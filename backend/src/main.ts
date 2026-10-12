@@ -5,6 +5,7 @@ import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
 import { createWinstonLogger } from './config/winston-logger';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { corsOrigins } from './config/cors-origins';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 const apiLogger = createWinstonLogger('api');
@@ -20,7 +21,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: corsOrigins(process.env.CORS_ORIGIN, process.env.NODE_ENV),
     credentials: true,
   });
 

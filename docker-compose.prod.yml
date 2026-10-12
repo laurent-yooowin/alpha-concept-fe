@@ -1,3 +1,6 @@
+# Historical snapshot of the pre-Prevention VM layout. Do not deploy the current
+# release from this file: Redis and prevention-worker are not declared here.
+# The canonical release descriptor is docker-compose.yml with the existing .env.
 version: "3.8"
 
 services:
