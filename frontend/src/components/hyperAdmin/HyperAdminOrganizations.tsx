@@ -981,7 +981,7 @@ function statusLabel(value: string): string {
 }
 
 function workerStatusLabel(value?: string): string {
-  return ({ healthy: 'Opérationnel', degraded: 'Dégradé', down: 'Indisponible', unknown: 'État inconnu' } as Record<string, string>)[value ?? ''] || 'État inconnu';
+  return ({ ok: 'Opérationnel', healthy: 'Opérationnel', degraded: 'Dégradé', down: 'Indisponible', unknown: 'État inconnu' } as Record<string, string>)[value ?? ''] || 'État inconnu';
 }
 
 function recoveryErrorLabel(value: string): string {

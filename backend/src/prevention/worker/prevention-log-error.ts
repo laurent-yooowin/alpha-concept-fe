@@ -14,21 +14,29 @@ export function preventionFailureDiagnostic(error: unknown): Record<string, stri
     [/Prevention LLM returned no content/i, 'AI_EMPTY_RESPONSE'],
     [/Prevention LLM request failed/i, 'AI_UPSTREAM_REQUEST_FAILED'],
     [/OPENAI_API_KEY is not configured/i, 'AI_CONFIGURATION_MISSING'],
+    [/Prevention group photo download timed out/i, 'PHOTO_DOWNLOAD_TIMEOUT'],
     [/operation was aborted|aborterror|timed?\s*out/i, 'UPSTREAM_REQUEST_ABORTED'],
     [/prevention source changed/i, 'PREVENTION_SOURCE_CHANGED'],
     [/prevention source disappeared/i, 'PREVENTION_SOURCE_DISAPPEARED'],
     [/invalid persisted visit photos/i, 'INVALID_VISIT_PHOTOS'],
+    [/Missing persisted visit photo URL/i, 'PHOTO_URL_MISSING'],
+    [/Invalid persisted visit photo URL|Photo is outside the configured visit photo bucket/i, 'PHOTO_URL_INVALID'],
+    [/Invalid or oversized Prevention visit photo|Prevention visit photo byte limit exceeded|Prevention visit photo does not match its image type/i, 'PHOTO_INVALID'],
+    [/Objet fichier non rattaché|provenance photo absente/i, 'PHOTO_ACCESS_DENIED'],
+    [/NoSuchKey|NotFound/i, 'PHOTO_NOT_FOUND'],
     [/too many (entries|groups)/i, 'PREVENTION_VOLUME_LIMIT'],
   ];
   const persistedCode = /^(?:PREVENTION|GROUP|BUDGET|ORG|EXTRACTION|RECOVERY)_[A-Z0-9_]{2,72}$/.test(message) ? message : null;
   const providerCode = typeof value?.code === 'string' &&
     /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ER_[A-Z0-9_]{2,60})$/.test(value.code)
     ? value.code : null;
-  const code = persistedCode ?? known.find(([pattern]) => pattern.test(message))?.[1] ??
-    providerCode ?? 'UNCLASSIFIED_WORKER_ERROR';
   const name = typeof value?.name === 'string' && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value.name)
     ? value.name : 'Error';
-  const status = typeof value?.status === 'number' ? value.status :
+  const photoProviderCode = name === 'NoSuchKey' || name === 'NotFound' ? 'PHOTO_NOT_FOUND' : null;
+  const code = persistedCode ?? photoProviderCode ?? known.find(([pattern]) => pattern.test(message))?.[1] ??
+    providerCode ?? 'UNCLASSIFIED_WORKER_ERROR';
+  const metadata = value?.$metadata && typeof value.$metadata === 'object' ? value.$metadata as Record<string, unknown> : null;
+  const status = typeof value?.status === 'number' ? value.status : typeof metadata?.httpStatusCode === 'number' ? metadata.httpStatusCode :
     /^Prevention LLM request failed \((\d{3})\)$/.test(message) ? Number(message.match(/\((\d{3})\)$/)?.[1]) : NaN;
   const vectorReason = typeof value?.vectorReason === 'string' &&
     ['NOT_ARRAY', 'COUNT_MISMATCH', 'INDEX_MISMATCH', 'RISK_LEVEL_INVALID'].includes(value.vectorReason)

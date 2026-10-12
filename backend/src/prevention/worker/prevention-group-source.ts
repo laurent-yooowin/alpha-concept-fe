@@ -4,6 +4,7 @@ import { PreventionOnlyInput } from '../ai/prevention-only-ai.service';
 
 export type PreventionGroupEntry = {
   s3Url?: unknown;
+  uri?: unknown;
   isDirectiveOnly?: unknown;
   groupId?: unknown;
   id?: unknown;
@@ -53,6 +54,7 @@ export function preventionGroupSourceHash(sourceGroupId: string, entries: Preven
     recommendation: entry.analysis?.recommendation ?? entry.analysis?.recommendations ?? null,
     references: entry.analysis?.references ?? null,
     s3Url: entry.s3Url ?? null,
+    uri: entry.uri ?? null,
     riskLevel: entry.analysis?.riskLevel ?? null,
     confidence: entry.analysis?.confidence ?? null,
     nonConformities: entry.analysis?.nonConformities ?? null,

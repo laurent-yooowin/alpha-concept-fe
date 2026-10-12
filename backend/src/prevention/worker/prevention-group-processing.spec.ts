@@ -56,6 +56,12 @@ test('a changed persisted photo URL invalidates the Prevention group version', (
   assert.equal(processor.matchesCurrentSource('group-1', changed, hash), false);
 });
 
+test('a changed legacy photo URI invalidates the Prevention group version', () => {
+  const initial = [{ id: 'photo-1', uri: 'https://example.invalid/one.jpg', analysis: { observation: [] } }];
+  const changed = [{ ...initial[0], uri: 'https://example.invalid/two.jpg' }];
+  assert.notEqual(preventionGroupSourceHash('group-1', initial), preventionGroupSourceHash('group-1', changed));
+});
+
 test('a multi-photo source hash survives the visit JSON persistence round-trip', () => {
   const sharedAnalysis = {
     observation: ['Protection collective absente'],
@@ -695,6 +701,23 @@ test('Prevention-only LLM continues with SPS text when persisted photos are unav
   }
 });
 
+test('photo-only groups retain a bounded download failure instead of masking the cause', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetched = false;
+  globalThis.fetch = (async () => { fetched = true; throw new Error('Unexpected LLM request'); }) as typeof fetch;
+  try {
+    const ai = new PreventionOnlyAiService({ get: (key: string) => key === 'OPENAI_API_KEY' ? 'test-key' : undefined } as any,
+      { downloadGroup: async () => { throw new Error('Missing persisted visit photo URL'); } } as any);
+    let event: Record<string, unknown> | undefined;
+    (ai as any).logger = { warn: (value: Record<string, unknown>) => { event = value; } };
+    await assert.rejects(ai.analyze({ sourceKind: 'PHOTO', entries: [{}] }, organizationId, visitId, 'group-1'),
+      /PREVENTION_PHOTO_DOWNLOAD_FAILED/);
+    assert.equal(event?.event, 'PREVENTION_GROUP_PHOTO_DOWNLOAD_FAILED');
+    assert.equal(event?.errorCode, 'PHOTO_URL_MISSING');
+    assert.equal(fetched, false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('a recommendation-only group gets its risk from the Prevention LLM', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({
@@ -778,4 +801,57 @@ test('worker photo download retrieves every persisted photo of the group and no 
     'visits/photos/10000000-0000-4000-8000-000000000001.jpg',
     'visits/photos/10000000-0000-4000-8000-000000000003.jpg',
   ]);
+});
+
+test('worker photo download accepts a legacy URI only through the same tenant and S3 checks', async () => {
+  const config = { get: (key: string) => ({ AWS_S3_BUCKET: 'test-bucket', AWS_REGION: 'eu-west-3' } as Record<string, string>)[key] };
+  const key = 'visits/photos/10000000-0000-4000-8000-000000000005.jpg';
+  const db = { query: async () => [{ photos: [{ groupId: 'group-1', uri: `https://test-bucket.s3.eu-west-3.amazonaws.com/${key}` }] }] };
+  const checked: string[] = [];
+  const assets = { assertWorkerAccess: async (_org: string, checkedKey: string) => { checked.push(checkedKey); } };
+  const photoAssets = { assertWorkerAsset: async (_org: string, _visit: string, _group: string, checkedKey: string) => { checked.push(checkedKey); } };
+  const downloads = new PreventionPhotoDownloadService(db as any, config as any, photoAssets as any, assets as any);
+  (downloads as any).s3 = { send: async () => ({ ContentType: 'image/jpeg', ContentLength: 3,
+    Body: { [Symbol.asyncIterator]: async function* () { yield Buffer.from([0xff, 0xd8, 0xff]); } },
+  }) };
+  assert.equal((await downloads.downloadGroup(organizationId, visitId, 'group-1')).length, 1);
+  assert.deepEqual(checked, [key, key]);
+});
+
+test('worker reads a historical generic-upload visit photo only after both provenance guards pass', async () => {
+  const config = { get: (name: string) => ({ AWS_S3_BUCKET: 'test-bucket', AWS_REGION: 'eu-west-3' } as Record<string, string>)[name] };
+  const key = 'uploads/10000000-0000-4000-8000-000000000006.jpg';
+  const db = { query: async () => [{ photos: [{ groupId: 'group-1', s3Url: `https://test-bucket.s3.eu-west-3.amazonaws.com/${key}` }] }] };
+  const checks: string[] = [];
+  const assets = { assertWorkerAccess: async (org: string, candidate: string, _operation: string, context: any) => {
+    assert.equal(org, organizationId);
+    assert.equal(context.visitId, visitId);
+    checks.push(`tenant:${candidate}`);
+  } };
+  const photoAssets = { assertWorkerAsset: async (org: string, visit: string, group: string, candidate: string) => {
+    assert.equal(org, organizationId);
+    assert.equal(visit, visitId);
+    assert.equal(group, 'group-1');
+    checks.push(`visit:${candidate}`);
+  } };
+  const downloads = new PreventionPhotoDownloadService(db as any, config as any, photoAssets as any, assets as any);
+  (downloads as any).s3 = { send: async (command: any) => {
+    checks.push(`s3:${command.input.Key}`);
+    return { ContentType: 'image/jpeg', ContentLength: 3,
+      Body: { [Symbol.asyncIterator]: async function* () { yield Buffer.from([0xff, 0xd8, 0xff]); } } };
+  } };
+  assert.equal((await downloads.downloadGroup(organizationId, visitId, 'group-1')).length, 1);
+  assert.deepEqual(checks, [`tenant:${key}`, `visit:${key}`, `s3:${key}`]);
+});
+
+test('worker rejects historical generic-upload photos without both provenance guards', async () => {
+  const config = { get: (name: string) => ({ AWS_S3_BUCKET: 'test-bucket', AWS_REGION: 'eu-west-3' } as Record<string, string>)[name] };
+  const key = 'uploads/10000000-0000-4000-8000-000000000007.jpg';
+  const db = { query: async () => [{ photos: [{ groupId: 'group-1', s3Url: `https://test-bucket.s3.eu-west-3.amazonaws.com/${key}` }] }] };
+  const assets = { assertWorkerAccess: async () => undefined };
+  const downloads = new PreventionPhotoDownloadService(db as any, config as any, undefined, assets as any);
+  let s3Calls = 0;
+  (downloads as any).s3 = { send: async () => { s3Calls += 1; throw new Error('Unexpected S3 call'); } };
+  await assert.rejects(downloads.downloadGroup(organizationId, visitId, 'group-1'), /outside the configured visit photo bucket/);
+  assert.equal(s3Calls, 0);
 });

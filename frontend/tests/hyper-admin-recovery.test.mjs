@@ -52,6 +52,7 @@ test('recovery details identify the shared worker instead of a per-organisation 
   assert.match(organizations, /Les actions sont exécutées par le backend et le worker partagé/);
   assert.match(organizations, /function workerBadge\(status\?: RecoveryStatus\)/);
   assert.match(organizations, /function preventionBadge\(status\?: RecoveryStatus\)/);
+  assert.match(organizations, /ok: 'Opérationnel'/);
 });
 
 test('automatic recovery choice is explicit and does not submit a command', () => {

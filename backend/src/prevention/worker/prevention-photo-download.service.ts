@@ -76,14 +76,21 @@ export class PreventionPhotoDownloadService {
     try {
     for (const entry of group) {
       if (groupExpired) throw new Error('Prevention group photo download timed out');
-      if (typeof entry.s3Url !== 'string' || !entry.s3Url) throw new BadRequestException('Missing persisted visit photo URL');
+      const photoUrl = typeof entry.s3Url === 'string' && entry.s3Url ? entry.s3Url : entry.uri;
+      if (typeof photoUrl !== 'string' || !photoUrl) throw new BadRequestException('Missing persisted visit photo URL');
       let url: URL;
-      try { url = new URL(entry.s3Url); } catch { throw new BadRequestException('Invalid persisted visit photo URL'); }
+      try { url = new URL(photoUrl); } catch { throw new BadRequestException('Invalid persisted visit photo URL'); }
       let key: string;
       try { key = decodeURIComponent(url.pathname.slice(1)); }
       catch { throw new BadRequestException('Invalid persisted visit photo URL'); }
+      const currentPhotoKey = /^visits\/photos\/[0-9a-f-]{36}\.(?:jpe?g|jfif|png|webp|avif)$/i.test(key);
+      // Older attached visit photos used the generic upload prefix. They are
+      // readable only when both tenant registry and visit provenance guards
+      // are available; new uploads still use visits/photos exclusively.
+      const guardedLegacyKey = /^uploads\/[0-9a-f-]{36}\.(?:jpe?g|jfif|png|webp|avif)$/i.test(key) &&
+        Boolean(this.assets && this.photoAssets);
       if (url.protocol !== 'https:' || url.hostname !== `${bucket}.s3.${region}.amazonaws.com` ||
-        url.search || url.hash || url.port || !/^visits\/photos\/[0-9a-f-]{36}\.(?:jpe?g|jfif|png|webp|avif)$/i.test(key)) {
+        url.search || url.hash || url.port || (!currentPhotoKey && !guardedLegacyKey)) {
         throw new BadRequestException('Photo is outside the configured visit photo bucket');
       }
       // The worker has no HTTP user context. Check the tenant-bound registry

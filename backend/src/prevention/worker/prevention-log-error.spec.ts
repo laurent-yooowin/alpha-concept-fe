@@ -34,3 +34,18 @@ test('persisted recovery codes and safe provider status remain identifiable', ()
   assert.deepEqual(preventionFailureDiagnostic({ message: 'This operation was aborted', name: 'AbortError', status: 504 }).errorCode,
     'UPSTREAM_REQUEST_ABORTED');
 });
+
+test('photo failures retain only bounded diagnostics and a provider status', () => {
+  const diagnostic = preventionFailureDiagnostic({
+    name: 'NoSuchKey', message: 'The specified key does not exist: private.jpg',
+    $metadata: { httpStatusCode: 404 }, requestId: 'private-request',
+  });
+  assert.equal(diagnostic.errorCode, 'PHOTO_NOT_FOUND');
+  assert.equal(diagnostic.upstreamStatus, 404);
+  assert.doesNotMatch(JSON.stringify(diagnostic), /private|requestId/);
+});
+
+test('photo download timeout is classified before the generic upstream timeout', () => {
+  assert.equal(preventionFailureDiagnostic(new Error('Prevention group photo download timed out')).errorCode,
+    'PHOTO_DOWNLOAD_TIMEOUT');
+});

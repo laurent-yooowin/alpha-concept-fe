@@ -10,7 +10,7 @@ const SAFE_FIELDS = new Set([
     'correlationId', 'sourceGroupFingerprint', 'errorFingerprint',
     'errorCode', 'errorName', 'upstreamStatus', 'attemptsMade', 'attempts', 'attempt',
     'maxAttempts', 'terminal', 'durationMs', 'stage', 'failedStage', 'status',
-    'vectorReason', 'vectorExpectedCount', 'vectorActualCount',
+    'vectorReason', 'vectorExpectedCount', 'vectorActualCount', 'decision', 'keyHash',
 ]);
 
 const fingerprint = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 16);
@@ -54,8 +54,10 @@ export function sanitizePersistentLog(info: Record<string | symbol, unknown>): R
             if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/.test(value)) retained[key] = value;
         } else if (key.endsWith('Id') && key !== 'correlationId') {
             if (typeof value === 'string' && UUID.test(value)) retained[key] = value;
-        } else if (key.endsWith('Fingerprint') || key === 'correlationId') {
+        } else if (key.endsWith('Fingerprint') || key === 'correlationId' || key === 'keyHash') {
             if (typeof value === 'string' && HEX.test(value)) retained[key] = value;
+        } else if (key === 'decision') {
+            if (typeof value === 'string' && /^(?:ALLOW|ALLOW_LEGACY|ALLOW_VERIFIED|DENY)$/.test(value)) retained[key] = value;
         } else if (key === 'event' || key === 'errorCode') {
             if (typeof value === 'string' && EVENT.test(value)) retained[key] = value;
         } else if (key === 'terminal') {

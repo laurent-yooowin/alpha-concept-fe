@@ -30,6 +30,19 @@ test('retains only safe risk-vector shape fields', () => {
     assert.doesNotMatch(JSON.stringify(result), /private SPS recommendation/);
 });
 
+test('retains bounded asset-access decisions and fingerprints, never raw keys', () => {
+    const result = sanitizePersistentLog({
+        event: 'ASSET_ACCESS_OBSERVED', decision: 'DENY', keyHash: '0123456789abcdef',
+        s3Key: 'visits/photos/private.jpg', url: 'https://example.invalid/private.jpg',
+    });
+    assert.equal(result.decision, 'DENY');
+    assert.equal(result.keyHash, '0123456789abcdef');
+    assert.doesNotMatch(JSON.stringify(result), /private|example\.invalid/);
+    const rejected = sanitizePersistentLog({ event: 'ASSET_ACCESS_OBSERVED', decision: 'DENY secret', keyHash: 'raw-key' });
+    assert.equal(rejected.decision, undefined);
+    assert.equal(rejected.keyHash, undefined);
+});
+
 test('replaces unstructured messages and URL/IP/user data with fingerprints', () => {
     const result = sanitizePersistentLog({
         level: 'info', message: 'user alice@example.com sent secret', requestId: 'caller-id',

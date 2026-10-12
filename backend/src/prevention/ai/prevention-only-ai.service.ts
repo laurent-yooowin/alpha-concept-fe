@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { isPreventionConstructionPhase, PreventionConstructionPhase } from '../prevention-phase';
 import { PreventionPhotoDownloadService } from '../worker/prevention-photo-download.service';
+import { preventionFailureDiagnostic } from '../worker/prevention-log-error';
 import { normalizePreventionActionMetric, PREVENTION_ACTION_TYPES, PREVENTION_ACTION_TYPE_VERSION, PreventionActionMetric, PreventionActionType, safePreventionActionType, UNCLASSIFIED_ACTION_TYPE } from '../prevention-action-types';
 
 export interface PreventionOnlyInput {
@@ -71,6 +73,7 @@ export async function fetchPreventionGroupJson(url: string, init: RequestInit, i
 
 @Injectable()
 export class PreventionOnlyAiService {
+  private readonly logger = new Logger(PreventionOnlyAiService.name);
   private readonly apiKey: string | undefined;
   private readonly url: string;
 
@@ -169,12 +172,24 @@ export class PreventionOnlyAiService {
     const observationTexts = input.entries.flatMap((entry) => entry.observationTexts ?? []).slice(0, 100);
     const recommendationTexts = input.entries.flatMap((entry) => entry.recommendationTexts ?? []).slice(0, 100);
     const referenceTexts = input.entries.flatMap((entry) => entry.referenceTexts ?? []).slice(0, 100);
+    const hasTextInput = Boolean(directives || observationTexts.length || recommendationTexts.length);
     const userContent = `Évalue les risques Prévention de ce groupe. Retourne exactement ${observationTexts.length} entrée(s) dans observations et ${recommendationTexts.length} entrée(s) dans recommendations, chacune dans l'ordre des textes avec les index entiers de 0 à N-1 (tableau vide si N=0). Ne fusionne et n'omets aucun élément. Directives: ${directives || 'Aucune directive.'}\nObservations SPS existantes, à évaluer sans les modifier :\n${observationTexts.map((text, index) => `${index}. ${text}`).join('\n') || 'Aucune observation.'}\nRecommandations SPS :\n${recommendationTexts.map((text, index) => `${index}. ${text}`).join('\n') || 'Aucune.'}\nRéférences SPS :\n${referenceTexts.join('\n') || 'Aucune.'}`;
     let downloaded: Awaited<ReturnType<PreventionPhotoDownloadService['downloadGroup']>> = [];
     if (input.sourceKind !== 'DIRECTIVE') {
       try {
         downloaded = await this.downloads.downloadGroup(organizationId, visitId, sourceGroupId);
-      } catch {
+      } catch (error) {
+        if (!hasTextInput) {
+          this.logger.warn({
+            message: 'PREVENTION_GROUP_PHOTO_DOWNLOAD_FAILED',
+            event: 'PREVENTION_GROUP_PHOTO_DOWNLOAD_FAILED',
+            organizationId,
+            visitId,
+            sourceGroupFingerprint: createHash('sha256').update(sourceGroupId).digest('hex').slice(0, 16),
+            ...preventionFailureDiagnostic(error),
+          } as any);
+          throw new Error('PREVENTION_PHOTO_DOWNLOAD_FAILED');
+        }
         // Photos enrich the Prevention assessment but are not mandatory. The SPS
         // analysis text remains the authoritative fallback when an object is no
         // longer readable or cannot be downloaded temporarily.
@@ -184,7 +199,7 @@ export class PreventionOnlyAiService {
     const images: Array<{ type: 'image_url'; image_url: { url: string } }> = downloaded.map((file) => ({
       type: 'image_url', image_url: { url: `data:${file.contentType};base64,${file.base64}` },
     }));
-    if (!directives && !observationTexts.length && !recommendationTexts.length && !images.length) throw new Error('No persisted Prevention group input');
+    if (!hasTextInput && !images.length) throw new Error('PREVENTION_GROUP_INPUT_EMPTY');
     const timeoutMs = 120_000;
     const data: any = await fetchPreventionGroupJson(this.url, {
         method: 'POST',
