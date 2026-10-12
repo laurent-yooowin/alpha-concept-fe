@@ -295,7 +295,12 @@ test('full recovery reports obsolete group sources instead of publishing old ana
       }];
       if (sql.startsWith('SELECT isActive')) return [{ isActive: 1, preventionEnabled: 1 }];
       if (sql.includes('processingStatus IN')) return [{ total: 1, ready: 1, pending: 0, failed: 0 }];
-      if (sql.includes('recoveryRunId IS NULL')) return [{ total: 1 }];
+      if (sql.includes('recoveryRunId IS NULL')) {
+        assert.match(sql, /JOIN visits v ON v\.organizationId=g\.organizationId AND v\.id=g\.visitId/);
+        assert.match(sql, /JSON_TABLE\(v\.photos, '\$\[\*\]'/);
+        assert.match(sql, /JSON_TYPE\(entry\.analysis\)='OBJECT'/);
+        return [{ total: 1 }];
+      }
       if (sql.startsWith('UPDATE prevention_hyper_admin_recovery_runs')) return [];
       return [];
     } },
@@ -321,7 +326,13 @@ test('recovery publishes the budget only after groups complete', async () => {
       }
       if (sql.startsWith('SELECT isActive')) return [{ isActive: 1, preventionEnabled: 1 }];
       if (sql.includes('processingStatus IN')) return [{ total: 1, ready: 1, pending: 0, failed: 0 }];
-      if (sql.includes('recoveryRunId IS NULL')) return [{ total: 0 }];
+      if (sql.includes('recoveryRunId IS NULL')) {
+        // Old jobs for removed visit groups remain durable but cannot contribute
+        // findings, and must not block publication of the current READY set.
+        assert.match(sql, /JSON_TABLE\(v\.photos, '\$\[\*\]'/);
+        assert.match(sql, /JSON_TYPE\(entry\.analysis\)='OBJECT'/);
+        return [{ total: 0 }];
+      }
       if (sql.includes('AS lagging')) return [{ lagging: 0 }];
       if (sql.includes('SHA2(COALESCE(CAST(v.photos AS CHAR)')) return [{ id: 'report-1', photosHash: 'source-photo' }];
       if (sql.includes('reportUpdatedAt')) return [{ reportCount: 1, reportUpdatedAt: '', findingCount: 1, findingCreatedAt: '', catalogVersion: 0 }];

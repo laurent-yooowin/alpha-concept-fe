@@ -514,9 +514,25 @@ export class PreventionHyperAdminRecoveryService implements OnApplicationBootstr
         return 'FAILED';
       }
       if (Number(groupState?.pending ?? 0) > 0) { await this.enqueueRecovery(run.id, data.organizationId, 30_000); return 'WAITING_GROUPS'; }
+      // A removed visit group may leave a durable historical job. Extraction
+      // builds findings only from current visit entries, so such a job cannot
+      // contribute to this budget; keep it for audit and human validation.
+      // A still-eligible old job must continue to block publication.
       const [obsoleteGroups] = await this.db.query(
-        `SELECT COUNT(*) total FROM prevention_group_processing_jobs
-         WHERE organizationId=? AND (recoveryRunId IS NULL OR recoveryRunId<>?)`,
+        `SELECT COUNT(*) total FROM prevention_group_processing_jobs g
+         JOIN visits v ON v.organizationId=g.organizationId AND v.id=g.visitId
+         WHERE g.organizationId=? AND (g.recoveryRunId IS NULL OR g.recoveryRunId<>?)
+           AND EXISTS (
+             SELECT 1 FROM JSON_TABLE(v.photos, '$[*]' COLUMNS (
+               entryOrder FOR ORDINALITY,
+               groupId VARCHAR(100) PATH '$.groupId',
+               entryId VARCHAR(100) PATH '$.id',
+               analysis JSON PATH '$.analysis'
+             )) entry
+             WHERE COALESCE(NULLIF(entry.groupId,''),NULLIF(entry.entryId,''),
+                            CONCAT('entry-',entry.entryOrder-1))=g.sourceGroupId
+               AND JSON_TYPE(entry.analysis)='OBJECT'
+           )`,
         [data.organizationId, recoveryId],
       );
       if (Number(obsoleteGroups?.total ?? 0) > 0) {
