@@ -64,7 +64,7 @@ export function loadPreventionSchedulerConfiguration(
     enabled: enabled === 'true',
     timezone,
     organizationBatchSize: integer(config, 'PREVENTION_SCHEDULER_ORG_BATCH_SIZE', 1, 100),
-    reportBatchSize: integer(config, 'PREVENTION_SCHEDULER_REPORT_BATCH_SIZE', 1, 500),
+    reportBatchSize: integer(config, 'PREVENTION_SCHEDULER_REPORT_BATCH_SIZE', 100, 500),
     completedRetentionSeconds: integer(config, 'PREVENTION_SCHEDULER_COMPLETED_RETENTION_SECONDS', 3600, 31_536_000),
     failedRetentionSeconds: integer(config, 'PREVENTION_SCHEDULER_FAILED_RETENTION_SECONDS', 86_400, 31_536_000),
     differentialPattern: cron(config, 'PREVENTION_SCHEDULER_DIFFERENTIAL_CRON'),

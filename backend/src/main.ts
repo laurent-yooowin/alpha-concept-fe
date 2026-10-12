@@ -3,13 +3,15 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as bodyParser from 'body-parser';
-import { winstonLogger } from './config/winston-logger';
+import { createWinstonLogger } from './config/winston-logger';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
+const apiLogger = createWinstonLogger('api');
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: winstonLogger,
+    logger: apiLogger,
     bufferLogs: true,
     bodyParser: false,
   });
@@ -38,7 +40,11 @@ async function bootstrap() {
   const port = process.env.PORT || 8089;
   await app.listen(port);
 
-  console.log(`🚀 Server is running on: http://localhost:${port}/api`);
+  apiLogger.log(`Server is running on: http://localhost:${port}/api`, 'Bootstrap');
 }
 
-bootstrap();
+void bootstrap().catch((error: unknown) => {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  apiLogger.error('Backend API bootstrap failed', failure.stack, 'ApiBootstrap');
+  process.exitCode = 1;
+});

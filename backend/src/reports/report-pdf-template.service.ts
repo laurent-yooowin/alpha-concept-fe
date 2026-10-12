@@ -1,17 +1,28 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { Report } from './report.entity';
 import { UploadService } from '../upload/upload.service';
+import { UploadedAssetService } from '../upload/uploaded-asset.service';
+import { UploadedAssetType } from '../upload/uploaded-asset.entity';
 import { MailService } from '../mail/mail.service';
+import { User } from '../user/user.entity';
 import { createHash } from 'crypto';
+import { formatReportDate, withoutLegacyGeneratedFooterDate, withoutLegacyGeneratedHeaderDate } from './report-date-presentation';
 
-export const REPORT_PDF_TEMPLATE_VERSION = 'backend-v4-first-page-margin';
+export const REPORT_PDF_TEMPLATE_VERSION = 'backend-v6-chantier-label';
 
 @Injectable()
 export class ReportPdfTemplateService {
   constructor(
     private readonly uploadService: UploadService,
     private readonly mailService: MailService,
+    @Optional() private readonly assets?: UploadedAssetService,
   ) {}
+
+  async isOutdatedTemplate(url: string): Promise<boolean> {
+    const info = await this.uploadService.getFileInfo(url);
+    const version = info?.metadata?.templateversion;
+    return Boolean(version && version !== REPORT_PDF_TEMPLATE_VERSION);
+  }
   private slug(value: unknown): string {
     if (value === null || value === undefined) return '';
     const text = String(value).trim();
@@ -100,12 +111,14 @@ export class ReportPdfTemplateService {
         header: report.header,
         content: report.content,
         footer: report.footer,
+        createdAt: report.createdAt,
       },
       mission: {
         title: mission.title,
         client: mission.client,
         address: mission.address,
         type: mission.type,
+        date: mission.date,
       },
       visit: {
         visitDate: visit.visitDate,
@@ -169,10 +182,18 @@ export class ReportPdfTemplateService {
     return 'risk-low';
   }
 
-  private async imageDataUrl(url?: string | null): Promise<string> {
-    if (!url) return '';
+  private async imageDataUrl(
+    url: string | null | undefined,
+    user: User | undefined,
+    context: { visitId?: string; objectType?: UploadedAssetType },
+  ): Promise<string> {
+    // Rendering without the authenticated tenant context must not turn a
+    // report payload URL into an S3 read. Legacy relations remain available
+    // when the caller supplies the authorized user below.
+    if (!url || !user?.organizationId) return '';
     try {
-      const file = await this.uploadService.downloadFile(url, '', true);
+      if (this.assets) await this.assets.assertDownloadAccess(user, url, context);
+      const file = await this.uploadService.downloadFile(url, '', true, user, context);
       const base64 = Buffer.isBuffer(file.data) ? file.data.toString('base64') : String(file.data ?? '');
       return base64 ? `data:${file.contentType || 'image/jpeg'};base64,${base64}` : '';
     } catch {
@@ -180,7 +201,17 @@ export class ReportPdfTemplateService {
     }
   }
 
-  async render(report: Report): Promise<string> {
+  private async prevalidatePdfRead(url: string, user: User | undefined, reportId: string): Promise<void> {
+    if (!user?.organizationId) throw new BadRequestException('Le PDF existant est inaccessible');
+    if (this.assets) {
+      await this.assets.assertDownloadAccess(user, url, {
+        reportId,
+        objectType: UploadedAssetType.REPORT_PDF,
+      });
+    }
+  }
+
+  async render(report: Report, user?: User): Promise<string> {
     const mission: any = report.mission || {};
     const visit: any = report.visit || {};
     const organization = this.resolveOrganization(report);
@@ -193,7 +224,9 @@ export class ReportPdfTemplateService {
       groups.get(groupId)!.push(photo);
     });
 
-    const logo = await this.imageDataUrl(organization.logoS3Key);
+    const logo = await this.imageDataUrl(organization.logoS3Key, user, {
+      objectType: UploadedAssetType.ORGANIZATION_LOGO,
+    });
     const groupHtml: string[] = [];
     let groupIndex = 0;
 
@@ -201,7 +234,10 @@ export class ReportPdfTemplateService {
       groupIndex += 1;
       const directiveOnly = groupPhotos.every((photo) => this.isDirective(photo));
       const actualPhotos = groupPhotos.filter((photo) => !this.isDirective(photo) && photo?.s3Url);
-      const imageUrls = await Promise.all(actualPhotos.map((photo) => this.imageDataUrl(photo.s3Url)));
+      const imageUrls = await Promise.all(actualPhotos.map((photo) => this.imageDataUrl(photo.s3Url, user, {
+        visitId: visit.id || report.visitId,
+        objectType: UploadedAssetType.PHOTO,
+      })));
       const images = imageUrls.filter(Boolean);
       const analysisPhoto = groupPhotos.find((photo) => photo?.analysis) || groupPhotos[0] || {};
       const analysis = analysisPhoto.analysis || {};
@@ -249,10 +285,18 @@ export class ReportPdfTemplateService {
         </div>`);
     }
 
-    const visitDate = visit.visitDate || visit.createdAt || report.createdAt;
-    const formattedDate = visitDate
-      ? new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(visitDate))
-      : '';
+    const reportDate = formatReportDate(report.createdAt);
+    const missionDate = formatReportDate(mission.date);
+    const visitDate = formatReportDate(visit.visitDate);
+    const headerText = withoutLegacyGeneratedHeaderDate(String(report.header || ''));
+    const headerLines = headerText ? headerText.split(/\r?\n/) : [];
+    const dateLines = [
+      `Date du chantier: ${missionDate || '—'}`,
+      `Date de la visite: ${visitDate || '—'}`,
+    ];
+    const locationLine = headerLines.findIndex((line) => /^LIEU\s*:/i.test(line.trim()));
+    headerLines.splice(locationLine >= 0 ? locationLine + 1 : 0, 0, ...dateLines);
+    const datedHeader = headerLines.join('\n');
     const generatedAt = new Intl.DateTimeFormat('fr-FR', {
       dateStyle: 'full',
       timeStyle: 'short',
@@ -321,12 +365,12 @@ export class ReportPdfTemplateService {
         </div>
       </div>
       <div class="info-grid">
-        <div class="info-item"><div class="info-label">Mission</div><div class="info-value">${this.escape(mission.title)}</div></div>
+        <div class="info-item"><div class="info-label">Chantier</div><div class="info-value">${this.escape(mission.title)}</div></div>
         <div class="info-item"><div class="info-label">Client</div><div class="info-value">${this.escape(mission.client)}</div></div>
         <div class="info-item"><div class="info-label">Type</div><div class="info-value">${this.escape(missionType)}</div></div>
-        <div class="info-item"><div class="info-label">Date</div><div class="info-value">${this.escape(formattedDate)}</div></div>
+        <div class="info-item"><div class="info-label">Date</div><div class="info-value">${this.escape(reportDate || '—')}</div></div>
       </div>
-      ${report.header ? `<div class="section-header">📋 En-tête</div><div class="content-section">${this.text(report.header)}</div>` : ''}
+      <div class="section-header">📋 En-tête</div><div class="content-section">${this.text(datedHeader)}</div>
     </div>
   </div>
   <script>
@@ -356,7 +400,7 @@ export class ReportPdfTemplateService {
     <div class="section-header observations-title">📸 Observations Principales</div>
     ${groupHtml.length ? groupHtml.join('') : '<div class="content-section">Aucun rapport de visite détaillé.</div>'}
   </div>
-  ${report.footer ? `<div class="conclusion-section"><div class="section-header conclusion-title">✅ Conclusion</div><div class="content-section">${this.text(String(report.footer).replace(/^CONCLUSION:\s*/i, ''))}</div></div>` : ''}
+  ${report.footer ? `<div class="conclusion-section"><div class="section-header conclusion-title">✅ Conclusion</div><div class="content-section">${this.text(withoutLegacyGeneratedFooterDate(String(report.footer)).replace(/^CONCLUSION:\s*/i, ''))}</div></div>` : ''}
   <div class="footer">
     <p class="footer-text">Rapport généré le ${this.escape(generatedAt)}</p>
     <p class="footer-confidential">Document confidentiel - Tous droits réservés</p>
@@ -369,6 +413,8 @@ export class ReportPdfTemplateService {
     report: Report,
     requestedFileName?: string,
     forceRegenerate = false,
+    preferExistingArtifact = false,
+    user?: User,
   ): Promise<{
     url: string;
     key: string;
@@ -380,7 +426,31 @@ export class ReportPdfTemplateService {
     const fileName = this.normalizeFileName(requestedFileName, report);
     const reportSourceHash = this.sourceHash(report);
 
+    if (preferExistingArtifact && !forceRegenerate && report.reportFileUrl) {
+      await this.prevalidatePdfRead(report.reportFileUrl, user, report.id);
+      let stored: Awaited<ReturnType<UploadService['downloadFile']>>;
+      try {
+        stored = await this.uploadService.downloadFile(report.reportFileUrl, '', false, user, {
+          reportId: report.id,
+          objectType: UploadedAssetType.REPORT_PDF,
+        });
+      } catch {
+        throw new BadRequestException('Le PDF existant est inaccessible');
+      }
+      const pdf = Buffer.isBuffer(stored.data) ? stored.data : Buffer.from(stored.data);
+      if (!pdf.length) throw new BadRequestException('Le PDF existant est vide');
+      return {
+        url: report.reportFileUrl,
+        key: report.reportFileUrl,
+        size: pdf.length,
+        fileName,
+        pdf,
+        cached: true,
+      };
+    }
+
     if (!forceRegenerate && report.reportFileUrl) {
+      await this.prevalidatePdfRead(report.reportFileUrl, user, report.id);
       try {
         const info = await this.uploadService.getFileInfo(report.reportFileUrl);
         if (
@@ -389,7 +459,10 @@ export class ReportPdfTemplateService {
           info.metadata.templateversion === REPORT_PDF_TEMPLATE_VERSION &&
           info.fileName === fileName
         ) {
-          const stored = await this.uploadService.downloadFile(report.reportFileUrl, '', false);
+          const stored = await this.uploadService.downloadFile(report.reportFileUrl, '', false, user, {
+            reportId: report.id,
+            objectType: UploadedAssetType.REPORT_PDF,
+          });
           const pdf = Buffer.isBuffer(stored.data) ? stored.data : Buffer.from(stored.data);
           return {
             url: report.reportFileUrl,
@@ -405,7 +478,7 @@ export class ReportPdfTemplateService {
       }
     }
 
-    const html = await this.render(report);
+    const html = await this.render(report, user);
     const pdf = Buffer.from(await this.mailService.generatePdfBuffer(html));
 
     if (pdf.length < 1024 || !pdf.subarray(0, 4).equals(Buffer.from('%PDF'))) {
@@ -422,6 +495,9 @@ export class ReportPdfTemplateService {
           reportsourcehash: reportSourceHash,
           templateversion: REPORT_PDF_TEMPLATE_VERSION,
         },
+        organizationId: report.organizationId,
+        uploaderId: report.userId,
+        objectType: UploadedAssetType.REPORT_PDF,
       },
     );
 

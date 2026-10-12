@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -25,13 +27,18 @@ import {
 import { AllowNoOrg } from '../common/decorators/scope.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../user/user.entity';
+import { PreventionHyperAdminRecoveryService } from '../prevention/api/prevention-hyper-admin-recovery.service';
+import { PreventionHyperAdminRecoveryConfirmDto } from '../prevention/api/prevention-hyper-admin-recovery.dto';
 
 @Controller('hyper-admin/organizations')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.HYPER_ADMIN)
 @AllowNoOrg()
 export class OrganizationController {
-  constructor(private readonly orgService: OrganizationService) {}
+  constructor(
+    private readonly orgService: OrganizationService,
+    private readonly preventionRecovery: PreventionHyperAdminRecoveryService,
+  ) {}
 
   @Get()
   async findAll() {
@@ -53,6 +60,28 @@ export class OrganizationController {
   @Patch('reportbtp/legal-docs')
   updateReportBtpLegalDocs(@Body() dto: UpdateReportBtpLegalDocsDto) {
     return this.orgService.updateReportBtpLegalDocs(dto);
+  }
+
+  @Get('prevention-recovery/statuses')
+  async preventionRecoveryStatuses() {
+    const organizations = await this.orgService.findAll();
+    return { items: await this.preventionRecovery.statuses(organizations.map((organization) => organization.id)) };
+  }
+
+  @Get(':id/prevention-recovery/preview')
+  preventionRecoveryPreview(@Param('id') id: string) {
+    return this.preventionRecovery.preview(id);
+  }
+
+  @Post(':id/prevention-recovery')
+  @HttpCode(HttpStatus.ACCEPTED)
+  preventionRecoveryConfirm(@Param('id') id: string, @Body() dto: PreventionHyperAdminRecoveryConfirmDto, @CurrentUser() user: User) {
+    return this.preventionRecovery.confirm(id, dto.confirmationToken, dto.immediateRequested, user?.id);
+  }
+
+  @Get(':id/prevention-recovery')
+  preventionRecoveryStatus(@Param('id') id: string) {
+    return this.preventionRecovery.status(id);
   }
 
   @Get(':id')
@@ -84,8 +113,9 @@ export class OrganizationController {
   uploadLogo(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: User,
   ) {
-    return this.orgService.setLogo(id, file);
+    return this.orgService.setLogo(id, file, user);
   }
 
   @Post(':id/background')
@@ -93,7 +123,8 @@ export class OrganizationController {
   uploadBackground(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: User,
   ) {
-    return this.orgService.setBackgroundImage(id, file);
+    return this.orgService.setBackgroundImage(id, file, user);
   }
 }

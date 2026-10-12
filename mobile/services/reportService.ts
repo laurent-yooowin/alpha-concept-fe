@@ -93,7 +93,6 @@ export interface CreateReportData {
   status?: ReportStatus;
   conformityPercentage?: number;
   recipientEmail?: string;
-  reportFileUrl?: string;
 }
 
 export interface UpdateReportData {
@@ -104,7 +103,6 @@ export interface UpdateReportData {
   status?: ReportStatus;
   conformityPercentage?: number;
   recipientEmail?: string;
-  reportFileUrl?: string;
 }
 
 export const reportService = {

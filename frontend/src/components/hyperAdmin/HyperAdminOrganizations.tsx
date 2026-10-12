@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { organizationsAPI } from '../../lib/api';
-import { Plus, Pencil, Trash2, Upload, X, Loader2, Building2, ExternalLink, FileText, Image as ImageIcon, Check, Search, Eye, EyeOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, X, Loader2, Building2, ExternalLink, FileText, Image as ImageIcon, Check, Search, Eye, EyeOff, Activity, Info, RefreshCw, Play, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import LegalDocumentEditor, { LegalDocumentView } from '../LegalDocumentEditor';
 import Swal from 'sweetalert2';
+import { activatedOrganization } from './recoveryTransition';
 
 interface Organization {
   id: string;
@@ -21,8 +22,40 @@ interface Organization {
   contactEmail: string | null;
   legalValidationStatus?: 'en_cours' | 'termine';
   isActive: boolean;
+  paused?: boolean;
   createdAt: string;
 }
+
+type RecoveryStatus = {
+  organizationId: string;
+  effectiveStatus?: string;
+  latestRun: {
+    id: string;
+    status: string;
+    stage: string;
+    executionMode: string;
+    scheduledFor: string | null;
+    reportCount: number;
+    findingCount: number;
+    steps: Array<{ kind: string; status: string; total?: number; processed?: number; totalHt?: string | number | null; error?: string | null }>;
+    error?: string | null;
+  } | null;
+  activationScan?: { runStatus?: string; checkpointStatus?: string; pendingJobs?: number; failedJobs?: number; scanComplete?: boolean; lastError?: string | null } | null;
+  groups: { total: number; pending: number; ready: number; failed: number };
+  worker: { status?: string; heartbeatAgeSeconds?: number | null };
+};
+
+type RecoveryPreview = RecoveryStatus & {
+  reportCount: number;
+  findingCount: number;
+  groupCount: number;
+  pendingGroupCount: number;
+  immediateAllowed: boolean;
+  immediateReason: string;
+  hardRejected?: boolean;
+  scheduledFor: string | null;
+  confirmationToken: string;
+};
 
 const emptyForm = {
   name: '',
@@ -110,6 +143,15 @@ export default function HyperAdminOrganizations() {
   // Filters
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [recoveryStatuses, setRecoveryStatuses] = useState<Record<string, RecoveryStatus>>({});
+  const [recoveryOrg, setRecoveryOrg] = useState<Organization | null>(null);
+  const [recoveryPreview, setRecoveryPreview] = useState<RecoveryPreview | null>(null);
+  const [recoveryStatus, setRecoveryStatus] = useState<RecoveryStatus | null>(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoverySubmitting, setRecoverySubmitting] = useState(false);
+  const [recoveryImmediate, setRecoveryImmediate] = useState(false);
+  const [recoveryPollingError, setRecoveryPollingError] = useState('');
+  const mountedRef = useRef(true);
   const legalDocsLocked = Boolean(editing?.legalValidationStatus === 'termine');
 
   const load = async () => {
@@ -117,6 +159,14 @@ export default function HyperAdminOrganizations() {
     try {
       const data = await organizationsAPI.getAll();
       setOrgs(data);
+      try {
+        const recovery = await organizationsAPI.preventionRecoveryStatuses();
+        const items = Array.isArray(recovery) ? recovery : recovery?.items;
+        setRecoveryStatuses(Object.fromEntries((items || []).map((item: RecoveryStatus) => [item.organizationId, item])));
+      } catch {
+        // Recovery telemetry is supplementary; organization management remains usable if it is unavailable.
+        setRecoveryStatuses({});
+      }
     } catch (e: any) {
       setError(e.message || 'Erreur');
     } finally {
@@ -130,7 +180,100 @@ export default function HyperAdminOrganizations() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    void load();
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const refreshRecoveryStatuses = async () => {
+    if (!mountedRef.current) return;
+    try {
+      const recovery = await organizationsAPI.preventionRecoveryStatuses();
+      if (!mountedRef.current) return;
+      const items = Array.isArray(recovery) ? recovery : recovery?.items;
+      setRecoveryStatuses(Object.fromEntries((items || []).map((item: RecoveryStatus) => [item.organizationId, item])));
+      setRecoveryPollingError('');
+    } catch (e: any) {
+      if (mountedRef.current) setRecoveryPollingError(e.message || 'État des traitements temporairement indisponible.');
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { void refreshRecoveryStatuses(); }, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const openRecovery = async (org: Organization) => {
+    setRecoveryOrg(org);
+    setRecoveryPreview(null);
+    setRecoveryStatus(null);
+    setRecoveryImmediate(false);
+    setRecoveryPollingError('');
+    setRecoveryLoading(true);
+    try {
+      let status: RecoveryStatus | null = null;
+      try {
+        status = await organizationsAPI.preventionRecoveryStatus(org.id);
+        if (mountedRef.current) setRecoveryStatus(status);
+      } catch (e: any) {
+        if (mountedRef.current) setRecoveryPollingError(e.message || 'État du rattrapage temporairement indisponible.');
+      }
+      if (org.isActive) {
+        try {
+          const preview = await organizationsAPI.preventionRecoveryPreview(org.id);
+          if (mountedRef.current) setRecoveryPreview(preview);
+        } catch (e: any) {
+          // Existing run details remain useful when preview is unavailable (for example during deactivation).
+          if (mountedRef.current) setRecoveryPollingError(e.message || 'Prévisualisation temporairement indisponible.');
+        }
+      }
+    } finally {
+      if (mountedRef.current) setRecoveryLoading(false);
+    }
+  };
+
+  const closeRecovery = () => {
+    if (recoverySubmitting) return;
+    setRecoveryOrg(null);
+    setRecoveryPreview(null);
+    setRecoveryStatus(null);
+  };
+
+  const refreshRecovery = async () => {
+    if (!recoveryOrg) return;
+    setRecoveryLoading(true);
+    try {
+      const status = await organizationsAPI.preventionRecoveryStatus(recoveryOrg.id);
+      setRecoveryStatus(status);
+    } catch (e: any) {
+      if (mountedRef.current) setRecoveryPollingError(e.message || 'État du rattrapage temporairement indisponible.');
+    } finally {
+      setRecoveryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!recoveryOrg || !recoveryStatus?.latestRun || ['COMPLETED', 'FAILED'].includes(recoveryStatus.latestRun.status)) return;
+    const timer = window.setInterval(() => { void refreshRecovery(); }, 10000);
+    return () => window.clearInterval(timer);
+  }, [recoveryOrg?.id, recoveryStatus?.latestRun?.id, recoveryStatus?.latestRun?.status]);
+
+  const confirmRecovery = async () => {
+    if (!recoveryOrg || !recoveryPreview) return;
+    setRecoverySubmitting(true);
+    try {
+      const status = await organizationsAPI.preventionRecoveryConfirm(recoveryOrg.id, recoveryPreview.confirmationToken, recoveryImmediate);
+      setRecoveryStatus(status);
+      setRecoveryPreview(null);
+      setRecoveryStatuses((current) => ({ ...current, [recoveryOrg.id]: status }));
+      await Swal.fire({ icon: 'success', title: recoveryImmediate ? 'Rattrapage lancé' : 'Rattrapage planifié', text: recoveryImmediate ? 'Le backend exécute les étapes dans l’ordre.' : 'Le traitement sera exécuté dans la prochaine fenêtre disponible.', timer: 2200, showConfirmButton: false });
+    } catch (e: any) {
+      await Swal.fire({ icon: 'error', title: 'Rattrapage non lancé', text: e.message || 'La demande a été refusée.' });
+    } finally {
+      setRecoverySubmitting(false);
+    }
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -203,6 +346,9 @@ export default function HyperAdminOrganizations() {
     setSaving(true);
     try {
       let targetId: string;
+      // An already-active organization must also expose the recovery choice
+      // after Save; the backend alone decides whether activation work is due.
+      const openRecoveryAfterSave = Boolean(editing && form.isActive);
       if (editing) {
         const { adminEmail, adminPassword, adminFirstName, adminLastName, ...payload } = form;
         if (legalDocsLocked) {
@@ -227,6 +373,10 @@ export default function HyperAdminOrganizations() {
       }
       close();
       await refreshOrganizationsPage();
+      if (openRecoveryAfterSave) {
+        const activatedOrg = activatedOrganization(orgs.find((org) => org.id === targetId) || editing!, targetId);
+        await openRecovery(activatedOrg);
+      }
     } catch (e: any) {
       await Swal.fire({ icon: 'error', title: 'Erreur', text: e.message || 'Erreur' });
     } finally {
@@ -346,7 +496,8 @@ export default function HyperAdminOrganizations() {
         </button>
       </div>
 
-      {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</div>}
+              {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</div>}
+      {recoveryPollingError && <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg">{recoveryPollingError}</div>}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -402,12 +553,36 @@ export default function HyperAdminOrganizations() {
                     /{org.slug}/login <ExternalLink className="w-3 h-3" />
                   </a>
                   <div className="mt-1">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${org.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                    <button
+                      type="button"
+                      onClick={() => void openRecovery(org)}
+                      title="Ouvrir le suivi Prévention de cette organisation"
+                      className={`text-xs px-2 py-0.5 rounded-full hover:ring-2 hover:ring-emerald-200 ${org.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}
+                    >
                       {org.isActive ? 'Actif' : 'Inactif'}
-                    </span>
+                    </button>
                     <span className={`ml-1 text-xs px-2 py-0.5 rounded-full ${org.legalValidationStatus === 'en_cours' ? 'bg-amber-100 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
                       {org.legalValidationStatus === 'en_cours' ? 'Validation en cours' : 'Validation terminée'}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => void openRecovery(org)}
+                      title="État des traitements Prévention"
+                      className="ml-1 inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 hover:bg-violet-100"
+                    >
+                      <Activity className="w-3 h-3" />
+                      {preventionBadge(recoveryStatuses[org.id])}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openRecovery(org)}
+                      title="Cliquer pour ouvrir les détails du worker partagé"
+                      aria-label={`Ouvrir les détails du worker partagé : ${workerBadge(recoveryStatuses[org.id])}`}
+                      className="ml-1 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 cursor-pointer hover:bg-slate-200 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2"
+                    >
+                      <Info className="w-3.5 h-3.5 shrink-0 text-violet-600" aria-hidden="true" />
+                      Worker partagé : {workerBadge(recoveryStatuses[org.id])}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -448,6 +623,55 @@ export default function HyperAdminOrganizations() {
           {filteredOrgs.length === 0 && (
             <div className="col-span-full text-center text-slate-400 py-12">Aucune organisation. Créez la première.</div>
           )}
+        </div>
+      )}
+
+      {recoveryOrg && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Rattrapage Prévention — {recoveryOrg.name}</h2>
+                <p className="text-xs text-slate-500 mt-1">Les actions sont exécutées par le backend et le worker partagé.</p>
+              </div>
+              <button onClick={closeRecovery} className="p-1 hover:bg-slate-100 rounded" aria-label="Fermer"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              {recoveryPollingError && <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">{recoveryPollingError}</div>}
+              {recoveryLoading && !recoveryPreview && <div className="flex items-center gap-2 text-slate-500"><Loader2 className="w-4 h-4 animate-spin" /> Chargement de la prévisualisation…</div>}
+              {recoveryPreview && (!recoveryStatus?.latestRun || isTerminalRecoveryRun(recoveryStatus.latestRun.status)) && (
+                <>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <RecoveryMetric label="Rapports" value={recoveryPreview.reportCount} />
+                    <RecoveryMetric label="Constats" value={recoveryPreview.findingCount} />
+                    <RecoveryMetric label="Groupes à réanalyser" value={recoveryPreview.groupCount} />
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-4 space-y-2">
+                    <p className="font-medium text-slate-800">Le rattrapage complet enchaînera :</p>
+                    <p className="text-sm text-slate-600">1. Extraction des rapports · 2. Réanalyse de tous les groupes (phase proposée, risques, types d’actions) · 3. Calcul du budget global toutes périodes.</p>
+                    <p className="text-xs text-slate-600">Les phases, corrections et montants budgétaires validés par un humain restent inchangés. La réanalyse peut entraîner des coûts IA supplémentaires.</p>
+                    {recoveryPreview.pendingGroupCount > 0 && <p className="text-xs text-amber-700">{recoveryPreview.pendingGroupCount} groupe(s) sont déjà en attente.</p>}
+                  </div>
+                  {recoveryPreview.hardRejected && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">Ce rattrapage ne peut pas être lancé : le volume dépasse le plafond de sécurité. Réduisez le périmètre ou utilisez la fenêtre de traitement planifiée.</div>}
+                  {!recoveryPreview.hardRejected && !recoveryPreview.immediateAllowed && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{formatRecoveryReason(recoveryPreview.immediateReason)}</div>}
+                  <label className={`flex items-start gap-3 rounded-lg border p-3 ${recoveryPreview.immediateAllowed ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <input type="checkbox" checked={recoveryImmediate} disabled={!recoveryPreview.immediateAllowed} onChange={(e) => setRecoveryImmediate(e.target.checked)} className="mt-1" />
+                    <span className="text-sm"><span className="font-medium text-slate-800">Exécuter immédiatement</span><br /><span className="text-slate-500">{recoveryPreview.immediateAllowed ? 'Le volume respecte le plafond de sécurité.' : 'Le volume dépasse le plafond immédiat ; le backend planifiera le traitement.'}</span></span>
+                  </label>
+                  <div className="flex justify-end gap-2">
+                    <button type="button" onClick={closeRecovery} className="px-4 py-2 text-sm rounded-lg hover:bg-slate-100">Conserver le rattrapage automatique</button>
+                    <button type="button" onClick={() => void confirmRecovery()} disabled={recoverySubmitting || recoveryPreview.hardRejected} className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium disabled:opacity-50">
+                      {recoverySubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                      {recoveryImmediate ? 'Lancer maintenant' : 'Planifier le rattrapage'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {recoveryStatus?.latestRun && (!recoveryPreview || !isTerminalRecoveryRun(recoveryStatus.latestRun.status)) && (
+                <RecoveryDetails status={recoveryStatus} onRefresh={() => void refreshRecovery()} loading={recoveryLoading} />
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -645,6 +869,9 @@ export default function HyperAdminOrganizations() {
                 <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
                 <span className="text-sm">Organisation active</span>
               </label>
+              {editing && form.isActive && (
+                <p className="text-xs text-violet-700">Après Enregistrer, les choix de rattrapage Prévention s’ouvriront. Aucun calcul ne démarre sans confirmation.</p>
+              )}
 
               {!editing && (
                 <div className="border-t border-slate-200 pt-4 space-y-3">
@@ -683,7 +910,105 @@ export default function HyperAdminOrganizations() {
   );
 }
 
-const Field = ({ label, value, onChange, type = 'text', required, hint }: any) => (
+function preventionBadge(status?: RecoveryStatus): string {
+  if (!status) return 'Prévention — état inconnu';
+  if (status.effectiveStatus === 'PAUSED_DISABLED') return 'Prévention — organisation inactive / traitements suspendus';
+  const run = status.latestRun;
+  if (run?.status === 'FAILED' || (status.groups?.failed ?? 0) > 0) return 'Prévention — échec';
+  if (run && !['COMPLETED', 'FAILED'].includes(run.status)) return 'Prévention — en cours';
+  const activation = status.activationScan;
+  if (activation && !activation.scanComplete &&
+      [activation.runStatus, activation.checkpointStatus].some((value) => ['PENDING', 'PROCESSING', 'SCHEDULED'].includes(String(value)))) {
+    return 'Prévention — rattrapage en cours';
+  }
+  return 'Prévention — prête';
+}
+
+function workerBadge(status?: RecoveryStatus): string {
+  const workerStatus = status?.worker?.status;
+  if (workerStatus === 'down' || workerStatus === 'degraded') return 'à vérifier';
+  if (workerStatus === 'unknown' || !workerStatus) return 'état inconnu';
+  return 'opérationnel';
+}
+
+function formatRecoveryReason(reason: string): string {
+  if (reason === 'VOLUME_REQUIRES_BULK_WINDOW') return 'Le volume dépasse le plafond immédiat ; le backend planifiera le traitement dans la prochaine fenêtre disponible.';
+  return reason || 'Le backend impose une exécution planifiée pour ce volume.';
+}
+
+function isTerminalRecoveryRun(status?: string): boolean {
+  return status === 'COMPLETED' || status === 'FAILED';
+}
+
+const RecoveryMetric = ({ label, value }: { label: string; value: number }) => (
+  <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
+    <p className="text-xl font-semibold text-slate-900">{value.toLocaleString('fr-FR')}</p>
+    <p className="text-xs text-slate-500">{label}</p>
+  </div>
+);
+
+const RecoveryDetails = ({ status, onRefresh, loading }: { status: RecoveryStatus; onRefresh: () => void; loading: boolean }) => {
+  const run = status.latestRun;
+  return (
+    <div className="space-y-4">
+      {status.effectiveStatus === 'PAUSED_DISABLED' && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Prévention — organisation inactive / traitements suspendus</div>}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-medium text-slate-800">État du rattrapage : {run ? statusLabel(run.status) : 'aucun rattrapage'}</p>
+          {run?.executionMode && <p className="text-xs text-slate-500">Mode : {run.executionMode === 'IMMEDIATE' ? 'immédiat' : 'fenêtre planifiée'}</p>}
+        </div>
+        <button type="button" onClick={onRefresh} disabled={loading} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-slate-100 hover:bg-slate-200 disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Actualiser</button>
+      </div>
+      <div className="space-y-2">
+        {(run?.steps || []).map((step) => (
+          <div key={step.kind} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm">
+            <span className="flex items-center gap-2"><StepIcon status={step.status} /> {stepLabel(step.kind)}</span>
+            <span className="text-slate-500">{step.status === 'COMPLETED' && step.kind !== 'BUDGET' ? 'Terminé' : step.kind === 'BUDGET' && step.totalHt != null ? `${Number(step.totalHt).toLocaleString('fr-FR')} € HT` : statusLabel(step.status)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-lg bg-slate-50 p-3"><span className="text-slate-500">Worker partagé</span><br /><span className="font-medium">{workerStatusLabel(status.worker?.status)}{status.worker?.heartbeatAgeSeconds != null ? ` · dernier signal il y a ${status.worker.heartbeatAgeSeconds} s` : ''}</span></div>
+        <div className="rounded-lg bg-slate-50 p-3"><span className="text-slate-500">Groupes</span><br /><span className="font-medium">{status.groups.ready} prêts · {status.groups.pending} en attente</span></div>
+      </div>
+      {run?.error && <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{recoveryErrorLabel(run.error)}</div>}
+    </div>
+  );
+};
+
+function statusLabel(value: string): string {
+  return ({ PENDING: 'En attente', PROCESSING: 'En cours', SCHEDULED: 'Planifié', SUSPENDED: 'Suspendu', PUBLISHED: 'Terminé', READY: 'Prêt', COMPLETED: 'Terminé', FAILED: 'Échec', SKIPPED: 'Ignoré', EXTRACTION: 'En attente', GROUPS: 'En cours', BUDGET: 'En cours' } as Record<string, string>)[value] || 'État inconnu';
+}
+
+function workerStatusLabel(value?: string): string {
+  return ({ healthy: 'Opérationnel', degraded: 'Dégradé', down: 'Indisponible', unknown: 'État inconnu' } as Record<string, string>)[value ?? ''] || 'État inconnu';
+}
+
+function recoveryErrorLabel(value: string): string {
+  const known: Record<string, string> = {
+    ORG_DISABLED_PAUSED: 'Organisation inactive : les traitements sont suspendus.',
+    EXTRACTION_FAILED: 'Échec de l’extraction des rapports.',
+    PREVENTION_GROUP_PROCESSING_FAILED: 'Échec de la construction des groupes et actions.',
+    BUDGET_FAILED: 'Échec du calcul du budget global.',
+    PREVENTION_SOURCE_CHANGED_RECONFIRM: 'Les données ont changé pendant le rattrapage. Actualisez et confirmez une nouvelle demande.',
+    RECOVERY_QUEUE_ENQUEUE_FAILED: 'Le traitement n’a pas pu être ajouté à la file d’attente.',
+  };
+  if (value.includes('Prevention budget bulk window closed')) return 'Calcul suspendu à la fermeture de la fenêtre de traitement ; reprise à la prochaine fenêtre.';
+  return known[value] || 'Le traitement a rencontré une erreur. Consultez les journaux du backend pour le détail.';
+}
+
+function stepLabel(value: string): string {
+  return ({ EXTRACTION: 'Rapports / extraction', GROUPS: 'Groupes et actions', BUDGET: 'Budget global' } as Record<string, string>)[value] || value;
+}
+
+const StepIcon = ({ status }: { status: string }) => {
+  if (status === 'COMPLETED') return <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
+  if (status === 'FAILED') return <AlertTriangle className="w-4 h-4 text-red-600" />;
+  return <Clock className="w-4 h-4 text-amber-600" />;
+};
+
+type TextFieldProps = { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean; hint?: string };
+const Field = ({ label, value, onChange, type = 'text', required, hint }: TextFieldProps) => (
   <div>
     <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
     <input
@@ -697,7 +1022,7 @@ const Field = ({ label, value, onChange, type = 'text', required, hint }: any) =
   </div>
 );
 
-const PasswordField = ({ label, value, onChange, required, visible, onToggle, hint }: any) => (
+const PasswordField = ({ label, value, onChange, required, visible, onToggle, hint }: TextFieldProps & { visible: boolean; onToggle: () => void }) => (
   <div>
     <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
     <div className="relative">
@@ -721,7 +1046,7 @@ const PasswordField = ({ label, value, onChange, required, visible, onToggle, hi
   </div>
 );
 
-const ColorField = ({ label, value, onChange }: any) => (
+const ColorField = ({ label, value, onChange }: Pick<TextFieldProps, 'label' | 'value' | 'onChange'>) => (
   <div>
     <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
     <div className="flex items-center gap-2">

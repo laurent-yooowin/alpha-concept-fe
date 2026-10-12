@@ -3,6 +3,9 @@ import { MulterModule } from '@nestjs/platform-express';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
 import { memoryStorage } from 'multer';
+import { VisitPhotoAssetService } from './visit-photo-asset.service';
+import { UploadedAssetService } from './uploaded-asset.service';
+import { LegacyAssetBackfillService } from './legacy-asset-backfill.service';
 
 @Module({
   imports: [
@@ -15,7 +18,7 @@ import { memoryStorage } from 'multer';
     }),
   ],
   controllers: [UploadController],
-  providers: [UploadService],
-  exports: [UploadService],
+  providers: [UploadService, VisitPhotoAssetService, UploadedAssetService, LegacyAssetBackfillService],
+  exports: [UploadService, VisitPhotoAssetService, UploadedAssetService, LegacyAssetBackfillService],
 })
 export class UploadModule {}

@@ -43,6 +43,11 @@ docker exec "$REDIS_CONTAINER" redis-cli ping | grep -q PONG || fail 'Redis did 
 
 mysql_exec <<'SQL'
 CREATE TABLE organizations (id varchar(36) NOT NULL, isActive tinyint NOT NULL DEFAULT 1, PRIMARY KEY (id)) ENGINE=InnoDB;
+CREATE TABLE users (
+  id varchar(36) NOT NULL, organizationId varchar(36) NULL,
+  PRIMARY KEY (id), INDEX IDX_users_organization (organizationId),
+  CONSTRAINT FK_users_organization FOREIGN KEY (organizationId) REFERENCES organizations(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
 CREATE TABLE reports (
   id varchar(36) NOT NULL, organizationId varchar(36) NULL,
   visitId varchar(36) NOT NULL, missionId varchar(36) NOT NULL,
@@ -52,6 +57,7 @@ CREATE TABLE reports (
 CREATE TABLE visits (
   id varchar(36) NOT NULL, organizationId varchar(36) NULL,
   missionId varchar(36) NOT NULL, visitDate datetime(6) NOT NULL, photos json NULL,
+  updatedAt datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   PRIMARY KEY (id)
 ) ENGINE=InnoDB;
 CREATE TABLE missions (
@@ -61,6 +67,8 @@ CREATE TABLE missions (
 INSERT INTO organizations (id) VALUES
   ('00000000-0000-4000-8000-0000000000a1'),
   ('00000000-0000-4000-8000-0000000000b2');
+INSERT INTO users (id,organizationId) VALUES
+  ('50000000-0000-4000-8000-0000000000a1','00000000-0000-4000-8000-0000000000a1');
 INSERT INTO missions (id,organizationId,type) VALUES
   ('30000000-0000-4000-8000-0000000000a1','00000000-0000-4000-8000-0000000000a1','CSPS');
 INSERT INTO visits (id,organizationId,missionId,visitDate,photos) VALUES (
@@ -87,11 +95,25 @@ import { DataSource } from 'typeorm';
 import { PreventionDataFoundation1830000009000 } from './src/migrations/1830000009000-prevention-data-foundation';
 import { PreventionStatistics1830000011000 } from './src/migrations/1830000011000-prevention-statistics';
 import { PreventionScheduler1830000012000 } from './src/migrations/1830000012000-prevention-scheduler';
+import { PreventionBudget1830000013000 } from './src/migrations/1830000013000-prevention-budget';
+import { PreventionBudgetFilters1830000014000 } from './src/migrations/1830000014000-prevention-budget-filters';
+import { PreventionCostCatalogAudit1830000015000 } from './src/migrations/1830000015000-prevention-cost-catalog-audit';
+import { OrganizationPreventionActivation1830000016000 } from './src/migrations/1830000016000-organization-prevention-activation';
+import { PreventionAnalysisGroups1830000017000 } from './src/migrations/1830000017000-prevention-analysis-groups';
+import { PreventionGroupProcessing1830000018000 } from './src/migrations/1830000018000-prevention-group-processing';
+import { VisitAnalysisRequests1830000019000 } from './src/migrations/1830000019000-visit-analysis-requests';
+import { VisitPhotoAssetsAndLlmQuota1830000020000 } from './src/migrations/1830000020000-visit-photo-assets-and-llm-quota';
+import { UploadedAssetsRegistry1830000021000 } from './src/migrations/1830000021000-uploaded-assets-registry';
 export default new DataSource({
   type: 'mysql', host: '127.0.0.1', port: Number(process.env.PREVENTION_MYSQL_PORT),
   username: 'root', password: '$MYSQL_PASSWORD', database: '$DATABASE',
   migrations: [PreventionDataFoundation1830000009000, PreventionStatistics1830000011000,
-    PreventionScheduler1830000012000], synchronize: false, logging: false,
+    PreventionScheduler1830000012000, PreventionBudget1830000013000,
+    PreventionBudgetFilters1830000014000, PreventionCostCatalogAudit1830000015000,
+    OrganizationPreventionActivation1830000016000, PreventionAnalysisGroups1830000017000,
+    PreventionGroupProcessing1830000018000, VisitAnalysisRequests1830000019000,
+    VisitPhotoAssetsAndLlmQuota1830000020000, UploadedAssetsRegistry1830000021000],
+  synchronize: false, logging: false,
 });
 EOF
 
@@ -99,10 +121,24 @@ readonly EXTRACTION_MYSQL_PORT="$(docker port "$MYSQL_CONTAINER" 3306/tcp | sed 
 readonly EXTRACTION_REDIS_PORT="$(docker port "$REDIS_CONTAINER" 6379/tcp | sed 's/.*://')"
 (cd "$BACKEND_DIR" && PREVENTION_MYSQL_PORT="$EXTRACTION_MYSQL_PORT" \
   ./node_modules/.bin/typeorm-ts-node-commonjs migration:run -d "$DATA_SOURCE_FILE")
+
 (cd "$BACKEND_DIR" && PREVENTION_MYSQL_PORT="$EXTRACTION_MYSQL_PORT" \
   ./node_modules/.bin/typeorm-ts-node-commonjs migration:revert -d "$DATA_SOURCE_FILE")
 (cd "$BACKEND_DIR" && PREVENTION_MYSQL_PORT="$EXTRACTION_MYSQL_PORT" \
   ./node_modules/.bin/typeorm-ts-node-commonjs migration:run -d "$DATA_SOURCE_FILE")
+
+# P11 pilot invariant is applied after the rollback/up validation because the
+# recreated column correctly returns to its secure default (disabled).
+mysql_exec <<'SQL'
+UPDATE organizations
+SET preventionEnabled = CASE
+  WHEN id='00000000-0000-4000-8000-0000000000a1' THEN 1
+  ELSE 0
+END;
+SQL
+enabled_count="$(printf '%s\n' 'SELECT COUNT(*) FROM organizations WHERE preventionEnabled=1;' | \
+  mysql_exec --batch --skip-column-names | tr -d '\r')"
+[[ "$enabled_count" == "1" ]] || fail "P11 pilot invariant failed: expected one enabled organization, got $enabled_count"
 
 set -a
 . "$BACKEND_DIR/.env.example"
@@ -124,6 +160,7 @@ const { Queue } = require('bullmq');
 const { DataSource } = require('typeorm');
 const { ConfigService } = require('@nestjs/config');
 const { PreventionExtractionService } = require('./src/prevention/extraction/prevention-extraction.service');
+const { buildPreventionGroupInput, preventionEntryGroupId, preventionGroupSourceHash } = require('./src/prevention/worker/prevention-group-source');
 const { loadScoreConfiguration, scoreConfigurationFingerprint } = require('./src/prevention/statistics/prevention-score.config');
 const { PREVENTION_DIFFERENTIAL_JOB, PREVENTION_CONSOLIDATION_JOB } = require('./src/prevention/scheduler/prevention-scheduler.types');
 
@@ -144,6 +181,38 @@ const payload = (eventId, organizationId, eventType = 'REPORT_UPSERTED') => ({
 
 (async () => {
   await mysql.initialize();
+  const prepareReadyGroups = async () => {
+    const [visit] = await mysql.query('SELECT photos,missionId FROM visits WHERE id=? AND organizationId=?',
+      ['20000000-0000-4000-8000-0000000000a1', ORG_A]);
+    const photos = typeof visit.photos === 'string' ? JSON.parse(visit.photos) : visit.photos;
+    const groups = new Map();
+    photos.forEach((photo, index) => {
+      const groupId = preventionEntryGroupId(photo, index);
+      groups.set(groupId, [...(groups.get(groupId) ?? []), photo]);
+    });
+    for (const [groupId, entries] of groups) {
+      const { sourceKind, input } = buildPreventionGroupInput(entries);
+      const observations = input.entries.flatMap((entry) => entry.observationTexts ?? []);
+      const recommendations = input.entries.flatMap((entry) => entry.recommendationTexts ?? []);
+      const riskLevel = entries[0].analysis.riskLevel;
+      const assessments = {
+        observations: observations.map((_, index) => ({ index, riskLevel, confidence: 85 })),
+        recommendations: recommendations.map((_, index) => ({ index, riskLevel, confidence: 85 })),
+      };
+      await mysql.query(
+        `INSERT INTO prevention_group_processing_jobs
+          (id,organizationId,visitId,missionId,sourceGroupId,sourceKind,processingStatus,phaseStatus,
+           proposedPhase,effectivePhase,confidence,justification,riskAssessments,sourcePayload,sourceHash,availableAt)
+         VALUES (UUID(),?,?,?,?,?,'READY','PROPOSED','GROS_OEUVRE','GROS_OEUVRE',85,
+           'Résultat de validation isolée',?,?,?,UTC_TIMESTAMP(6))
+         ON DUPLICATE KEY UPDATE sourceKind=VALUES(sourceKind),processingStatus='READY',
+           riskAssessments=VALUES(riskAssessments),sourcePayload=VALUES(sourcePayload),sourceHash=VALUES(sourceHash)`,
+        [ORG_A, '20000000-0000-4000-8000-0000000000a1', visit.missionId, groupId, sourceKind,
+          JSON.stringify(assessments), JSON.stringify(input), preventionGroupSourceHash(groupId, entries)],
+      );
+    }
+  };
+  await prepareReadyGroups();
   const queue = new Queue('prevention', {
     connection: { host: '127.0.0.1', port: Number(process.env.PREVENTION_REDIS_PORT) },
   });
@@ -176,7 +245,7 @@ const payload = (eventId, organizationId, eventType = 'REPORT_UPSERTED') => ({
   const waitJob = async (job) => {
     for (let i = 0; i < 80; i += 1) {
       const state = await job.getState();
-      if (state === 'completed') return;
+      if (state === 'completed') return queue.getJob(job.id);
       if (state === 'failed') {
         const current = await queue.getJob(job.id);
         throw new Error(`job failed: ${job.id} ${current?.failedReason ?? job.failedReason}`);
@@ -229,6 +298,19 @@ const payload = (eventId, organizationId, eventType = 'REPORT_UPSERTED') => ({
 
   await waitJob(await add('prevention.report.upsert', payload('40000000-0000-4000-8000-000000000001', ORG_A)));
   await waitStatistics();
+  const disabledJob = await add(
+    'prevention.report.upsert',
+    payload('40000000-0000-4000-8000-0000000000b2', ORG_B),
+  );
+  const completedDisabledJob = await waitJob(disabledJob);
+  assert.equal(completedDisabledJob?.returnvalue, 'SKIPPED_DISABLED');
+  assert.equal(
+    Number((await mysql.query(
+      'SELECT COUNT(*) count FROM prevention_report_snapshots WHERE organizationId=?',
+      [ORG_B],
+    ))[0].count),
+    0,
+  );
   let snapshots = await mysql.query('SELECT * FROM prevention_report_snapshots WHERE organizationId=? AND reportId=?', [ORG_A, REPORT]);
   assert.equal(snapshots.length, 1);
   let findings = await mysql.query('SELECT * FROM prevention_findings WHERE organizationId=? AND reportId=? ORDER BY sourceGroupId,findingType', [ORG_A, REPORT]);
@@ -242,18 +324,25 @@ const payload = (eventId, organizationId, eventType = 'REPORT_UPSERTED') => ({
   assert.ok(scores.every((row) => row.configurationSource === 'ENVIRONMENT' && row.configurationId === null));
   const firstHash = snapshots[0].sourceHash;
   const firstUpdatedAt = new Date(snapshots[0].updatedAt).getTime();
+  const firstFindingIds = findings.map((row) => row.id).sort();
 
   await waitJob(await add('prevention.report.upsert', payload('40000000-0000-4000-8000-000000000002', ORG_A)));
   snapshots = await mysql.query('SELECT * FROM prevention_report_snapshots WHERE organizationId=? AND reportId=?', [ORG_A, REPORT]);
   assert.equal(snapshots.length, 1);
   assert.equal(snapshots[0].sourceHash, firstHash);
-  assert.equal(new Date(snapshots[0].updatedAt).getTime(), firstUpdatedAt);
+  assert.ok(new Date(snapshots[0].updatedAt).getTime() >= firstUpdatedAt);
+  assert.deepEqual(
+    (await mysql.query('SELECT id FROM prevention_findings WHERE organizationId=? AND reportId=?', [ORG_A, REPORT]))
+      .map((row) => row.id).sort(),
+    firstFindingIds,
+  );
 
   const changedPhotos = [{
     id: 'photo-a', groupId: 'group-photo', uri: 's3://still-excluded',
     analysis: { observation: ['Observation remplacée'], recommendation: ['Action remplacée'], riskLevel: 'faible', confidence: 70, references: [] },
   }];
   await mysql.query('UPDATE visits SET photos=? WHERE id=? AND organizationId=?', [JSON.stringify(changedPhotos), '20000000-0000-4000-8000-0000000000a1', ORG_A]);
+  await prepareReadyGroups();
   const concurrent = await Promise.all([
     add('prevention.report.upsert', payload('40000000-0000-4000-8000-000000000003', ORG_A)),
     add('prevention.report.upsert', payload('40000000-0000-4000-8000-000000000004', ORG_A)),
@@ -439,6 +528,7 @@ const payload = (eventId, organizationId, eventType = 'REPORT_UPSERTED') => ({
   await mysql.query(`CREATE TRIGGER TRG_p4_force_rollback BEFORE INSERT ON prevention_findings FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='forced rollback'`);
   changedPhotos[0].analysis.observation = ['Rollback observation'];
   await mysql.query('UPDATE visits SET photos=? WHERE id=?', [JSON.stringify(changedPhotos), '20000000-0000-4000-8000-0000000000a1']);
+  await prepareReadyGroups();
   await assert.rejects(() => extraction.indexReport(ORG_A, REPORT, '2026-08-21'));
   await mysql.query('DROP TRIGGER TRG_p4_force_rollback');
   snapshots = await mysql.query('SELECT * FROM prevention_report_snapshots WHERE organizationId=? AND reportId=?', [ORG_A, REPORT]);

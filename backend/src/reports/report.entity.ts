@@ -14,6 +14,10 @@ export enum ReportStatus {
   CANCELLED = 'annule',
 }
 
+export function isReportLocked(status: ReportStatus | string | null | undefined): boolean {
+  return status === ReportStatus.SENT_TO_CLIENT || status === ReportStatus.ARCHIVED;
+}
+
 @Entity('reports')
 @Index('UQ_reports_org_id', ['organizationId', 'id'], { unique: true })
 export class Report {

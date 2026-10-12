@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { mailingListAPI, visitsAPI, missionsAPI, reportsAPI } from '../lib/api';
-import { visitService } from '../services/visitService';
 import { filesService } from '../services/filesService';
 import { uploadService } from '../services/uploadService';
-import { aiService, AIAnalysis } from '../services/aiService';
+import { AIAnalysis, PREVENTION_PHASES, PreventionPhase } from '../services/aiService';
 import { generatePdfService } from '../services/generatePdfService';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -16,8 +15,13 @@ import Swal from 'sweetalert2';
 import PhotoReportEditor from './PhotoReportEditor';
 import MissionReportModal from './MissionReportModal';
 import CustomPromptSelector from './CustomPromptSelector';
+import { GroupPreventionStatus, offerGroupPhaseConfirmation } from './prevention/offerGroupPhaseConfirmation';
 import ReanalysisConfigModal from './ReanalysisConfigModal';
 import AppliedCustomPromptsReadOnly from './AppliedCustomPromptsReadOnly';
+import { groupPromptIdsFromEntries } from './appliedCustomPrompts';
+import { changedReportGroups } from './reportEdits';
+import { isFinalReportStatus } from './reportFinalStatus';
+import { formatReportDate } from './reportDatePresentation';
 
 // ─── TYPES ───────────────────────────────────────
 interface PhotoAnalysis {
@@ -28,6 +32,17 @@ interface PhotoAnalysis {
   confidence: number;
   unreadableSections?: string[];
   appliedCustomPrompts?: Array<{ id: string; name: string; content: string }>;
+  prevention?: Partial<NonNullable<AIAnalysis['prevention']>> & {
+    processingStatus?: 'PENDING' | 'PROCESSING' | 'RETRY' | 'READY' | 'FAILED';
+  };
+  preventionPhase?: PreventionPhase;
+  preventionPhaseEffective?: PreventionPhase;
+  preventionPhaseConfidence?: number;
+  preventionPhaseJustification?: string;
+  preventionPhaseSource?: 'PHOTO' | 'DIRECTIVE' | 'MIXED';
+  preventionPhaseStatus?: 'PROPOSED' | 'VALIDATED';
+  preventionPhaseValidatedBy?: string;
+  preventionPhaseValidatedAt?: string;
 }
 interface Photo {
   id: string;
@@ -86,6 +101,12 @@ interface ReportGroup {
     riskLevel: string;
     confidence: number;
     unreadableSections?: string[];
+    preventionPhase?: PreventionPhase;
+    preventionPhaseEffective?: PreventionPhase;
+    preventionPhaseConfidence?: number;
+    preventionPhaseJustification?: string;
+    preventionPhaseSource?: 'PHOTO' | 'DIRECTIVE' | 'MIXED';
+    preventionPhaseStatus?: 'PROPOSED' | 'VALIDATED';
   };
 }
 
@@ -143,10 +164,6 @@ const getStatusLabel = (status: string) => {
   }
 };
 
-const getPhotoUrl = (photo: Photo): string | null => {
-  return photo.s3Url || photo.uri || null;
-};
-
 // ─── COMPONENT ────────────────────────────────────
 export default function VisitManagement() {
   const { profile: currentUser } = useAuth();
@@ -155,6 +172,7 @@ export default function VisitManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
+  const [expandedGroupPhases, setExpandedGroupPhases] = useState<Record<string, GroupPreventionStatus>>({});
   const [filterMission, setFilterMission] = useState('all');
   const [missions, setMissions] = useState<any[]>([]);
 
@@ -230,12 +248,24 @@ export default function VisitManagement() {
   const [tempGroupReferences, setTempGroupReferences] = useState<string[]>([]);
   const [tempGroupDirectives, setTempGroupDirectives] = useState('');
   const [tempGroupComments, setTempGroupComments] = useState('');
+  const [tempGroupPhase, setTempGroupPhase] = useState<PreventionPhase | ''>('');
+  const [tempGroupPhaseConfidence, setTempGroupPhaseConfidence] = useState(0);
+  const [tempGroupPhaseJustification, setTempGroupPhaseJustification] = useState('');
+  const [tempGroupPhaseStatus, setTempGroupPhaseStatus] = useState<'PROPOSED' | 'VALIDATED'>('PROPOSED');
+  const [tempGroupProcessingStatus, setTempGroupProcessingStatus] = useState('PENDING');
   const [groupCustomPromptIds, setGroupCustomPromptIds] = useState<string[]>([]);
   const [isRegeneratingGroup, setIsRegeneratingGroup] = useState(false);
   const [showGroupReanalysisModal, setShowGroupReanalysisModal] = useState(false);
 
   // Attach photos to group
   const groupAttachInputRef = useRef<HTMLInputElement>(null);
+  const photoCreateAttemptRef = useRef<{ requestId: string; imageUrls: Array<string | null>; imageReceipts: Array<string | null>; directives: string; promptIds: string[] } | null>(null);
+  const directiveCreateAttemptRef = useRef<{ requestId: string; directives: string; comment: string; promptIds: string[] } | null>(null);
+  const reanalyzeRequestIdRef = useRef<{ requestId: string; groupId: string } | null>(null);
+  const globalRequestIdRef = useRef<string | null>(null);
+  const clarifyInputRef = useRef<HTMLInputElement>(null);
+  const clarifyAttemptRef = useRef<{ requestId: string; groupId: string; fileFingerprint: string; detailImageUrls: Array<string | null>; detailImageReceipts: Array<string | null>; directives?: string; promptIds: string[] } | null>(null);
+  const attachAttemptRef = useRef<{ groupId: string; fileFingerprint: string; imageUrls: Array<string | null>; imageReceipts: Array<string | null> } | null>(null);
   const [attachingToGroupId, setAttachingToGroupId] = useState<string | null>(null);
 
   // Directive-only modal
@@ -260,15 +290,18 @@ export default function VisitManagement() {
   const [missionReportId, setMissionReportId] = useState<string | undefined>(undefined);
   const [missionReportMission, setMissionReportMission] = useState<any>(null);
 
-  const isAdmin = currentUser?.role === 'ROLE_ADMIN';
+  useEffect(() => {
+    photoCreateAttemptRef.current = null;
+    directiveCreateAttemptRef.current = null;
+    reanalyzeRequestIdRef.current = null;
+    globalRequestIdRef.current = null;
+    clarifyAttemptRef.current = null;
+    attachAttemptRef.current = null;
+    setExpandedGroupPhases({});
+  }, [selectedVisit?.id]);
+
 
   // ─── DATA LOADING ──────────────────────────────
-  const getPromptSelection = (customPromptIds = selectedVisit?.customPromptIds || []) => ({
-    visitId: selectedVisit?.id,
-    missionType: selectedVisit?.mission?.type,
-    customPromptIds,
-  });
-
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
@@ -326,7 +359,7 @@ export default function VisitManagement() {
         isDirectiveOnly: first?.isDirectiveOnly || false,
         directives: first?.userDirectives || '',
         comment: first?.comment || '',
-        customPromptIds: first?.customPromptIds || selectedVisit.customPromptIds || [],
+        customPromptIds: groupPromptIdsFromEntries(photos),
         appliedCustomPrompts: first?.appliedCustomPrompts || [],
         analysis: first?.analysis ? {
           observations: obs,
@@ -335,6 +368,12 @@ export default function VisitManagement() {
           riskLevel: first.analysis.riskLevel,
           confidence: first.analysis.confidence,
           unreadableSections: first.analysis.unreadableSections || [],
+          preventionPhase: first.analysis.preventionPhase,
+          preventionPhaseEffective: first.analysis.preventionPhaseEffective,
+          preventionPhaseConfidence: first.analysis.preventionPhaseConfidence,
+          preventionPhaseJustification: first.analysis.preventionPhaseJustification,
+          preventionPhaseSource: first.analysis.preventionPhaseSource,
+          preventionPhaseStatus: first.analysis.preventionPhaseStatus,
         } : undefined,
       } as ReportGroup;
     });
@@ -389,6 +428,7 @@ export default function VisitManagement() {
 
   // ─── PHOTO UPLOAD ──────────────────────────────
   const onFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    photoCreateAttemptRef.current = null;
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     const previews = files.map(f => URL.createObjectURL(f));
@@ -403,12 +443,15 @@ export default function VisitManagement() {
   };
 
   const removePendingFile = (index: number) => {
+    photoCreateAttemptRef.current = null;
     URL.revokeObjectURL(pendingPreviews[index]);
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
     setPendingPreviews(prev => prev.filter((_, i) => i !== index));
   };
 
   const cancelUpload = () => {
+    photoCreateAttemptRef.current = null;
+    directiveCreateAttemptRef.current = null;
     pendingPreviews.forEach(p => URL.revokeObjectURL(p));
     setPendingFiles([]); setPendingPreviews([]);
     setShowUploadModal(false); setUploadDirectives('');
@@ -418,91 +461,76 @@ export default function VisitManagement() {
     if (!selectedVisit || pendingFiles.length === 0) return;
     setIsUploading(true);
     setShowUploadModal(false);
-
-    const batchGroupId = `group-${Date.now()}`;
-    const uploadedS3Urls: string[] = [];
-    const newPhotos: Photo[] = [];
     const groupPromptIds = uploadPromptIds;
+    const existingAttempt = photoCreateAttemptRef.current;
+    const sameInput = existingAttempt?.directives === uploadDirectives &&
+      JSON.stringify(existingAttempt.promptIds) === JSON.stringify(groupPromptIds);
+    const requestId = sameInput && existingAttempt ? existingAttempt.requestId : crypto.randomUUID();
+    const uploadedByIndex: Array<string | null> = existingAttempt?.imageUrls || pendingFiles.map(() => null);
+    const receiptsByIndex: Array<string | null> = existingAttempt?.imageReceipts || pendingFiles.map(() => null);
 
     try {
-      // Step 1: Upload all photos
+      // Step 1: Upload once per logical attempt; retries reuse exact URLs.
       for (let i = 0; i < pendingFiles.length; i++) {
+        if (uploadedByIndex[i] && receiptsByIndex[i]) continue;
         setUploadProgress(`Upload photo ${i + 1}/${pendingFiles.length}...`);
         try {
           const results = await uploadService.uploadVisitPhotos([pendingFiles[i]]);
-          const s3Url = results[0]?.url;
-          if (s3Url) {
-            uploadedS3Urls.push(s3Url);
-            newPhotos.push({
-              id: `photo-${Date.now()}-${i}`,
-              uri: s3Url,
-              s3Url,
-              validated: false,
-              groupId: batchGroupId,
-              userDirectives: uploadDirectives,
-              comment: '',
-              timestamp: new Date(),
-              customPromptIds: groupPromptIds,
-            });
+          const upload = results[0];
+          if (upload?.url && upload.receipt) {
+            uploadedByIndex[i] = upload.url;
+            receiptsByIndex[i] = upload.receipt;
           }
         } catch (error) {
           console.error(`Erreur upload photo ${i + 1}:`, error);
         }
       }
+      photoCreateAttemptRef.current = { requestId, imageUrls: uploadedByIndex, imageReceipts: receiptsByIndex, directives: uploadDirectives, promptIds: groupPromptIds };
+      const uploadedPairs = uploadedByIndex.map((url, index) => ({ url, receipt: receiptsByIndex[index] })).filter((item): item is { url: string; receipt: string } => Boolean(item.url && item.receipt));
+      const uploadedS3Urls = uploadedPairs.map(item => item.url);
+      const uploadedReceipts = uploadedPairs.map(item => item.receipt);
 
-      if (newPhotos.length === 0) {
-        Swal.fire({ icon: 'error', title: 'Erreur', text: 'Aucune photo n\'a pu être uploadée' });
+      if (uploadedS3Urls.length !== pendingFiles.length) {
+        setShowUploadModal(true);
+        Swal.fire({ icon: 'error', title: 'Upload incomplet', text: 'Certaines photos n\'ont pas été uploadées. Relancez pour reprendre uniquement les fichiers manquants.' });
         return;
       }
 
-      // Step 2: AI analysis if requested
-      if (analyze && uploadedS3Urls.length > 0) {
-        setIsAnalyzing(true);
-        setUploadProgress(`Analyse IA de ${uploadedS3Urls.length} photo(s)...`);
-        try {
-          const analysis = await aiService.analyzeBatchPhotos(
-            uploadedS3Urls,
-            uploadDirectives || undefined,
-            undefined,
-            getPromptSelection(groupPromptIds),
-          );
-          const photoAnalysis: PhotoAnalysis = {
-            observation: analysis.observations,
-            recommendation: analysis.recommendations,
-            references: analysis.references,
-            riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-            confidence: analysis.confidence,
-            unreadableSections: analysis.unreadableSections,
-          };
-          newPhotos.forEach(p => { p.analysis = photoAnalysis; p.customPromptIds = groupPromptIds; p.appliedCustomPrompts = analysis.appliedCustomPrompts || []; });
-        } catch (error) {
-          console.error('Erreur analyse IA:', error);
-          Swal.fire({ icon: 'warning', title: 'Analyse IA échouée', text: 'Les photos ont été uploadées mais l\'analyse a échoué.' });
-        }
-        setIsAnalyzing(false);
+      if (!analyze) {
+        Swal.fire({ icon: 'info', title: 'Analyse requise', text: 'Les photos doivent être rattachées à un groupe par une analyse SPS.' });
+        return;
       }
 
-      // Step 3: Save to visit
-      const updatedPhotos = [...(selectedVisit.photos || []), ...newPhotos];
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      // The backend owns the group id, SPS persistence and Prevention enqueue.
+      if (uploadedS3Urls.length > 0) {
+        setIsAnalyzing(true);
+        setUploadProgress(`Analyse IA de ${uploadedS3Urls.length} photo(s)...`);
+        const result = await visitsAPI.analysisGroups.create(selectedVisit.id, {
+          requestId, imageUrls: uploadedS3Urls, imageReceipts: uploadedReceipts,
+          userDirectives: uploadDirectives || undefined,
+          customPromptIds: groupPromptIds,
+        });
+        setIsAnalyzing(false);
+        const canonicalVisit = result?.visit || result;
+        setSelectedVisit(canonicalVisit);
+        photoCreateAttemptRef.current = null;
+      }
 
       // Clean up previews
       pendingPreviews.forEach(p => URL.revokeObjectURL(p));
       setPendingFiles([]); setPendingPreviews([]); setUploadDirectives('');
 
-      Swal.fire({ icon: 'success', title: 'Photos ajoutées', text: `${newPhotos.length} photo(s) ajoutée(s)${analyze ? ' et analysée(s)' : ''}`, timer: 2000, showConfirmButton: false });
+      Swal.fire({ icon: 'success', title: 'Analyse terminée', text: `${uploadedS3Urls.length} photo(s) analysée(s)`, timer: 2000, showConfirmButton: false });
 
       // Auto-open group detail if analyzed
-      if (analyze && newPhotos[0]?.analysis) {
-        setSelectedGroupId(batchGroupId);
-        setTimeout(() => { setShowGroupDetail(true); loadGroupImages(newPhotos); }, 500);
-      }
     } catch (error) {
       console.error('Erreur upload:', error);
-      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de l\'upload des photos' });
+      const message = error instanceof Error ? error.message : 'Erreur lors de l\'analyse SPS';
+      setShowUploadModal(true);
+      Swal.fire({ icon: 'error', title: 'Analyse SPS échouée', text: `${message}. Les photos uploadées ne sont pas rattachées à la visite.` });
     } finally {
       setIsUploading(false);
+      setIsAnalyzing(false);
       setUploadProgress('');
     }
   };
@@ -512,50 +540,31 @@ export default function VisitManagement() {
     if (!selectedVisit || !directiveOnlyText.trim()) return;
     setIsAnalyzingDirective(true);
     const groupPromptIds = directivePromptIds;
+    const existingAttempt = directiveCreateAttemptRef.current;
+    const sameInput = existingAttempt?.directives === directiveOnlyText &&
+      existingAttempt.comment === directiveOnlyComment &&
+      JSON.stringify(existingAttempt.promptIds) === JSON.stringify(groupPromptIds);
+    const requestId = sameInput && existingAttempt ? existingAttempt.requestId : crypto.randomUUID();
+    directiveCreateAttemptRef.current = { requestId, directives: directiveOnlyText, comment: directiveOnlyComment, promptIds: groupPromptIds };
     try {
-      const mission = selectedVisit.mission;
-      const missionContext = mission ? { title: mission.title, client: mission.client, address: mission.address, type: mission.type } : undefined;
-      const analysis = await aiService.analyzeDirectives(
-        directiveOnlyText,
-        missionContext,
-        undefined,
-        getPromptSelection(groupPromptIds),
-      );
-
-      const directivePhoto: Photo = {
-        id: `directive-${Date.now()}`,
-        uri: '',
-        validated: false,
-        isDirectiveOnly: true,
-        groupId: `directive-group-${Date.now()}`,
+      const result = await visitsAPI.analysisGroups.create(selectedVisit.id, {
+        requestId,
         userDirectives: directiveOnlyText,
-        comment: directiveOnlyComment,
-        analysis: {
-          observation: analysis.observations,
-          recommendation: analysis.recommendations,
-          references: analysis.references,
-          riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-          confidence: analysis.confidence,
-        },
+        comment: directiveOnlyComment || undefined,
         customPromptIds: groupPromptIds,
-        appliedCustomPrompts: analysis.appliedCustomPrompts || [],
-      };
-
-      const updatedPhotos = [...(selectedVisit.photos || []), directivePhoto];
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      });
+      const canonicalVisit = result?.visit || result;
+      setSelectedVisit(canonicalVisit);
+      directiveCreateAttemptRef.current = null;
 
       setShowDirectiveModal(false);
       setDirectiveOnlyText(''); setDirectiveOnlyComment('');
 
       // Auto-open group detail
-      setSelectedGroupId(directivePhoto.groupId!);
-      setTimeout(() => setShowGroupDetail(true), 300);
-
       Swal.fire({ icon: 'success', title: 'Directive analysée', timer: 1500, showConfirmButton: false });
     } catch (error) {
       console.error('Erreur analyse directive:', error);
-      Swal.fire({ icon: 'error', title: 'Erreur', text: 'L\'analyse IA a échoué' });
+      Swal.fire({ icon: 'error', title: 'Analyse SPS échouée', text: error instanceof Error ? error.message : 'L\'analyse IA a échoué' });
     }
     setIsAnalyzingDirective(false);
   };
@@ -570,13 +579,41 @@ export default function VisitManagement() {
       setTempGroupObservations([...group.analysis.observations]);
       setTempGroupRecommendations([...group.analysis.recommendations]);
       setTempGroupReferences([...group.analysis.references]);
+      setTempGroupPhase('');
+      setTempGroupPhaseConfidence(0);
+      setTempGroupPhaseJustification('');
+      setTempGroupPhaseStatus('PROPOSED');
+    } else {
+      setTempGroupPhase('');
+      setTempGroupPhaseConfidence(0);
+      setTempGroupPhaseJustification('');
+      setTempGroupPhaseStatus('PROPOSED');
     }
     setEditingGroupReport(editMode);
     setShowGroupDetail(true);
+    if (selectedVisit) void offerGroupPhaseConfirmation(selectedVisit.id, group.groupId, (status) => {
+      setExpandedGroupPhases((current) => ({ ...current, [group.groupId]: status }));
+      setTempGroupPhase(status.effectivePhase || status.proposedPhase || '');
+      setTempGroupPhaseConfidence(Number(status.confidence) || 0);
+      setTempGroupPhaseJustification(status.justification || '');
+      setTempGroupPhaseStatus(status.phaseStatus);
+      setTempGroupProcessingStatus(status.processingStatus);
+    });
     await loadGroupImages(group.photos);
   };
 
+  const toggleGroupExpanded = (groupId: string) => {
+    const opening = expandedPhoto !== groupId;
+    setExpandedPhoto(opening ? groupId : null);
+    if (opening && selectedVisit) {
+      void offerGroupPhaseConfirmation(selectedVisit.id, groupId, (status) => {
+        setExpandedGroupPhases((current) => ({ ...current, [groupId]: status }));
+      });
+    }
+  };
+
   const openGroupReanalysis = (group: ReportGroup) => {
+    if (reanalyzeRequestIdRef.current?.groupId !== group.groupId) reanalyzeRequestIdRef.current = null;
     setSelectedGroupId(group.groupId);
     setTempGroupDirectives(group.directives || '');
     setGroupCustomPromptIds(group.customPromptIds || []);
@@ -585,24 +622,15 @@ export default function VisitManagement() {
 
   const saveGroupReportEdits = async () => {
     if (!selectedVisit || !selectedGroupId) return;
-    const updatedPhotos = selectedVisit.photos.map(p => {
-      if ((p.groupId || p.id) === selectedGroupId) {
-        return {
-          ...p,
-          comment: tempGroupComments,
-          analysis: p.analysis ? {
-            ...p.analysis,
-            observation: tempGroupObservations,
-            recommendation: tempGroupRecommendations,
-            references: tempGroupReferences,
-          } : p.analysis,
-        };
-      }
-      return p;
-    });
     try {
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      const result = await visitsAPI.analysisGroups.update(selectedVisit.id, selectedGroupId, {
+        observations: tempGroupObservations,
+        recommendations: tempGroupRecommendations,
+        references: tempGroupReferences,
+        comment: tempGroupComments,
+        userDirectives: tempGroupDirectives,
+      });
+      setSelectedVisit(result?.visit || result);
       setEditingGroupReport(false);
       Swal.fire({ icon: 'success', title: 'Rapport modifié', timer: 1500, showConfirmButton: false });
     } catch {
@@ -616,56 +644,26 @@ export default function VisitManagement() {
     const group = photoGroups.find(g => g.groupId === selectedGroupId);
     if (!group) return;
 
-    if (group.isDirectiveOnly && !tempGroupDirectives.trim() && groupCustomPromptIds.length === 0) {
-      Swal.fire({ icon: 'warning', title: 'Prompt ou directive requis', text: 'Ajoutez des directives ou sélectionnez au moins un prompt personnalisé pour réanalyser ce rapport sans photo.' });
+    if (!tempGroupDirectives.trim() && (group.isDirectiveOnly || groupCustomPromptIds.length === 0)) {
+      Swal.fire({ icon: 'warning', title: 'Configuration requise', text: group.isDirectiveOnly
+        ? 'Ce rapport est fondé sur les directives : saisissez un contenu, même si un prompt custom est sélectionné.'
+        : 'Saisissez une directive ou sélectionnez au moins un prompt custom pour lancer la réanalyse.' });
       return;
     }
 
-    // Build previousReport from existing analysis
-    const previousReport = group.analysis ? JSON.stringify({
-      observations: group.analysis.observations || [],
-      recommendations: group.analysis.recommendations || [],
-      references: group.analysis.references || [],
-      riskLevel: group.analysis.riskLevel,
-      confidence: group.analysis.confidence,
-    }) : undefined;
-
     setIsRegeneratingGroup(true);
     try {
-      let analysis: AIAnalysis;
-      if (group.isDirectiveOnly) {
-        const mission = selectedVisit.mission;
-        const missionContext = mission ? { title: mission.title, client: mission.client, address: mission.address, type: mission.type } : undefined;
-        analysis = await aiService.analyzeDirectives(tempGroupDirectives, missionContext, previousReport, getPromptSelection(groupCustomPromptIds));
-      } else {
-        const s3Urls = group.photos.filter(p => p.s3Url).map(p => p.s3Url!);
-        if (s3Urls.length === 0) { Swal.fire({ icon: 'error', title: 'Erreur', text: 'Aucune photo uploadée dans ce groupe' }); return; }
-        analysis = await aiService.analyzeBatchPhotos(s3Urls, tempGroupDirectives || undefined, previousReport, getPromptSelection(groupCustomPromptIds));
-      }
-
-      const photoAnalysis: PhotoAnalysis = {
-        observation: analysis.observations,
-        recommendation: analysis.recommendations,
-        references: analysis.references,
-        riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-        confidence: analysis.confidence,
-        unreadableSections: analysis.unreadableSections,
-      };
-
-      const updatedPhotos = selectedVisit.photos.map(p => {
-        if ((p.groupId || p.id) === selectedGroupId) {
-          return { ...p, analysis: photoAnalysis, userDirectives: tempGroupDirectives, customPromptIds: groupCustomPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
-        }
-        return p;
+      const attempt = reanalyzeRequestIdRef.current?.groupId === selectedGroupId
+        ? reanalyzeRequestIdRef.current
+        : { requestId: crypto.randomUUID(), groupId: selectedGroupId };
+      reanalyzeRequestIdRef.current = attempt;
+      const result = await visitsAPI.analysisGroups.reanalyze(selectedVisit.id, selectedGroupId, {
+        requestId: attempt.requestId,
+        userDirectives: tempGroupDirectives.trim(),
+        customPromptIds: groupCustomPromptIds,
       });
-
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
-
-      // Update temp state
-      setTempGroupObservations([...analysis.observations]);
-      setTempGroupRecommendations([...analysis.recommendations]);
-      setTempGroupReferences([...analysis.references]);
+      setSelectedVisit(result?.visit || result);
+      reanalyzeRequestIdRef.current = null;
 
       setShowGroupReanalysisModal(false);
       Swal.fire({ icon: 'success', title: 'Rapport régénéré', timer: 1500, showConfirmButton: false });
@@ -679,55 +677,25 @@ export default function VisitManagement() {
   // ─── GLOBAL RE-ANALYSIS ────────────────────────
   const regenerateAllGroups = async () => {
     if (!selectedVisit || photoGroups.length === 0) return;
+    if (!globalReanalysisDirectives.trim() && globalReanalysisPromptIds.length === 0) {
+      Swal.fire({ icon: 'warning', title: 'Configuration requise', text: 'Saisissez une directive ou sélectionnez au moins un prompt custom pour lancer la réanalyse.' });
+      return;
+    }
 
     setIsRegeneratingAll(true);
     try {
-      let updatedPhotos = [...selectedVisit.photos];
-
-      for (let i = 0; i < photoGroups.length; i++) {
-        const group = photoGroups[i];
-        setRegeneratingProgress(`Groupe ${i + 1}/${photoGroups.length}...`);
-
-        try {
-          const previousReport = group.analysis ? JSON.stringify(group.analysis) : undefined;
-          const directivesToApply = globalReanalysisDirectives.trim() || group.directives || '';
-          const groupPromptIds = globalReanalysisPromptIds;
-          let analysis: AIAnalysis;
-
-          if (group.isDirectiveOnly) {
-            const mission = selectedVisit.mission;
-            analysis = await aiService.analyzeDirectives(directivesToApply, mission ? { title: mission.title, client: mission.client, address: mission.address, type: mission.type } : undefined, previousReport, getPromptSelection(groupPromptIds));
-          } else {
-            const s3Urls = group.photos.filter(p => p.s3Url).map(p => p.s3Url!);
-            if (s3Urls.length === 0) continue;
-            analysis = await aiService.analyzeBatchPhotos(s3Urls, directivesToApply || undefined, previousReport, getPromptSelection(groupPromptIds));
-          }
-
-          const photoAnalysis: PhotoAnalysis = {
-            observation: analysis.observations,
-            recommendation: analysis.recommendations,
-            references: analysis.references,
-            riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-            confidence: analysis.confidence,
-          };
-
-          updatedPhotos = updatedPhotos.map(p => {
-            if ((p.groupId || p.id) === group.groupId) {
-              return { ...p, analysis: photoAnalysis, userDirectives: directivesToApply, customPromptIds: groupPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
-            }
-            return p;
-          });
-        } catch (error) {
-          console.error(`Erreur groupe ${i + 1}:`, error);
-        }
-      }
-
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds } : null);
+      const response = await visitsAPI.analysisGroups.reanalyzeAll(selectedVisit.id, {
+        requestId: globalRequestIdRef.current || (globalRequestIdRef.current = crypto.randomUUID()),
+        userDirectives: globalReanalysisDirectives.trim(),
+        customPromptIds: globalReanalysisPromptIds,
+      });
+      setSelectedVisit(response?.visit || response);
+      globalRequestIdRef.current = null;
       setShowGlobalReanalysisModal(false);
+      const hasFailures = Array.isArray(response?.failed) && response.failed.length > 0;
       const result = await Swal.fire({
-        icon: 'success', title: 'Regénération terminée',
-        text: 'Tous les groupes ont été régénérés.',
+        icon: hasFailures ? 'warning' : 'success', title: hasFailures ? 'Régénération partielle' : 'Régénération terminée',
+        text: response?.failed?.length ? `${response.succeeded?.length || 0} groupe(s) réussi(s), ${response.failed.length} en échec.` : 'Tous les groupes ont été régénérés.',
         showCancelButton: true,
         confirmButtonText: 'Voir rapport',
         cancelButtonText: 'Fermer',
@@ -741,7 +709,7 @@ export default function VisitManagement() {
       }
     } catch (error) {
       console.error('Erreur régénération globale:', error);
-      Swal.fire({ icon: 'error', title: 'Erreur', text: 'La regénération a échoué' });
+      Swal.fire({ icon: 'error', title: 'Erreur SPS', text: error instanceof Error ? error.message : 'La regénération a échoué' });
     }
     setIsRegeneratingAll(false);
     setRegeneratingProgress('');
@@ -810,10 +778,15 @@ export default function VisitManagement() {
   const handleSaveReport = async () => {
     if (!visitReport) return;
     try {
+      const groups = changedReportGroups(visitReport.visit?.photos || selectedVisit?.photos || [], reportPhotos || []);
+      if (selectedVisit && groups.length) {
+        const groupResponse = await visitsAPI.analysisGroups.updateMany(visitReport.visitId, groups);
+        if (groupResponse?.visit) setSelectedVisit(groupResponse.visit);
+      }
       const resp = await reportsAPI.update(visitReport.id, {
-        content: editedContent, header: editedHeader, footer: editedFooter, observations: editedObservations,
+        ...(groups.length ? {} : { content: editedContent }),
+        header: editedHeader, footer: editedFooter, observations: editedObservations,
       });
-      if (selectedVisit) await visitService.update(visitReport.visitId, { photos: reportPhotos });
       setVisitReport((prev: any) => prev ? { ...prev, ...resp } : null);
       setIsEditingReport(false);
       Swal.fire({ icon: 'success', title: 'Rapport sauvegardé', timer: 1500, showConfirmButton: false });
@@ -827,6 +800,7 @@ export default function VisitManagement() {
       const ok = await generatePdfService.downloadReportPDF(
         {
           reportId: visitReport.id,
+          reportFileUrl: visitReport.reportFileUrl,
           title: visitReport.title || selectedVisit.mission?.title || 'Rapport',
           mission: selectedVisit.mission?.title || '',
         },
@@ -976,10 +950,9 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     });
     if (!confirm.isConfirmed) return;
 
-    const updatedPhotos = selectedVisit.photos.filter(p => (p.groupId || p.id) !== groupId);
     try {
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      const result = await visitsAPI.analysisGroups.delete(selectedVisit.id, groupId);
+      setSelectedVisit(result?.visit || result);
       if (selectedGroupId === groupId) { setShowGroupDetail(false); setSelectedGroupId(null); }
       Swal.fire({ icon: 'success', title: 'Groupe supprimé', timer: 1500, showConfirmButton: false });
     } catch { Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la suppression' }); }
@@ -997,12 +970,9 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     if (!confirm.isConfirmed) return;
 
     try {
-      if (photo.s3Url) {
-        try { await uploadService.deletePhotoByUrl(photo.s3Url); } catch (e) { console.error('S3 delete error:', e); }
-      }
-      const updatedPhotos = selectedVisit.photos.filter(p => p.id !== photo.id);
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      const groupId = photo.groupId || photo.id;
+      const result = await visitsAPI.analysisGroups.deletePhoto(selectedVisit.id, groupId, photo.id);
+      setSelectedVisit(result?.visit || result);
       Swal.fire({ icon: 'success', title: 'Photo supprimée', timer: 1500, showConfirmButton: false });
     } catch {
       Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la suppression' });
@@ -1018,29 +988,69 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     setIsUploading(true);
     setUploadProgress('Upload des photos supplémentaires...');
     try {
-      const newPhotos: Photo[] = [];
+      const fileFingerprint = files.map(file => `${file.name}:${file.size}:${file.lastModified}:${file.type}`).join('|');
+      const attempt = attachAttemptRef.current?.groupId === attachingToGroupId && attachAttemptRef.current.fileFingerprint === fileFingerprint ? attachAttemptRef.current : null;
+      const imageUrls: Array<string | null> = attempt?.imageUrls || files.map(() => null);
+      const imageReceipts: Array<string | null> = attempt?.imageReceipts || files.map(() => null);
       for (let i = 0; i < files.length; i++) {
+        if (imageUrls[i] && imageReceipts[i]) continue;
         setUploadProgress(`Upload photo ${i + 1}/${files.length}...`);
         const results = await uploadService.uploadVisitPhotos([files[i]]);
-        const s3Url = results[0]?.url;
-        if (s3Url) {
-          newPhotos.push({
-            id: `photo-${Date.now()}-${i}`,
-            uri: s3Url, s3Url, validated: false,
-            groupId: attachingToGroupId,
-            comment: '',
-          });
+        const upload = results[0];
+        if (upload?.url && upload.receipt) {
+          imageUrls[i] = upload.url;
+          imageReceipts[i] = upload.receipt;
         }
       }
-      const updatedPhotos = [...(selectedVisit.photos || []), ...newPhotos];
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
-      Swal.fire({ icon: 'success', title: `${newPhotos.length} photo(s) jointe(s)`, timer: 1500, showConfirmButton: false });
+      attachAttemptRef.current = { groupId: attachingToGroupId, fileFingerprint, imageUrls, imageReceipts };
+      const uploadedPairs = imageUrls.map((url, index) => ({ url, receipt: imageReceipts[index] })).filter((item): item is { url: string; receipt: string } => Boolean(item.url && item.receipt));
+      const uploadedUrls = uploadedPairs.map(item => item.url);
+      const uploadedReceipts = uploadedPairs.map(item => item.receipt);
+      if (uploadedUrls.length !== files.length) throw new Error('Certaines photos n’ont pas reçu de reçu de provenance');
+      const result = await visitsAPI.analysisGroups.attachPhotos(selectedVisit.id, attachingToGroupId, { imageUrls: uploadedUrls, imageReceipts: uploadedReceipts });
+      setSelectedVisit(result?.visit || result);
+      attachAttemptRef.current = null;
+      Swal.fire({ icon: 'success', title: `${uploadedUrls.length} photo(s) jointe(s)`, timer: 1500, showConfirmButton: false });
     } catch (error) {
       Swal.fire({ icon: 'error', title: 'Erreur', text: "Erreur lors de l'ajout des photos" });
     }
     setIsUploading(false); setUploadProgress('');
     setAttachingToGroupId(null);
+  };
+
+  const onClarifyFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!selectedVisit || !selectedGroupId || files.length === 0) return;
+    e.target.value = '';
+    try {
+      const group = photoGroups.find(item => item.groupId === selectedGroupId);
+      const fileFingerprint = files.map(file => `${file.name}:${file.size}:${file.lastModified}:${file.type}`).join('|');
+      const attempt = clarifyAttemptRef.current?.groupId === selectedGroupId && clarifyAttemptRef.current.fileFingerprint === fileFingerprint
+        ? clarifyAttemptRef.current : null;
+      const detailImageUrls: Array<string | null> = attempt?.detailImageUrls || files.map(() => null);
+      const detailImageReceipts: Array<string | null> = attempt?.detailImageReceipts || files.map(() => null);
+      for (let i = 0; i < files.length; i++) {
+        if (detailImageUrls[i] && detailImageReceipts[i]) continue;
+        const results = await uploadService.uploadVisitPhotos([files[i]]);
+        const upload = results[0];
+        if (upload?.url && upload.receipt) {
+          detailImageUrls[i] = upload.url;
+          detailImageReceipts[i] = upload.receipt;
+        }
+      }
+      const uploadedPairs = detailImageUrls.map((url, index) => ({ url, receipt: detailImageReceipts[index] })).filter((item): item is { url: string; receipt: string } => Boolean(item.url && item.receipt));
+      if (uploadedPairs.length !== files.length) throw new Error('Certaines photos de clarification n’ont pas reçu de reçu de provenance');
+      const imageUrls = uploadedPairs.map(item => item.url);
+      const imageReceipts = uploadedPairs.map(item => item.receipt);
+      const requestId = attempt?.requestId || crypto.randomUUID();
+      clarifyAttemptRef.current = attempt || { requestId, groupId: selectedGroupId, fileFingerprint, detailImageUrls, detailImageReceipts, directives: group?.directives, promptIds: group?.customPromptIds || [] };
+      const result = await visitsAPI.analysisGroups.clarify(selectedVisit.id, selectedGroupId, { requestId, detailImageUrls: imageUrls, detailImageReceipts: imageReceipts, userDirectives: clarifyAttemptRef.current.directives, customPromptIds: clarifyAttemptRef.current.promptIds });
+      setSelectedVisit(result?.visit || result);
+      clarifyAttemptRef.current = null;
+      Swal.fire({ icon: 'success', title: 'Clarification terminée', timer: 1500, showConfirmButton: false });
+    } catch (error) {
+      Swal.fire({ icon: 'error', title: 'Clarification SPS échouée', text: `${error instanceof Error ? error.message : 'Erreur inconnue'}. Les photos ne sont pas rattachées au groupe.` });
+    }
   };
 
 
@@ -1138,8 +1148,23 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
           {/* Content - Order: Observations → Recommandations → Références → Directives → Notes → Photos */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {!editingGroupReport && group.appliedCustomPrompts.length ? (
-              <AppliedCustomPromptsReadOnly prompts={group.appliedCustomPrompts} />
+              <AppliedCustomPromptsReadOnly prompts={group.appliedCustomPrompts} groupPromptIds={group.customPromptIds} />
             ) : null}
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <h4 className="text-s font-semibold text-[#1e3a5f]">🧱 Phase de chantier — Prévention</h4>
+                <span className="text-xs text-slate-600">{!tempGroupPhase
+                  ? tempGroupProcessingStatus === 'FAILED' ? 'Traitement Prévention en échec' : 'Traitement Prévention en attente ou en reprise'
+                  : tempGroupPhaseStatus === 'VALIDATED' ? 'Validée' : 'Proposée par l’IA'}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-md border border-blue-300 bg-white px-3 py-2 text-sm">
+                  {PREVENTION_PHASES.find((phase) => phase.value === tempGroupPhase)?.label || 'Phase en attente de traitement Prévention'}
+                </span>
+                <span className="text-xs text-slate-600">Confiance : {tempGroupPhaseConfidence}%</span>
+              </div>
+              {tempGroupPhaseJustification && <p className="mt-2 text-xs text-slate-600">{tempGroupPhaseJustification}</p>}
+            </div>
             {/* Observations */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -1236,6 +1261,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-s font-semibold text-slate-700">📸 Photos ({group.photos.length})</h4>
+                  {group.analysis?.unreadableSections?.length ? <button onClick={() => clarifyInputRef.current?.click()} className="text-xs text-amber-700 hover:underline">Clarifier les sections illisibles</button> : null}
                   <button onClick={() => { setAttachingToGroupId(selectedGroupId); groupAttachInputRef.current?.click(); }}
                     className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
                     <Paperclip className="w-3 h-3" /> Joindre des photos
@@ -1247,7 +1273,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                     const isAttachedOnly = !photo.analysis && !photo.isDirectiveOnly;
                     const missionStatus = selectedVisit?.mission?.status || '';
                     const reportSt = selectedVisit?.report?.status || '';
-                    const canDeleteAttached = isAttachedOnly && !['terminee', 'archivee', 'annulee'].includes(missionStatus) && reportSt !== 'envoye_au_client';
+                    const canDeleteAttached = isAttachedOnly && !['terminee', 'archivee', 'annulee'].includes(missionStatus) && !isFinalReportStatus(reportSt);
                     return (
                       <div key={photo.id || idx} className="relative">
                         {src ? (
@@ -1387,7 +1413,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     const BLOCKED_STATUSES = ['terminee', 'archivee', 'annulee', 'supprimee'];
     const missionStatus = selectedVisit.mission?.status || '';
     const reportStatus = selectedVisit.report?.status || '';
-    const canRegenerate = reportStatus !== 'envoye_au_client' && !BLOCKED_STATUSES.includes(missionStatus);
+    const canRegenerate = !isFinalReportStatus(reportStatus) && !BLOCKED_STATUSES.includes(missionStatus);
 
     return (
       <div className="space-y-6">
@@ -1395,35 +1421,34 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
         {renderUploadModal()}
         {renderDirectiveModal()}
         {renderGroupDetailModal()}
-        {showGroupReanalysisModal && selectedVisit && selectedGroupId && (() => {
-          const group = photoGroups.find((item) => item.groupId === selectedGroupId);
-          return <ReanalysisConfigModal
+        {showGroupReanalysisModal && selectedVisit && selectedGroupId && <ReanalysisConfigModal
             title="Réanalyse prompts/directives"
             missionType={selectedVisit.mission?.type}
             selectedIds={groupCustomPromptIds}
             directives={tempGroupDirectives}
+            directiveRequired={photoGroups.some((group) => group.groupId === selectedGroupId && group.isDirectiveOnly)}
             loading={isRegeneratingGroup}
-            directiveRequired={group?.isDirectiveOnly}
-            onSelectedIdsChange={setGroupCustomPromptIds}
-            onDirectivesChange={setTempGroupDirectives}
+            onSelectedIdsChange={(value) => { reanalyzeRequestIdRef.current = null; setGroupCustomPromptIds(value); }}
+            onDirectivesChange={(value) => { reanalyzeRequestIdRef.current = null; setTempGroupDirectives(value); }}
             onCancel={() => setShowGroupReanalysisModal(false)}
             onConfirm={regenerateGroupReport}
-          />;
-        })()}
+          />}
         {showGlobalReanalysisModal && selectedVisit && <ReanalysisConfigModal
           title="Réanalyse globale"
           missionType={selectedVisit.mission?.type}
+          helperText="Les directives et prompts globaux s'ajoutent à ceux de chaque groupe sans les remplacer. Un groupe directives-only doit conserver ses propres directives."
           selectedIds={globalReanalysisPromptIds}
           directives={globalReanalysisDirectives}
           loading={isRegeneratingAll}
-          onSelectedIdsChange={setGlobalReanalysisPromptIds}
-          onDirectivesChange={setGlobalReanalysisDirectives}
+          onSelectedIdsChange={(value) => { globalRequestIdRef.current = null; setGlobalReanalysisPromptIds(value); }}
+            onDirectivesChange={(value) => { globalRequestIdRef.current = null; setGlobalReanalysisDirectives(value); }}
           onCancel={() => setShowGlobalReanalysisModal(false)}
           onConfirm={regenerateAllGroups}
         />}
 
         {/* Hidden file input for group attach */}
         <input ref={groupAttachInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onAttachFilesSelected} />
+        <input ref={clarifyInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onClarifyFilesSelected} />
 
         {/* Hidden file input */}
         <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onFilesSelected} />
@@ -1538,8 +1563,8 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
               return (
                 <div key={group.groupId} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors">
-                    <button onClick={() => setExpandedPhoto(isExpanded ? null : group.groupId)}
+                  <div className="flex items-center justify-between gap-3 px-5 py-4 hover:bg-slate-50 transition-colors cursor-pointer" onClick={() => toggleGroupExpanded(group.groupId)}>
+                    <button onClick={(event) => { event.stopPropagation(); toggleGroupExpanded(group.groupId); }}
                       className="flex flex-1 items-center gap-3 text-left min-w-0">
                       {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400 shrink-0" /> : <ChevronDown className="w-5 h-5 text-slate-400 shrink-0" />}
                       <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-s font-bold shrink-0">{index + 1}</span>
@@ -1568,10 +1593,17 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
 
                   {isExpanded && (
                     <div className="px-5 pb-5 border-t border-slate-100">
+                      {expandedGroupPhases[group.groupId] && (
+                        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-s">
+                          <span className="font-semibold text-[#1e3a5f]">🧱 Phase de chantier — Prévention : </span>
+                          {PREVENTION_PHASES.find((phase) => phase.value === expandedGroupPhases[group.groupId].effectivePhase)?.label || 'En attente'}
+                          <span className="ml-2 text-slate-600">({expandedGroupPhases[group.groupId].phaseStatus === 'VALIDATED' ? 'validée' : 'proposée par l’IA'})</span>
+                        </div>
+                      )}
                       {/* Analysis first - Order: Observations → Recommendations → References → Directives → Notes → Photos */}
                       <div className="mt-4 space-y-4">
                         {group.appliedCustomPrompts.length > 0 && (
-                          <AppliedCustomPromptsReadOnly prompts={group.appliedCustomPrompts} />
+                          <AppliedCustomPromptsReadOnly prompts={group.appliedCustomPrompts} groupPromptIds={group.customPromptIds} />
                         )}
                         <div className={`grid grid-cols-1 ${!group.isDirectiveOnly ? 'lg:grid-cols-2' : ''} gap-6`}>
                           {/* Analysis column */}
@@ -1710,7 +1742,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                 <div className="bg-slate-50 p-4 rounded-lg">
                   <div className="grid grid-cols-2 gap-4 text-s">
                     <div><p className="text-slate-600">Client</p><p className="font-medium text-slate-900">{selectedVisit.mission?.client}</p></div>
-                    <div><p className="text-slate-600">Date</p><p className="font-medium text-slate-900">{new Date(visitReport.createdAt).toLocaleDateString('fr-FR')}</p></div>
+                    <div><p className="text-slate-600">Date du chantier</p><p className="font-medium text-slate-900">{formatReportDate(visitReport.missionDate) || '—'}</p></div>
                     {visitReport.conformityPercentage != null && <div><p className="text-slate-600">Conformité</p><p className="font-medium text-slate-900">{visitReport.conformityPercentage}%</p></div>}
                   </div>
                 </div>
@@ -1722,6 +1754,10 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                     isEditing={isEditingReport}
                     editedFooter={editedFooter}
                     editedHeader={editedHeader}
+                    headerDates={[
+                      { label: 'Date de la visite', value: formatReportDate(visitReport.visit?.visitDate || selectedVisit.visitDate) },
+                      { label: 'Date du rapport', value: formatReportDate(visitReport.createdAt) },
+                    ]}
                     onPhotosChange={isEditingReport ? setReportPhotos : undefined}
                     onHeaderChange={isEditingReport ? setEditedHeader : undefined}
                     onFooterChange={isEditingReport ? setEditedFooter : undefined}
@@ -1744,7 +1780,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                   {generatingVisitPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                   {generatingVisitPdf ? 'Génération...' : 'Télécharger PDF'}
                 </button>
-                {canRegenerate && visitReport.status !== 'envoye_au_client' && visitReport.status !== 'annule' && (
+                {canRegenerate && !isFinalReportStatus(visitReport.status) && visitReport.status !== 'annule' && (
                   isEditingReport ? (
                     <>
                       <button onClick={() => setIsEditingReport(false)} className="px-6 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 font-medium">Annuler</button>
@@ -1768,7 +1804,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                     </>
                   )
                 )}
-                {!canRegenerate && visitReport.status !== 'envoye_au_client' && visitReport.status !== 'annule' && (
+                {!canRegenerate && !isFinalReportStatus(visitReport.status) && visitReport.status !== 'annule' && (
                   <button
                     onClick={openVisitReportRecipients}
                     disabled={sendingVisitReport}

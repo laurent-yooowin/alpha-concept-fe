@@ -19,12 +19,17 @@ import {
   PREVENTION_UPSERT_JOB,
   PreventionReportEventPayload,
 } from '../outbox/prevention-outbox.types';
-import { PREVENTION_REDIS, PREVENTION_QUEUE } from './prevention-queue.constants';
+import { PREVENTION_GROUP_QUEUE, PREVENTION_REDIS, PREVENTION_QUEUE } from './prevention-queue.constants';
+import { PreventionActivationService } from '../prevention-activation.service';
 
 const DEFAULT_BATCH_SIZE = 25;
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const LOCK_TTL_MS = 5 * 60_000;
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000];
+
+function observabilityCorrelation(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16);
+}
 
 export function preventionRetryState(attempts: number, now = Date.now()): {
   status: PreventionOutboxStatus;
@@ -58,7 +63,9 @@ export class PreventionQueueService implements OnModuleInit, OnModuleDestroy {
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
     @Inject(PREVENTION_QUEUE) private readonly queue: Queue,
+    @Inject(PREVENTION_GROUP_QUEUE) private readonly groupQueue: Queue,
     @Inject(PREVENTION_REDIS) private readonly redis: Redis,
+    @Inject(PreventionActivationService) private readonly activation: PreventionActivationService,
   ) {}
 
   onModuleInit(): void {
@@ -71,16 +78,19 @@ export class PreventionQueueService implements OnModuleInit, OnModuleDestroy {
       : DEFAULT_POLL_INTERVAL_MS;
     this.publisherTimer = setInterval(() => {
       void this.publishBatch().catch(() => {
-        this.logger.warn('Prevention outbox polling failed');
+        this.logger.warn({ message: 'Prevention outbox polling failed', context: PreventionQueueService.name,
+          event: 'PREVENTION_OUTBOX_POLL_FAILED' } as any);
       });
     }, interval);
     this.queue.on('error', () => {
-      this.logger.warn('Prevention queue unavailable');
+      this.logger.warn({ message: 'Prevention queue unavailable', context: PreventionQueueService.name,
+        event: 'PREVENTION_QUEUE_UNAVAILABLE' } as any);
     });
   }
 
   async onModuleDestroy(): Promise<void> {
     if (this.publisherTimer) clearInterval(this.publisherTimer);
+    await this.groupQueue.close().catch(() => undefined);
     await this.queue.close().catch(() => undefined);
     await this.redis.quit().catch(() => undefined);
   }
@@ -114,8 +124,9 @@ export class PreventionQueueService implements OnModuleInit, OnModuleDestroy {
       try {
         return await this.dataSource.transaction(async (manager) => {
           const rows: Array<{ id: string }> = await manager.query(
-            `SELECT id FROM prevention_outbox_events
+             `SELECT id FROM prevention_outbox_events
              WHERE status = ? AND availableAt <= UTC_TIMESTAMP(6)
+               AND EXISTS (SELECT 1 FROM organizations o WHERE o.id=prevention_outbox_events.organizationId AND o.isActive=1 AND o.preventionEnabled=1)
              ORDER BY availableAt ASC LIMIT ? FOR UPDATE SKIP LOCKED`,
             [PreventionOutboxStatus.PENDING, batchSize],
           );
@@ -135,7 +146,8 @@ export class PreventionQueueService implements OnModuleInit, OnModuleDestroy {
       } catch (error: any) {
         const deadlock = error?.code === 'ER_LOCK_DEADLOCK' || error?.errno === 1213;
         if (!deadlock || attempt === 3) throw error;
-        this.logger.warn(`Prevention outbox claim deadlock retry=${attempt}`);
+        this.logger.warn({ message: 'Prevention outbox claim deadlock', context: PreventionQueueService.name,
+          event: 'PREVENTION_OUTBOX_CLAIM_RETRY', attempt } as any);
       }
     }
     return [];
@@ -145,6 +157,13 @@ export class PreventionQueueService implements OnModuleInit, OnModuleDestroy {
     repository: Repository<PreventionOutboxEvent>,
     event: PreventionOutboxEvent,
   ): Promise<void> {
+    if (!(await this.activation.isEnabled(event.organizationId, repository.manager))) {
+      await repository.update(
+        { id: event.id, status: PreventionOutboxStatus.PROCESSING, lockedBy: this.instanceId },
+        { status: PreventionOutboxStatus.PENDING, lockedAt: null, lockedBy: null },
+      );
+      return;
+    }
     const payload: PreventionReportEventPayload = {
       eventId: event.payload.eventId,
       organizationId: event.payload.organizationId,
@@ -203,6 +222,13 @@ export class PreventionQueueService implements OnModuleInit, OnModuleDestroy {
         lastError: message,
       },
     );
-    this.logger.warn(`Prevention outbox publish failed event=${event.id} attempt=${attempts}`);
+    this.logger.warn({
+      message: 'Prevention outbox publish failed',
+      context: PreventionQueueService.name,
+      event: 'PREVENTION_OUTBOX_PUBLISH_FAILED',
+      correlationId: observabilityCorrelation(event.id),
+      attempts,
+      terminal: retry.status === PreventionOutboxStatus.FAILED,
+    } as any);
   }
 }

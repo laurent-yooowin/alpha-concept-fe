@@ -3,6 +3,27 @@ import {
   PreventionRiskLevel,
   PreventionSourceKind,
 } from '../entities/prevention.enums';
+import {
+  PreventionConstructionPhase,
+  PreventionPhaseSource,
+  PreventionPhaseStatus,
+} from '../prevention-phase';
+import { PreventionActionMetric, PreventionActionType } from '../prevention-action-types';
+
+export interface CanonicalPreventionAnalysisGroup {
+  sourceGroupId: string;
+  sourceKind: PreventionPhaseSource;
+  proposedPhase: PreventionConstructionPhase;
+  effectivePhase: PreventionConstructionPhase;
+  status: PreventionPhaseStatus;
+  confidence: number;
+  justification: string;
+  source: PreventionPhaseSource;
+  modelVersion: string | null;
+  validatedBy: string | null;
+  validatedAt: Date | null;
+  sourceHash: string;
+}
 
 export interface CanonicalPreventionFinding {
   sourceGroupId: string;
@@ -13,6 +34,10 @@ export interface CanonicalPreventionFinding {
   risk: string | null;
   riskLevel: PreventionRiskLevel;
   confidence: number | null;
+  actionType: PreventionActionType | null;
+  actionTypeConfidence: number | null;
+  actionTypeVersion: string | null;
+  actionMetric: PreventionActionMetric | null;
   regulatoryReferences: string[];
   normalizedKey: string;
   patternKey: string;
@@ -26,4 +51,5 @@ export interface CanonicalPreventionSource {
   businessDate: string;
   missionType: string;
   findings: CanonicalPreventionFinding[];
+  analysisGroups: CanonicalPreventionAnalysisGroup[];
 }

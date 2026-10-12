@@ -1,24 +1,23 @@
 version: "3.8"
 
 services:
-  # MySQL Database with production settings
+  # MySQL Database
   mysql:
     image: mysql:8.0
-    container_name: csps-mysql-prod
-    restart: always
+    container_name: csps-mysql
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD}
       MYSQL_DATABASE: ${DATABASE_NAME}
       MYSQL_USER: ${DATABASE_USER}
       MYSQL_PASSWORD: ${DATABASE_PASSWORD}
     ports:
-      - "127.0.0.1:${DATABASE_PORT:-3306}:3306"
+      - "${DATABASE_PORT}:3306"
     volumes:
-      - mysql_prod_data:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - ./mysql/conf.d:/etc/mysql/conf.d:ro
     networks:
-      - csps-prod-network
+      - csps-network
     healthcheck:
       test:
         [
@@ -29,68 +28,49 @@ services:
           "localhost",
           "-u",
           "root",
-          "-p${DATABASE_PASSWORD}",
+          "-p ${DATABASE_PASSWORD}",
         ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-    command:
-      - --default-authentication-plugin=mysql_native_password
-      - --max_connections=500
-      - --innodb_buffer_pool_size=1G
-      - --innodb_log_file_size=256M
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 2G
-        reservations:
-          cpus: "1"
-          memory: 1G
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    command: --default-authentication-plugin=mysql_native_password
 
-  # Backend API (Production)
+  # Backend API
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      args:
-        NODE_ENV: production
-    image: csps-backend:latest
-    restart: always
+    container_name: csps-backend
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      NODE_ENV: production
-      PORT: 8089
-      DATABASE_HOST: mysql
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT:-8089}
+      DATABASE_HOST: ${DATABASE_HOST}
       DATABASE_PORT: 3306
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASSWORD: ${DATABASE_PASSWORD}
       DATABASE_NAME: ${DATABASE_NAME}
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
-      REDIS_DB: ${REDIS_DB:-0}
-      REDIS_TLS: ${REDIS_TLS:-false}
       JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_REGION: ${AWS_REGION}
       AWS_S3_BUCKET: ${AWS_S3_BUCKET}
       AWS_S3_ACCESS_POINT: ${AWS_S3_ACCESS_POINT}
-    depends_on:
-      mysql:
-        condition: service_healthy
+      HYPER_ADMIN_EMAIL: ${HYPER_ADMIN_EMAIL:-}
+      HYPER_ADMIN_PASSWORD: ${HYPER_ADMIN_PASSWORD:-}
+      HYPER_ADMIN_FIRSTNAME: ${HYPER_ADMIN_FIRSTNAME:-}
+      HYPER_ADMIN_LASTNAME: ${HYPER_ADMIN_LASTNAME:-}
+    ports:
+      - "${PORT}:8089"
     networks:
-      - csps-prod-network
-    volumes:
-      - backend_logs:/app/logs
+      - csps-network
+    # volumes:
+    #   - ./logs:/app/logs
     healthcheck:
       test:
         [
@@ -99,166 +79,76 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://localhost:8089/health",
+          "http://localhost:8089/api/healthcheck",
         ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    deploy:
-      replicas: 2
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-        window: 120s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
+      start_period: 40s
 
-  # Independent NestJS worker runtime. P4 will add the BullMQ consumers.
-  prevention-worker:
-    image: csps-backend:latest
-    restart: always
-    command: node dist/workers/prevention.worker.js
-    environment:
-      NODE_ENV: production
-      DATABASE_HOST: mysql
-      DATABASE_PORT: 3306
-      DATABASE_USER: ${DATABASE_USER}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
-      DATABASE_NAME: ${DATABASE_NAME}
-      REDIS_HOST: ${REDIS_HOST:-redis}
-      REDIS_PORT: ${REDIS_PORT:-6379}
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
-      REDIS_DB: ${REDIS_DB:-0}
-      REDIS_TLS: ${REDIS_TLS:-false}
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - csps-prod-network
-    volumes:
-      - backend_logs:/app/logs
-    stop_grace_period: 30s
-    deploy:
-      replicas: 1
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-        reservations:
-          cpus: "0.25"
-          memory: 256M
-      restart_policy:
-        condition: on-failure
-        delay: 5s
-        max_attempts: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
-
-  # Nginx Reverse Proxy (Production)
-  nginx:
-    image: nginx:alpine
-    container_name: csps-nginx-prod
-    restart: always
+  # -----------------------
+  # Frontend React / Vite
+  # -----------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: csps-frontend
+    restart: unless-stopped
+    env_file:
+      - ./frontend/.env
     ports:
       - "80:80"
       - "443:443"
+    networks:
+      - csps-network
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - nginx_cache:/var/cache/nginx
-      - nginx_logs:/var/log/nginx
+      - certbot_challenge:/var/www/certbot
+      - certs:/etc/letsencrypt
     depends_on:
-      - backend
-    networks:
-      - csps-prod-network
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost/health",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "7"
+      backend:
+        condition: service_healthy
 
-  # Redis queue backend (API publisher; worker container is introduced in P3)
-  redis:
-    image: redis:7-alpine
-    container_name: csps-redis-prod
-    restart: always
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction --save 60 1000 --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
+  # -----------------------
+  # Certbot SSL
+  # -----------------------
+  certbot:
+    image: certbot/certbot
+    container_name: csps-certbot
+    restart: unless-stopped
+    depends_on:
+      - frontend
     networks:
-      - csps-prod-network
+      - csps-network
     volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required in production}
-    deploy:
-      resources:
-        limits:
-          cpus: "0.25"
-          memory: 256M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
+      - certbot_challenge:/var/www/certbot
+      - certs:/etc/letsencrypt
+    entrypoint: >
+      sh -c "
+      if [ ! -d /etc/letsencrypt/live/reportbtp.com ]; then
+        certbot certonly --webroot -w /var/www/certbot \
+          --non-interactive --agree-tos --email toufik@yooowin.com \
+          -d reportbtp.com -d www.reportbtp.com;
+      fi &&
+      while true; do
+        certbot renew --webroot -w /var/www/certbot --quiet;
+        sleep 12h;
+      done
+      "
 
+# -----------------------
+# Networks
+# -----------------------
 networks:
-  csps-prod-network:
+  csps-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
 
+# -----------------------
+# Volumes
+# -----------------------
 volumes:
-  mysql_prod_data:
-    driver: local
+  mysql_data:
+  certbot_challenge:
+  certs:
   nginx_cache:
-    driver: local
   nginx_logs:
-    driver: local
-  backend_logs:
-    driver: local
-  redis_data:
-    driver: local

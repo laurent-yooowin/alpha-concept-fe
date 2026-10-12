@@ -63,6 +63,7 @@ services:
       - .env
     environment:
       NODE_ENV: ${NODE_ENV}
+      LOG_DIR: /app/logs
       PORT: ${PORT:-8089}
       DATABASE_HOST: ${DATABASE_HOST}
       DATABASE_PORT: 3306
@@ -74,6 +75,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_DB: ${REDIS_DB:-0}
       REDIS_TLS: ${REDIS_TLS:-false}
+      PREVENTION_OBSERVABILITY_TOKEN: ${PREVENTION_OBSERVABILITY_TOKEN:-development-observability-token-change-me}
+      PREVENTION_ALERT_DELAY_SECONDS: ${PREVENTION_ALERT_DELAY_SECONDS:-900}
+      PREVENTION_WORKER_HEARTBEAT_STALE_SECONDS: ${PREVENTION_WORKER_HEARTBEAT_STALE_SECONDS:-120}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -90,8 +94,13 @@ services:
       - "${PORT}:8089"
     networks:
       - csps-network
-    # volumes:
-    #   - ./logs:/app/logs
+    volumes:
+      - backend_logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     healthcheck:
       test:
         [
@@ -118,6 +127,7 @@ services:
       - .env
     environment:
       NODE_ENV: ${NODE_ENV}
+      LOG_DIR: /app/logs
       DATABASE_HOST: ${DATABASE_HOST}
       DATABASE_PORT: 3306
       DATABASE_USER: ${DATABASE_USER}
@@ -128,6 +138,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_DB: ${REDIS_DB:-0}
       REDIS_TLS: ${REDIS_TLS:-false}
+      PREVENTION_WORKER_HEARTBEAT_INTERVAL_MS: ${PREVENTION_WORKER_HEARTBEAT_INTERVAL_MS:-10000}
+      PREVENTION_WORKER_HEARTBEAT_TTL_SECONDS: ${PREVENTION_WORKER_HEARTBEAT_TTL_SECONDS:-300}
+      PREVENTION_WORKER_HEARTBEAT_STALE_SECONDS: ${PREVENTION_WORKER_HEARTBEAT_STALE_SECONDS:-120}
     command: node dist/workers/prevention.worker.js
     depends_on:
       mysql:
@@ -136,7 +149,20 @@ services:
         condition: service_healthy
     networks:
       - csps-network
+    volumes:
+      - backend_logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "dist/scripts/check-prevention-worker-health.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   # -----------------------
   # Frontend React / Vite
@@ -205,3 +231,4 @@ volumes:
   certs:
   nginx_cache:
   nginx_logs:
+  backend_logs:

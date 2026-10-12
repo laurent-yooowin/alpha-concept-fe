@@ -25,12 +25,10 @@ export const clearAccessToken = () => {
 export const apiUploadsRequest = async (endpoint: string, options: RequestInit = {}) => {
   const token = getAccessToken();
 
-  const headers: HeadersInit = {
-    ...(options.headers || {}),
-  };
+  const headers = new Headers(options.headers);
 
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -62,13 +60,11 @@ export const apiUploadsRequest = async (endpoint: string, options: RequestInit =
 export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   const token = getAccessToken();
 
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  };
+  const headers = new Headers(options.headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -326,6 +322,61 @@ export const visitsAPI = {
       body: JSON.stringify(options || {}),
     });
   },
+
+  // Server-authoritative SPS group commands. These endpoints own group IDs,
+  // persistence and Prevention scheduling; the UI must not patch visit.photos.
+  analysisGroups: {
+    create: async (visitId: string, body: {
+      requestId: string;
+      imageUrls?: string[];
+      imageReceipts?: string[];
+      userDirectives?: string;
+      comment?: string;
+      customPromptIds?: string[];
+    }) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+    updateMany: async (visitId: string, groups: Array<{ groupId: string; observations?: string[]; recommendations?: string[]; references?: string[]; comment?: string }>) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups`, {
+      method: 'PATCH', body: JSON.stringify({ groups }),
+    }),
+    reanalyze: async (visitId: string, groupId: string, body: {
+      requestId: string;
+      userDirectives?: string;
+      customPromptIds?: string[];
+    }) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/reanalyze`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+    clarify: async (visitId: string, groupId: string, body: {
+      requestId: string;
+      detailImageUrls: string[];
+      detailImageReceipts: string[];
+      userDirectives?: string;
+      customPromptIds?: string[];
+    }) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/clarify`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+    reanalyzeAll: async (visitId: string, body: {
+      requestId: string;
+      userDirectives?: string;
+      customPromptIds?: string[];
+    }) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups/reanalyze-all`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+    attachPhotos: async (visitId: string, groupId: string, body: {
+      imageUrls: string[];
+      imageReceipts: string[];
+      isDetailPhoto?: boolean;
+      isReadabilityPhoto?: boolean;
+      detailContext?: string;
+    }) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/photos`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+    update: async (visitId: string, groupId: string, body: Record<string, unknown>) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}`, {
+      method: 'PATCH', body: JSON.stringify(body),
+    }),
+    deletePhoto: async (visitId: string, groupId: string, photoId: string) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/photos/${encodeURIComponent(photoId)}`, { method: 'DELETE' }),
+    delete: async (visitId: string, groupId: string) => apiRequest(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' }),
+  },
 };
 
 export const activityLogsAPI = {
@@ -357,6 +408,7 @@ export const dashboardAPI = {
 };
 
 export type PreventionPreset =
+  | 'ALL'
   | 'LAST_7_DAYS'
   | 'LAST_30_DAYS'
   | 'CURRENT_QUARTER'
@@ -374,6 +426,7 @@ export interface PreventionQuery {
   chantierId?: string;
   categoryId?: string;
   riskLevel?: 'faible' | 'moyen' | 'eleve';
+  severity?: 'faible' | 'moyen' | 'eleve' | 'critique';
   status?: 'brouillon' | 'envoye' | 'valide' | 'refuse' | 'archive' | 'envoye_au_client' | 'annule';
   page?: number;
   limit?: number;
@@ -381,7 +434,18 @@ export interface PreventionQuery {
   sortOrder?: 'asc' | 'desc';
 }
 
-const preventionQuery = (query: PreventionQuery = {}) => {
+export type PreventionPhase =
+  | 'GROS_OEUVRE'
+  | 'STRUCTURE_CLOS_COUVERT'
+  | 'SECOND_OEUVRE'
+  | 'INSTALLATIONS_FINITIONS'
+  | 'INSTALLATION_ELECTRIQUE'
+  | 'FINITIONS_INTERIEURES'
+  | 'FINITIONS_EXTERIEURES';
+
+type PreventionQueryParams = PreventionQuery & { clientKeys?: string[] };
+
+const preventionQuery = (query: PreventionQueryParams = {}) => {
   const params = new URLSearchParams();
   Object.entries(query).forEach(([key, value]) => {
     if (value !== undefined && value !== '') params.set(key, String(value));
@@ -394,10 +458,36 @@ export const preventionAPI = {
   dashboard: (query: PreventionQuery = {}) => apiRequest(`/prevention/dashboard${preventionQuery(query)}`),
   findings: (query: PreventionQuery = {}) => apiRequest(`/prevention/findings${preventionQuery(query)}`),
   recommendations: (query: PreventionQuery = {}) => apiRequest(`/prevention/recommendations${preventionQuery(query)}`),
+  categories: () => apiRequest('/prevention/categories'),
+  groupStatus: (visitId: string, groupId: string) => apiRequest(`/prevention/visits/${encodeURIComponent(visitId)}/groups/${encodeURIComponent(groupId)}/status`),
+  updateVisitGroupPhase: (visitId: string, groupId: string, phase: PreventionPhase) => apiRequest(`/prevention/visits/${encodeURIComponent(visitId)}/groups/${encodeURIComponent(groupId)}/phase`, {
+    method: 'PATCH',
+    body: JSON.stringify({ phase }),
+  }),
   trends: (query: PreventionQuery = {}) => apiRequest(`/prevention/trends${preventionQuery(query)}`),
   references: (query: PreventionQuery = {}) => apiRequest(`/prevention/references${preventionQuery(query)}`),
-  rebuild: () => apiRequest('/prevention/rebuild', { method: 'POST' }),
+  rebuildPreview: () => apiRequest('/prevention/rebuild/preview'),
+  rebuild: (previewToken?: string) => apiRequest('/prevention/rebuild', { method: 'POST', ...(previewToken ? { body: JSON.stringify({ previewToken }) } : {}) }),
   job: (id: string) => apiRequest(`/prevention/jobs/${encodeURIComponent(id)}`),
+  budgets: () => apiRequest('/prevention/budgets'),
+  budgetClients: () => apiRequest('/prevention/budgets/clients'),
+  budgetScope: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity'> & { clientKeys?: string[] }) => apiRequest(`/prevention/budgets/scope${preventionQuery(query)}`),
+  budgetMaterialized: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity'> & { clientKeys?: string[] }) => apiRequest(`/prevention/budgets/materialized${preventionQuery(query)}`),
+  calculateBudgetScope: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity'> & { clientKeys?: string[]; adminPrompt?: string; calculationMode?: 'CURRENT_YEAR' | 'GLOBAL_YEARLY' }) => apiRequest('/prevention/budgets/scope', { method: 'POST', body: JSON.stringify(query) }),
+  budgetPreview: (payload: { mode: 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY'; preset?: PreventionPreset; from?: string; to?: string; categoryId?: string; severity?: string; clientKeys?: string[] }) => apiRequest('/prevention/budgets/preview', { method: 'POST', body: JSON.stringify(payload) }),
+  budgetCommand: (payload: { mode: 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY'; confirmationToken: string; preset?: PreventionPreset; from?: string; to?: string; categoryId?: string; severity?: string; clientKeys?: string[]; adminPrompt?: string }) => apiRequest('/prevention/budgets/command', { method: 'POST', body: JSON.stringify(payload) }),
+  budget: (id: string, query: { clientKeys?: string[] } = {}) => apiRequest(`/prevention/budgets/${encodeURIComponent(id)}${preventionQuery(query)}`),
+  createBudget: (payload: Record<string, unknown>) => apiRequest('/prevention/budgets', { method: 'POST', body: JSON.stringify(payload) }),
+  updateBudget: (budgetId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/${encodeURIComponent(budgetId)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  updateBudgetItem: (budgetId: string, itemId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/${encodeURIComponent(budgetId)}/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  recalculateBudget: (budgetId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/${encodeURIComponent(budgetId)}/recalculate`, { method: 'POST', body: JSON.stringify(payload) }),
+  recalculateBudgetItem: (budgetId: string, itemId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/${encodeURIComponent(budgetId)}/items/${encodeURIComponent(itemId)}/recalculate`, { method: 'POST', body: JSON.stringify(payload) }),
+  recalculateMaterializedBudgetItem: (scenarioId: string, itemId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/materialized/${encodeURIComponent(scenarioId)}/items/${encodeURIComponent(itemId)}/recalculate`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateMaterializedBudgetItem: (scenarioId: string, itemId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/materialized/${encodeURIComponent(scenarioId)}/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  budgetCatalog: () => apiRequest('/prevention/budget-catalog'),
+  createBudgetCatalog: (payload: Record<string, unknown>) => apiRequest('/prevention/budget-catalog', { method: 'POST', body: JSON.stringify(payload) }),
+  updateBudgetCatalogStatus: (id: string, isActive: boolean) => apiRequest(`/prevention/budget-catalog/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
+  budgetJob: (id: string) => apiRequest(`/prevention/budget-jobs/${encodeURIComponent(id)}`),
 };
 
 export const publicOrgAPI = {
@@ -441,6 +531,17 @@ export const organizationsAPI = {
     }),
   remove: async (id: string) =>
     apiRequest(`/hyper-admin/organizations/${id}`, { method: 'DELETE' }),
+  preventionRecoveryStatuses: async () =>
+    apiRequest('/hyper-admin/organizations/prevention-recovery/statuses'),
+  preventionRecoveryPreview: async (id: string) =>
+    apiRequest(`/hyper-admin/organizations/${id}/prevention-recovery/preview`),
+  preventionRecoveryConfirm: async (id: string, confirmationToken: string, immediateRequested: boolean) =>
+    apiRequest(`/hyper-admin/organizations/${id}/prevention-recovery`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmationToken, immediateRequested }),
+    }),
+  preventionRecoveryStatus: async (id: string) =>
+    apiRequest(`/hyper-admin/organizations/${id}/prevention-recovery`),
   uploadLogo: async (id: string, file: File) => {
     const token = getAccessToken();
     const formData = new FormData();

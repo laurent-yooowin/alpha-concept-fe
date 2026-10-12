@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Calendar, Camera, FileText, AlertTriangle, CheckCircle, Clock, MapPin, Image as ImageIcon, Upload, Sparkles, Loader2, Plus, Pencil, Save, Trash2, RotateCcw, MessageSquare, Eye, Download, Send, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Calendar, Camera, FileText, CheckCircle, Image as ImageIcon, Upload, Sparkles, Loader2, Plus, Pencil, Save, Trash2, RotateCcw, MessageSquare, Edit2, ChevronDown, ChevronUp } from 'lucide-react';
 import { visitService } from '../services/visitService';
-import { visitsAPI, reportsAPI, missionsAPI } from '../lib/api';
+import { visitsAPI } from '../lib/api';
 import { filesService } from '../services/filesService';
 import { uploadService } from '../services/uploadService';
-import { aiService, AIAnalysis } from '../services/aiService';
-import { generatePdfService } from '../services/generatePdfService';
-import { useAuth } from '../contexts/AuthContext';
+import { PREVENTION_PHASES, PreventionPhase } from '../services/aiService';
 import MissionReportModal from './MissionReportModal';
 import Swal from 'sweetalert2';
 import CustomPromptSelector from './CustomPromptSelector';
 import ReanalysisConfigModal from './ReanalysisConfigModal';
 import AppliedCustomPromptsReadOnly from './AppliedCustomPromptsReadOnly';
+import { groupPromptIdsFromEntries } from './appliedCustomPrompts';
+import { GroupPreventionStatus, offerGroupPhaseConfirmation } from './prevention/offerGroupPhaseConfirmation';
 
 interface Visit {
   id: string;
@@ -56,8 +56,7 @@ const getRiskLabel = (level: string) => {
 
 const BLOCKED_STATUSES = ['terminee', 'archivee', 'annulee', 'refusee'];
 
-export default function MissionVisitsModal({ mission, onClose, onNavigateToReports }: MissionVisitsModalProps) {
-  const { profile: currentUser } = useAuth();
+export default function MissionVisitsModal({ mission, onClose }: MissionVisitsModalProps) {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
@@ -69,6 +68,13 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   // Upload
   const fileInputRef = useRef<HTMLInputElement>(null);
   const groupAttachInputRef = useRef<HTMLInputElement>(null);
+  const clarifyInputRef = useRef<HTMLInputElement>(null);
+  const clarifyAttemptRef = useRef<{ requestId: string; groupId: string; fileFingerprint: string; detailImageUrls: Array<string | null>; detailImageReceipts: Array<string | null>; directives?: string; promptIds: string[] } | null>(null);
+  const photoCreateAttemptRef = useRef<{ requestId: string; imageUrls: Array<string | null>; imageReceipts: Array<string | null>; directives: string; promptIds: string[] } | null>(null);
+  const attachAttemptRef = useRef<{ groupId: string; fileFingerprint: string; imageUrls: Array<string | null>; imageReceipts: Array<string | null> } | null>(null);
+  const directiveCreateAttemptRef = useRef<{ requestId: string; directives: string; comment: string; promptIds: string[] } | null>(null);
+  const reanalyzeRequestIdRef = useRef<{ requestId: string; groupId: string } | null>(null);
+  const globalRequestIdRef = useRef<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -93,10 +99,16 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   const [tempGroupReferences, setTempGroupReferences] = useState<string[]>([]);
   const [tempGroupDirectives, setTempGroupDirectives] = useState('');
   const [tempGroupComments, setTempGroupComments] = useState('');
+  const [tempGroupPhase, setTempGroupPhase] = useState<PreventionPhase | ''>('');
+  const [tempGroupPhaseConfidence, setTempGroupPhaseConfidence] = useState(0);
+  const [tempGroupPhaseJustification, setTempGroupPhaseJustification] = useState('');
+  const [tempGroupPhaseStatus, setTempGroupPhaseStatus] = useState<'PROPOSED' | 'VALIDATED'>('PROPOSED');
+  const [tempGroupProcessingStatus, setTempGroupProcessingStatus] = useState('PENDING');
   const [groupCustomPromptIds, setGroupCustomPromptIds] = useState<string[]>([]);
   const [isRegeneratingGroup, setIsRegeneratingGroup] = useState(false);
   const [showGroupReanalysisModal, setShowGroupReanalysisModal] = useState(false);
   const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
+  const [expandedGroupPhases, setExpandedGroupPhases] = useState<Record<string, GroupPreventionStatus>>({});
 
   // Attach photos to group
   const [attachingToGroupId, setAttachingToGroupId] = useState<string | null>(null);
@@ -118,6 +130,16 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   const [globalReanalysisPromptIds, setGlobalReanalysisPromptIds] = useState<string[]>([]);
   const [globalReanalysisDirectives, setGlobalReanalysisDirectives] = useState('');
 
+  useEffect(() => {
+    photoCreateAttemptRef.current = null;
+    directiveCreateAttemptRef.current = null;
+    reanalyzeRequestIdRef.current = null;
+    globalRequestIdRef.current = null;
+    clarifyAttemptRef.current = null;
+    attachAttemptRef.current = null;
+    setExpandedGroupPhases({});
+  }, [selectedVisit?.id]);
+
   useEffect(() => { fetchVisits(); }, []);
 
   const isMissionBlocked = BLOCKED_STATUSES.includes(mission.status || '');
@@ -132,13 +154,6 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     } catch (error) { console.error('Error fetching visits:', error); }
     setLoading(false);
   };
-  const getPromptSelection = (customPromptIds = selectedVisit?.customPromptIds || []) => ({
-    visitId: selectedVisit?.id,
-    missionType: mission.type,
-    customPromptIds,
-  });
-
-
   const loadImageBase64 = async (url: string) => {
     if (!url || imageCache[url]) return;
     try {
@@ -171,6 +186,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
   // ─── PHOTO UPLOAD ──────────────────────────────
   const onFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    photoCreateAttemptRef.current = null;
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     const previews = files.map(f => URL.createObjectURL(f));
@@ -184,6 +200,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
   const removePendingFile = (index: number) => {
+    photoCreateAttemptRef.current = null;
     URL.revokeObjectURL(pendingPreviews[index]);
     setPendingFiles(prev => prev.filter((_, currentIndex) => currentIndex !== index));
     setPendingPreviews(prev => prev.filter((_, currentIndex) => currentIndex !== index));
@@ -191,6 +208,8 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
 
   const cancelUpload = () => {
+    photoCreateAttemptRef.current = null;
+    directiveCreateAttemptRef.current = null;
     pendingPreviews.forEach(p => URL.revokeObjectURL(p));
     setPendingFiles([]); setPendingPreviews([]);
     setShowUploadModal(false);
@@ -200,45 +219,58 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     if (!selectedVisit || pendingFiles.length === 0) return;
     setIsUploading(true);
     setShowUploadModal(false);
-    const batchGroupId = `group-${Date.now()}`;
-    const uploadedS3Urls: string[] = [];
-    const newPhotos: any[] = [];
     const groupPromptIds = uploadPromptIds;
+    const attempt = photoCreateAttemptRef.current;
+    const sameInput = attempt?.directives === uploadDirectives &&
+      JSON.stringify(attempt.promptIds) === JSON.stringify(groupPromptIds);
+    const requestId = sameInput && attempt ? attempt.requestId : crypto.randomUUID();
+    const uploadedByIndex: Array<string | null> = attempt?.imageUrls || pendingFiles.map(() => null);
+    const receiptsByIndex: Array<string | null> = attempt?.imageReceipts || pendingFiles.map(() => null);
 
     try {
       for (let i = 0; i < pendingFiles.length; i++) {
+        if (uploadedByIndex[i] && receiptsByIndex[i]) continue;
         setUploadProgress(`Upload photo ${i + 1}/${pendingFiles.length}...`);
         try {
           const results = await uploadService.uploadVisitPhotos([pendingFiles[i]]);
-          const s3Url = results[0]?.url;
-          if (s3Url) {
-            uploadedS3Urls.push(s3Url);
-            newPhotos.push({ id: `photo-${Date.now()}-${i}`, uri: s3Url, s3Url, validated: false, groupId: batchGroupId, userDirectives: uploadDirectives, comment: '' });
+          const upload = results[0];
+          if (upload?.url && upload.receipt) {
+            uploadedByIndex[i] = upload.url;
+            receiptsByIndex[i] = upload.receipt;
           }
         } catch (error) { console.error(`Upload error ${i}:`, error); }
       }
+      photoCreateAttemptRef.current = { requestId, imageUrls: uploadedByIndex, imageReceipts: receiptsByIndex, directives: uploadDirectives, promptIds: groupPromptIds };
+      const uploadedPairs = uploadedByIndex.map((url, index) => ({ url, receipt: receiptsByIndex[index] })).filter((item): item is { url: string; receipt: string } => Boolean(item.url && item.receipt));
+      const uploadedS3Urls = uploadedPairs.map(item => item.url);
+      const uploadedReceipts = uploadedPairs.map(item => item.receipt);
 
-      if (analyze && uploadedS3Urls.length > 0) {
-        setUploadProgress(`Analyse IA de ${uploadedS3Urls.length} photo(s)...`);
-        try {
-          const analysis = await aiService.analyzeBatchPhotos(uploadedS3Urls, uploadDirectives || undefined, undefined, getPromptSelection(groupPromptIds));
-          const photoAnalysis = {
-            observation: analysis.observations, recommendation: analysis.recommendations,
-            references: analysis.references,
-            riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-            confidence: analysis.confidence,
-          };
-          newPhotos.forEach(p => { p.analysis = photoAnalysis; p.customPromptIds = groupPromptIds; p.appliedCustomPrompts = analysis.appliedCustomPrompts || []; });
-        } catch (error) { console.error('AI analysis error:', error); }
+      if (uploadedS3Urls.length !== pendingFiles.length) {
+        setShowUploadModal(true);
+        Swal.fire({ icon: 'error', title: 'Upload incomplet', text: 'Certaines photos n\'ont pas été uploadées. Relancez pour reprendre uniquement les fichiers manquants.' });
+        return;
       }
 
-      const updatedPhotos = [...(selectedVisit.photos || []), ...newPhotos];
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      if (!analyze) {
+        Swal.fire({ icon: 'info', title: 'Analyse requise', text: 'Les photos doivent être rattachées à un groupe par une analyse SPS.' });
+        return;
+      }
+      if (uploadedS3Urls.length > 0) {
+        setUploadProgress(`Analyse IA de ${uploadedS3Urls.length} photo(s)...`);
+        try {
+          const result = await visitsAPI.analysisGroups.create(selectedVisit.id, { requestId, imageUrls: uploadedS3Urls, imageReceipts: uploadedReceipts, userDirectives: uploadDirectives || undefined, customPromptIds: groupPromptIds });
+          setSelectedVisit(result?.visit || result);
+          photoCreateAttemptRef.current = null;
+        } catch (error) { throw error; }
+      }
       pendingPreviews.forEach(p => URL.revokeObjectURL(p));
       setPendingFiles([]); setPendingPreviews([]);
-      Swal.fire({ icon: 'success', title: 'Photos ajoutées', timer: 1500, showConfirmButton: false });
-    } catch (error) { Swal.fire({ icon: 'error', title: 'Erreur' }); }
+      Swal.fire({ icon: 'success', title: 'Analyse terminée', timer: 1500, showConfirmButton: false });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erreur lors de l\'analyse SPS';
+      setShowUploadModal(true);
+      Swal.fire({ icon: 'error', title: 'Analyse SPS échouée', text: `${message}. Les photos uploadées ne sont pas rattachées à la visite.` });
+    }
     setIsUploading(false); setUploadProgress('');
   };
 
@@ -251,24 +283,29 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     setIsUploading(true);
     setUploadProgress('Upload des photos supplémentaires...');
     try {
-      const newPhotos: any[] = [];
+      const fileFingerprint = files.map(file => `${file.name}:${file.size}:${file.lastModified}:${file.type}`).join('|');
+      const attempt = attachAttemptRef.current?.groupId === attachingToGroupId && attachAttemptRef.current.fileFingerprint === fileFingerprint ? attachAttemptRef.current : null;
+      const imageUrls: Array<string | null> = attempt?.imageUrls || files.map(() => null);
+      const imageReceipts: Array<string | null> = attempt?.imageReceipts || files.map(() => null);
       for (let i = 0; i < files.length; i++) {
+        if (imageUrls[i] && imageReceipts[i]) continue;
         setUploadProgress(`Upload photo ${i + 1}/${files.length}...`);
         const results = await uploadService.uploadVisitPhotos([files[i]]);
-        const s3Url = results[0]?.url;
-        if (s3Url) {
-          newPhotos.push({
-            id: `photo-${Date.now()}-${i}`,
-            uri: s3Url, s3Url, validated: false,
-            groupId: attachingToGroupId,
-            comment: '',
-          });
+        const upload = results[0];
+        if (upload?.url && upload.receipt) {
+          imageUrls[i] = upload.url;
+          imageReceipts[i] = upload.receipt;
         }
       }
-      const updatedPhotos = [...(selectedVisit.photos || []), ...newPhotos];
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
-      Swal.fire({ icon: 'success', title: `${newPhotos.length} photo(s) jointe(s)`, timer: 1500, showConfirmButton: false });
+      attachAttemptRef.current = { groupId: attachingToGroupId, fileFingerprint, imageUrls, imageReceipts };
+      const uploadedPairs = imageUrls.map((url, index) => ({ url, receipt: imageReceipts[index] })).filter((item): item is { url: string; receipt: string } => Boolean(item.url && item.receipt));
+      const uploadedUrls = uploadedPairs.map(item => item.url);
+      const uploadedReceipts = uploadedPairs.map(item => item.receipt);
+      if (uploadedUrls.length !== files.length) throw new Error('Certaines photos n’ont pas reçu de reçu de provenance');
+      const result = await visitsAPI.analysisGroups.attachPhotos(selectedVisit.id, attachingToGroupId, { imageUrls: uploadedUrls, imageReceipts: uploadedReceipts });
+      setSelectedVisit(result?.visit || result);
+      attachAttemptRef.current = null;
+      Swal.fire({ icon: 'success', title: `${uploadedUrls.length} photo(s) jointe(s)`, timer: 1500, showConfirmButton: false });
     } catch (error) {
       Swal.fire({ icon: 'error', title: 'Erreur', text: "Erreur lors de l'ajout des photos" });
     }
@@ -276,34 +313,52 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     setAttachingToGroupId(null);
   };
 
+  const onClarifyFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!selectedVisit || !selectedGroupId || !files.length) return;
+    e.target.value = '';
+    try {
+      const grouped = photoGroups(selectedVisit.photos).find(([groupId]) => groupId === selectedGroupId)?.[1] || [];
+      const fileFingerprint = files.map(file => `${file.name}:${file.size}:${file.lastModified}:${file.type}`).join('|');
+      const attempt = clarifyAttemptRef.current?.groupId === selectedGroupId && clarifyAttemptRef.current.fileFingerprint === fileFingerprint
+        ? clarifyAttemptRef.current : null;
+      const detailImageUrls: Array<string | null> = attempt?.detailImageUrls || files.map(() => null);
+      const detailImageReceipts: Array<string | null> = attempt?.detailImageReceipts || files.map(() => null);
+      for (let i = 0; i < files.length; i++) {
+        if (detailImageUrls[i] && detailImageReceipts[i]) continue;
+        const results = await uploadService.uploadVisitPhotos([files[i]]);
+        const upload = results[0];
+        if (upload?.url && upload.receipt) {
+          detailImageUrls[i] = upload.url;
+          detailImageReceipts[i] = upload.receipt;
+        }
+      }
+      const uploadedPairs = detailImageUrls.map((url, index) => ({ url, receipt: detailImageReceipts[index] })).filter((item): item is { url: string; receipt: string } => Boolean(item.url && item.receipt));
+      if (uploadedPairs.length !== files.length) throw new Error('Certaines photos de clarification n’ont pas reçu de reçu de provenance');
+      const imageUrls = uploadedPairs.map(item => item.url);
+      const imageReceipts = uploadedPairs.map(item => item.receipt);
+      const requestId = attempt?.requestId || crypto.randomUUID();
+      clarifyAttemptRef.current = attempt || { requestId, groupId: selectedGroupId, fileFingerprint, detailImageUrls, detailImageReceipts, directives: grouped[0]?.userDirectives, promptIds: grouped[0]?.customPromptIds || [] };
+      const result = await visitsAPI.analysisGroups.clarify(selectedVisit.id, selectedGroupId, { requestId, detailImageUrls: imageUrls, detailImageReceipts: imageReceipts, userDirectives: clarifyAttemptRef.current.directives, customPromptIds: clarifyAttemptRef.current.promptIds });
+      setSelectedVisit(result?.visit || result); clarifyAttemptRef.current = null;
+      Swal.fire({ icon: 'success', title: 'Clarification terminée', timer: 1500, showConfirmButton: false });
+    } catch (error) { Swal.fire({ icon: 'error', title: 'Clarification SPS échouée', text: `${error instanceof Error ? error.message : 'Erreur inconnue'}. Les photos ne sont pas rattachées au groupe.` }); }
+  };
+
   // ─── DIRECTIVE-ONLY ANALYSIS ────────────────────
   const handleDirectiveOnlyAnalysis = async () => {
     if (!selectedVisit || !directiveOnlyText.trim()) return;
     setIsAnalyzingDirective(true);
+    const groupPromptIds = directivePromptIds;
+    const attempt = directiveCreateAttemptRef.current;
+    const sameInput = attempt?.directives === directiveOnlyText && attempt.comment === directiveOnlyComment &&
+      JSON.stringify(attempt.promptIds) === JSON.stringify(groupPromptIds);
+    const requestId = sameInput && attempt ? attempt.requestId : crypto.randomUUID();
+    directiveCreateAttemptRef.current = { requestId, directives: directiveOnlyText, comment: directiveOnlyComment, promptIds: groupPromptIds };
     try {
-      const missionContext = { title: mission.title, client: mission.client, address: mission.address, type: mission.type };
-      const groupPromptIds = directivePromptIds;
-      const analysis = await aiService.analyzeDirectives(directiveOnlyText, missionContext, undefined, getPromptSelection(groupPromptIds));
-
-      const directivePhoto = {
-        id: `directive-${Date.now()}`,
-        uri: '', validated: false, isDirectiveOnly: true,
-        groupId: `directive-group-${Date.now()}`,
-        userDirectives: directiveOnlyText,
-        comment: directiveOnlyComment,
-        customPromptIds: groupPromptIds,
-        appliedCustomPrompts: analysis.appliedCustomPrompts || [],
-        analysis: {
-          observation: analysis.observations, recommendation: analysis.recommendations,
-          references: analysis.references,
-          riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-          confidence: analysis.confidence,
-        },
-      };
-
-      const updatedPhotos = [...(selectedVisit.photos || []), directivePhoto];
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      const result = await visitsAPI.analysisGroups.create(selectedVisit.id, { requestId, userDirectives: directiveOnlyText, comment: directiveOnlyComment || undefined, customPromptIds: groupPromptIds });
+      setSelectedVisit(result?.visit || result);
+      directiveCreateAttemptRef.current = null;
       setShowDirectiveModal(false);
       setDirectiveOnlyText(''); setDirectiveOnlyComment('');
       Swal.fire({ icon: 'success', title: 'Directive analysée', timer: 1500, showConfirmButton: false });
@@ -330,43 +385,51 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     setSelectedGroupId(groupId);
     setTempGroupDirectives(first?.userDirectives || '');
     setTempGroupComments(first?.comment || '');
-    setGroupCustomPromptIds(first?.customPromptIds || selectedVisit?.customPromptIds || []);
+    setGroupCustomPromptIds(groupPromptIdsFromEntries(groupPhotos));
     setTempGroupObservations([...toArray(first?.analysis?.observation)]);
     setTempGroupRecommendations([...toArray(first?.analysis?.recommendation)]);
     setTempGroupReferences([...toArray(first?.analysis?.references)]);
+    setTempGroupPhase('');
+    setTempGroupPhaseConfidence(0);
+    setTempGroupPhaseJustification('');
+    setTempGroupPhaseStatus('PROPOSED');
     setEditingGroupReport(editMode);
     setShowGroupDetail(true);
+    if (selectedVisit) void offerGroupPhaseConfirmation(selectedVisit.id, groupId, (status) => {
+      setExpandedGroupPhases((current) => ({ ...current, [groupId]: status }));
+      setTempGroupPhase(status.effectivePhase || status.proposedPhase || '');
+      setTempGroupPhaseConfidence(Number(status.confidence) || 0);
+      setTempGroupPhaseJustification(status.justification || '');
+      setTempGroupPhaseStatus(status.phaseStatus);
+      setTempGroupProcessingStatus(status.processingStatus);
+    });
     await loadGroupImages(groupPhotos);
   };
 
+  const toggleGroupExpanded = (groupId: string) => {
+    const opening = expandedPhoto !== groupId;
+    setExpandedPhoto(opening ? groupId : null);
+    if (opening && selectedVisit) {
+      void offerGroupPhaseConfirmation(selectedVisit.id, groupId, (status) => {
+        setExpandedGroupPhases((current) => ({ ...current, [groupId]: status }));
+      });
+    }
+  };
+
   const openGroupReanalysis = (groupId: string, groupPhotos: any[]) => {
+    if (reanalyzeRequestIdRef.current?.groupId !== groupId) reanalyzeRequestIdRef.current = null;
     const first = groupPhotos[0];
     setSelectedGroupId(groupId);
     setTempGroupDirectives(first?.userDirectives || '');
-    setGroupCustomPromptIds(first?.customPromptIds || []);
+    setGroupCustomPromptIds(groupPromptIdsFromEntries(groupPhotos));
     setShowGroupReanalysisModal(true);
   };
 
   const saveGroupReportEdits = async () => {
     if (!selectedVisit || !selectedGroupId) return;
-    const updatedPhotos = selectedVisit.photos.map((p: any) => {
-      if ((p.groupId || p.id) === selectedGroupId) {
-        return {
-          ...p,
-          comment: tempGroupComments,
-          analysis: p.analysis ? {
-            ...p.analysis,
-            observation: tempGroupObservations,
-            recommendation: tempGroupRecommendations,
-            references: tempGroupReferences,
-          } : p.analysis,
-        };
-      }
-      return p;
-    });
     try {
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      const result = await visitsAPI.analysisGroups.update(selectedVisit.id, selectedGroupId, { observations: tempGroupObservations, recommendations: tempGroupRecommendations, references: tempGroupReferences, comment: tempGroupComments, userDirectives: tempGroupDirectives });
+      setSelectedVisit(result?.visit || result);
       setEditingGroupReport(false);
       Swal.fire({ icon: 'success', title: 'Rapport modifié', timer: 1500, showConfirmButton: false });
     } catch {
@@ -376,58 +439,24 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
   const regenerateGroupReport = async () => {
     if (!selectedVisit || !selectedGroupId) return;
-    const groupPhotos = selectedVisit.photos.filter((p: any) => (p.groupId || p.id) === selectedGroupId);
-    const first = groupPhotos[0];
-    const isDirectiveOnly = first?.isDirectiveOnly;
-
-    if (isDirectiveOnly && !tempGroupDirectives.trim() && groupCustomPromptIds.length === 0) {
-      Swal.fire({ icon: 'warning', title: 'Prompt ou directive requis', text: 'Ajoutez des directives ou sélectionnez au moins un prompt personnalisé pour réanalyser ce rapport sans photo.' });
+    const groupEntries = photoGroups(selectedVisit.photos).find(([groupId]) => groupId === selectedGroupId)?.[1] || [];
+    const directiveOnly = groupEntries.length > 0 && groupEntries.every((entry: any) => entry.isDirectiveOnly === true);
+    if (!tempGroupDirectives.trim() && (directiveOnly || groupCustomPromptIds.length === 0)) {
+      Swal.fire({ icon: 'warning', title: 'Configuration requise', text: directiveOnly
+        ? 'Ce rapport est fondé sur les directives : saisissez un contenu, même si un prompt custom est sélectionné.'
+        : 'Saisissez une directive ou sélectionnez au moins un prompt custom pour lancer la réanalyse.' });
       return;
     }
 
-    // Build previousReport from existing analysis
-    const existingObs = toArray(first?.analysis?.observation);
-    const existingRecs = toArray(first?.analysis?.recommendation);
-    const existingRefs = toArray(first?.analysis?.references);
-    const previousReport = first?.analysis ? JSON.stringify({
-      observations: existingObs,
-      recommendations: existingRecs,
-      references: existingRefs,
-      riskLevel: first.analysis.riskLevel,
-      confidence: first.analysis.confidence,
-    }) : undefined;
-
     setIsRegeneratingGroup(true);
     try {
-      let analysis: AIAnalysis;
-      if (isDirectiveOnly) {
-        const missionContext = { title: mission.title, client: mission.client, address: mission.address, type: mission.type };
-        analysis = await aiService.analyzeDirectives(tempGroupDirectives, missionContext, previousReport, getPromptSelection(groupCustomPromptIds));
-      } else {
-        const s3Urls = groupPhotos.filter((p: any) => p.s3Url).map((p: any) => p.s3Url);
-        if (s3Urls.length === 0) { Swal.fire({ icon: 'error', title: 'Erreur', text: 'Aucune photo dans ce groupe' }); return; }
-        analysis = await aiService.analyzeBatchPhotos(s3Urls, tempGroupDirectives, previousReport, getPromptSelection(groupCustomPromptIds));
-      }
-
-      const photoAnalysis = {
-        observation: analysis.observations, recommendation: analysis.recommendations,
-        references: analysis.references,
-        riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-        confidence: analysis.confidence,
-      };
-
-      const updatedPhotos = selectedVisit.photos.map((p: any) => {
-        if ((p.groupId || p.id) === selectedGroupId) {
-          return { ...p, analysis: photoAnalysis, userDirectives: tempGroupDirectives, customPromptIds: groupCustomPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
-        }
-        return p;
-      });
-
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
-      setTempGroupObservations([...analysis.observations]);
-      setTempGroupRecommendations([...analysis.recommendations]);
-      setTempGroupReferences([...analysis.references]);
+      const attempt = reanalyzeRequestIdRef.current?.groupId === selectedGroupId
+        ? reanalyzeRequestIdRef.current
+        : { requestId: crypto.randomUUID(), groupId: selectedGroupId };
+      reanalyzeRequestIdRef.current = attempt;
+      const result = await visitsAPI.analysisGroups.reanalyze(selectedVisit.id, selectedGroupId, { requestId: attempt.requestId, userDirectives: tempGroupDirectives.trim(), customPromptIds: groupCustomPromptIds });
+      setSelectedVisit(result?.visit || result);
+      reanalyzeRequestIdRef.current = null;
       setShowGroupReanalysisModal(false);
       Swal.fire({ icon: 'success', title: 'Rapport régénéré et sauvegardé', timer: 1500, showConfirmButton: false });
     } catch (error) {
@@ -444,10 +473,9 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
       icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc2626', confirmButtonText: 'Supprimer', cancelButtonText: 'Annuler',
     });
     if (!confirm.isConfirmed) return;
-    const updatedPhotos = selectedVisit.photos.filter((p: any) => (p.groupId || p.id) !== groupId);
     try {
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      const result = await visitsAPI.analysisGroups.delete(selectedVisit.id, groupId);
+      setSelectedVisit(result?.visit || result);
       if (selectedGroupId === groupId) { setShowGroupDetail(false); setSelectedGroupId(null); }
       Swal.fire({ icon: 'success', title: 'Groupe supprimé', timer: 1500, showConfirmButton: false });
     } catch { Swal.fire({ icon: 'error', title: 'Erreur' }); }
@@ -465,14 +493,9 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     if (!confirm.isConfirmed) return;
 
     try {
-      // Delete from S3
-      if (photo.s3Url) {
-        try { await uploadService.deletePhotoByUrl(photo.s3Url); } catch (e) { console.error('S3 delete error:', e); }
-      }
-      // Remove from visit photos
-      const updatedPhotos = selectedVisit.photos.filter((p: any) => p.id !== photo.id);
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos } : null);
+      const groupId = photo.groupId || photo.id;
+      const result = await visitsAPI.analysisGroups.deletePhoto(selectedVisit.id, groupId, photo.id);
+      setSelectedVisit(result?.visit || result);
       Swal.fire({ icon: 'success', title: 'Photo supprimée', timer: 1500, showConfirmButton: false });
     } catch {
       Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la suppression' });
@@ -496,56 +519,21 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
     if (!selectedVisit) return;
     const groups = photoGroups(selectedVisit.photos);
     if (groups.length === 0) return;
+    if (!globalReanalysisDirectives.trim() && globalReanalysisPromptIds.length === 0) {
+      Swal.fire({ icon: 'warning', title: 'Configuration requise', text: 'Saisissez une directive ou sélectionnez au moins un prompt custom pour lancer la réanalyse.' });
+      return;
+    }
 
     setIsRegeneratingAll(true);
-    let updatedPhotos = [...selectedVisit.photos];
     try {
-      for (let i = 0; i < groups.length; i++) {
-        const [groupId, groupPhotos] = groups[i];
-        const first = groupPhotos[0];
-        setRegeneratingProgress(`Groupe ${i + 1}/${groups.length}...`);
-
-        // Build previousReport from existing analysis for each group
-        const existingObs = toArray(first?.analysis?.observation);
-        const existingRecs = toArray(first?.analysis?.recommendation);
-        const existingRefs = toArray(first?.analysis?.references);
-        const previousReport = first?.analysis ? JSON.stringify({
-          observations: existingObs,
-          recommendations: existingRecs,
-          references: existingRefs,
-          riskLevel: first.analysis.riskLevel,
-          confidence: first.analysis.confidence,
-        }) : undefined;
-        const directivesToApply = globalReanalysisDirectives.trim() || first?.userDirectives || '';
-        const groupPromptIds = globalReanalysisPromptIds;
-
-        try {
-          let analysis: AIAnalysis;
-          if (first?.isDirectiveOnly) {
-            analysis = await aiService.analyzeDirectives(directivesToApply, { title: mission.title, client: mission.client, address: mission.address, type: mission.type }, previousReport, getPromptSelection(groupPromptIds));
-          } else {
-            const s3Urls = groupPhotos.filter((p: any) => p.s3Url).map((p: any) => p.s3Url);
-            if (s3Urls.length === 0) continue;
-            analysis = await aiService.analyzeBatchPhotos(s3Urls, directivesToApply || undefined, previousReport, getPromptSelection(groupPromptIds));
-          }
-          const photoAnalysis = {
-            observation: analysis.observations, recommendation: analysis.recommendations,
-            references: analysis.references,
-            riskLevel: analysis.riskLevel === 'low' ? 'faible' : analysis.riskLevel === 'medium' ? 'moyen' : 'eleve',
-            confidence: analysis.confidence,
-          };
-          updatedPhotos = updatedPhotos.map(p => {
-            if ((p.groupId || p.id) === groupId) return { ...p, analysis: photoAnalysis, userDirectives: directivesToApply, customPromptIds: groupPromptIds, appliedCustomPrompts: analysis.appliedCustomPrompts || [] };
-            return p;
-          });
-        } catch (error) { console.error(`Erreur groupe ${i + 1}:`, error); }
-      }
-      await visitsAPI.update(selectedVisit.id, { photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds });
-      setSelectedVisit(prev => prev ? { ...prev, photos: updatedPhotos, notes: globalReanalysisDirectives, customPromptIds: globalReanalysisPromptIds } : null);
+      const response = await visitsAPI.analysisGroups.reanalyzeAll(selectedVisit.id, { requestId: globalRequestIdRef.current || (globalRequestIdRef.current = crypto.randomUUID()), userDirectives: globalReanalysisDirectives.trim(), customPromptIds: globalReanalysisPromptIds });
+      setSelectedVisit(response?.visit || response);
+      globalRequestIdRef.current = null;
       setShowGlobalReanalysisModal(false);
+      const hasFailures = Array.isArray(response?.failed) && response.failed.length > 0;
       const result = await Swal.fire({
-        icon: 'success', title: 'Regénération terminée',
-        text: 'Tous les groupes ont été régénérés.',
+        icon: hasFailures ? 'warning' : 'success', title: hasFailures ? 'Régénération partielle' : 'Régénération terminée',
+        text: response?.failed?.length ? `${response.succeeded?.length || 0} groupe(s) réussi(s), ${response.failed.length} en échec.` : 'Tous les groupes ont été régénérés.',
         showCancelButton: true,
         confirmButtonText: 'Voir rapport',
         cancelButtonText: 'Fermer',
@@ -560,7 +548,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
         setShowInlineReportModal(true);
       }
     } catch (error) {
-      Swal.fire({ icon: 'error', title: 'Erreur', text: 'La regénération a échoué' });
+      Swal.fire({ icon: 'error', title: 'Erreur SPS', text: error instanceof Error ? error.message : 'La regénération a échoué' });
     }
     setIsRegeneratingAll(false); setRegeneratingProgress('');
   };
@@ -602,21 +590,6 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
   };
 
   // Save or update report in DB (like mobile)
-  const saveOrUpdateReport = async (visit: any, generatedReport?: any): Promise<string | undefined> => {
-    try {
-      // Check if report already exists for this visit
-      const existingReportId = visit?.report?.id || generatedReport?.id;
-      if (existingReportId) {
-        return existingReportId;
-      }
-      // If generateReport already created one, try to get it from the refreshed visit
-      const refreshed = await visitsAPI.getById(visit.id);
-      return refreshed?.report?.id;
-    } catch (error) {
-      console.error('Error saving report:', error);
-      return undefined;
-    }
-  };
 
   // ─── HELPERS ────────────────────────────────────
   const addItem = (setter: React.Dispatch<React.SetStateAction<string[]>>) => setter(prev => [...prev, '']);
@@ -672,7 +645,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
           {/* Content - Order: Observations → Recommandations → Références → Directives → Notes → Photos */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {!editingGroupReport && first?.appliedCustomPrompts?.length ? (
-              <AppliedCustomPromptsReadOnly prompts={first.appliedCustomPrompts} />
+              <AppliedCustomPromptsReadOnly prompts={first.appliedCustomPrompts} groupPromptIds={groupPromptIdsFromEntries(groupPhotos)} />
             ) : null}
             {/* Observations */}
             <div>
@@ -746,6 +719,22 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
               )}
             </div>
 
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <h4 className="text-s font-semibold text-[#1e3a5f]">🧱 Phase de chantier — Prévention</h4>
+                <span className="text-xs text-slate-600">{!tempGroupPhase
+                  ? tempGroupProcessingStatus === 'FAILED' ? 'Traitement Prévention en échec' : 'Traitement Prévention en attente ou en reprise'
+                  : tempGroupPhaseStatus === 'VALIDATED' ? 'Validée' : 'Proposée par l’IA'}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-md border border-blue-300 bg-white px-3 py-2 text-sm">
+                  {PREVENTION_PHASES.find((phase) => phase.value === tempGroupPhase)?.label || 'Phase en attente de traitement Prévention'}
+                </span>
+                <span className="text-xs text-slate-600">Confiance : {tempGroupPhaseConfidence}%</span>
+              </div>
+              {tempGroupPhaseJustification && <p className="mt-2 text-xs text-slate-600">{tempGroupPhaseJustification}</p>}
+            </div>
+
             {!editingGroupReport && first?.userDirectives && (
               <div>
                 <h4 className="text-s font-semibold text-slate-700 mb-2">📋 Directives utilisées lors de la dernière analyse</h4>
@@ -770,6 +759,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-s font-semibold text-slate-700">📸 Photos ({groupPhotos.length})</h4>
+                  {first?.analysis?.unreadableSections?.length ? <button onClick={() => clarifyInputRef.current?.click()} className="text-s text-amber-700 hover:underline">Clarifier les sections illisibles</button> : null}
                   {canModify && (
                     <button onClick={() => { setAttachingToGroupId(selectedGroupId); groupAttachInputRef.current?.click(); }}
                       className="flex items-center gap-1 text-s text-blue-600 hover:underline">
@@ -839,6 +829,7 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
         {/* Hidden file inputs */}
         <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onFilesSelected} />
         <input ref={groupAttachInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onAttachFilesSelected} />
+        <input ref={clarifyInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onClarifyFilesSelected} />
 
         {/* Loading overlay */}
         {(isUploading || isRegeneratingAll) && (
@@ -920,29 +911,27 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
           </div>
         )}
 
-        {showGroupReanalysisModal && selectedVisit && selectedGroupId && (() => {
-          const groupPhotos = selectedVisit.photos.filter((photo: any) => (photo.groupId || photo.id) === selectedGroupId);
-          return <ReanalysisConfigModal
+        {showGroupReanalysisModal && selectedVisit && selectedGroupId && <ReanalysisConfigModal
             title="Réanalyse prompts/directives"
             missionType={mission.type}
             selectedIds={groupCustomPromptIds}
             directives={tempGroupDirectives}
+            directiveRequired={photoGroups(selectedVisit.photos).some(([groupId, entries]) => groupId === selectedGroupId && entries.every((entry: any) => entry.isDirectiveOnly === true))}
             loading={isRegeneratingGroup}
-            directiveRequired={Boolean(groupPhotos[0]?.isDirectiveOnly)}
-            onSelectedIdsChange={setGroupCustomPromptIds}
-            onDirectivesChange={setTempGroupDirectives}
+            onSelectedIdsChange={(value) => { reanalyzeRequestIdRef.current = null; setGroupCustomPromptIds(value); }}
+            onDirectivesChange={(value) => { reanalyzeRequestIdRef.current = null; setTempGroupDirectives(value); }}
             onCancel={() => setShowGroupReanalysisModal(false)}
             onConfirm={regenerateGroupReport}
-          />;
-        })()}
+          />}
         {showGlobalReanalysisModal && selectedVisit && <ReanalysisConfigModal
           title="Réanalyse globale"
           missionType={mission.type}
+          helperText="Les directives et prompts globaux s'ajoutent à ceux de chaque groupe sans les remplacer. Un groupe directives-only doit conserver ses propres directives."
           selectedIds={globalReanalysisPromptIds}
           directives={globalReanalysisDirectives}
           loading={isRegeneratingAll}
-          onSelectedIdsChange={setGlobalReanalysisPromptIds}
-          onDirectivesChange={setGlobalReanalysisDirectives}
+          onSelectedIdsChange={(value) => { globalRequestIdRef.current = null; setGlobalReanalysisPromptIds(value); }}
+          onDirectivesChange={(value) => { globalRequestIdRef.current = null; setGlobalReanalysisDirectives(value); }}
           onCancel={() => setShowGlobalReanalysisModal(false)}
           onConfirm={regenerateAllGroups}
         />}
@@ -1050,8 +1039,8 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
                     return (
                       <div key={groupId} className="border border-slate-200 rounded-lg overflow-hidden">
-                        <div className="flex items-center justify-between p-4">
-                          <button onClick={() => setExpandedPhoto(isExpanded ? null : groupId)}
+                        <div className="flex items-center justify-between p-4 cursor-pointer" onClick={() => toggleGroupExpanded(groupId)}>
+                          <button onClick={(event) => { event.stopPropagation(); toggleGroupExpanded(groupId); }}
                             className="flex flex-1 items-center gap-2 text-left hover:text-blue-700 transition-colors">
                             {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
                             <span className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-s font-bold">{gIdx + 1}</span>
@@ -1066,15 +1055,15 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
                               const visitCanModify = canModify && visitReportStatus !== 'envoye_au_client';
                               return visitCanModify ? (
                                 <>
-                                  <button onClick={() => openGroupDetail(groupId, groupPhotos, true)}
+                                  <button onClick={(event) => { event.stopPropagation(); openGroupDetail(groupId, groupPhotos, true); }}
                                     className="flex items-center gap-1 px-2 py-1 text-s bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100">
                                     <Pencil className="w-3 h-3" /> Modifier
                                   </button>
-                                  <button onClick={() => openGroupReanalysis(groupId, groupPhotos)}
+                                  <button onClick={(event) => { event.stopPropagation(); openGroupReanalysis(groupId, groupPhotos); }}
                                     className="flex items-center gap-1 px-2 py-1 text-s bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100">
                                     <RotateCcw className="w-3 h-3" /> Réanalyser
                                   </button>
-                                  <button onClick={() => handleDeleteGroup(groupId)}
+                                  <button onClick={(event) => { event.stopPropagation(); handleDeleteGroup(groupId); }}
                                     className="flex items-center gap-1 px-2 py-1 text-s bg-red-50 text-red-700 rounded-lg hover:bg-red-100">
                                     <Trash2 className="w-3 h-3" /> Supprimer
                                   </button>
@@ -1086,8 +1075,15 @@ export default function MissionVisitsModal({ mission, onClose, onNavigateToRepor
 
                         {isExpanded && (
                           <div className="px-4 pb-4 border-t border-slate-100">
+                            {expandedGroupPhases[groupId] && (
+                              <div className="mb-3 mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-s">
+                                <span className="font-semibold text-[#1e3a5f]">🧱 Phase de chantier — Prévention : </span>
+                                {PREVENTION_PHASES.find((phase) => phase.value === expandedGroupPhases[groupId].effectivePhase)?.label || 'En attente'}
+                                <span className="ml-2 text-slate-600">({expandedGroupPhases[groupId].phaseStatus === 'VALIDATED' ? 'validée' : 'proposée par l’IA'})</span>
+                              </div>
+                            )}
                             {first?.appliedCustomPrompts?.length > 0 && (
-                              <div className="mb-3 mt-4"><AppliedCustomPromptsReadOnly prompts={first.appliedCustomPrompts} /></div>
+                              <div className="mb-3 mt-4"><AppliedCustomPromptsReadOnly prompts={first.appliedCustomPrompts} groupPromptIds={groupPromptIdsFromEntries(groupPhotos)} /></div>
                             )}
 
                             {/* Observations as blocks */}

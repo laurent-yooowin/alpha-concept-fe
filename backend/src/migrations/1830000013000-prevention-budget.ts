@@ -60,6 +60,34 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
       ) ENGINE=InnoDB
     `);
     await q.query(`
+      CREATE TABLE \`prevention_budget_reconciliation_intents\` (
+        \`id\` varchar(36) NOT NULL,
+        \`eventId\` varchar(36) NOT NULL,
+        \`organizationId\` varchar(36) NOT NULL,
+        \`reportId\` varchar(36) NOT NULL,
+        \`scenarioId\` varchar(36) NOT NULL,
+        \`scenarioVersion\` int unsigned NOT NULL,
+        \`sourceVersion\` varchar(64) NOT NULL,
+        \`status\` enum('PENDING','PROCESSING','PROCESSED') NOT NULL DEFAULT 'PENDING',
+        \`attempts\` int unsigned NOT NULL DEFAULT 0,
+        \`availableAt\` datetime(6) NOT NULL,
+        \`lockedAt\` datetime(6) NULL,
+        \`lockedBy\` varchar(100) NULL,
+        \`processedAt\` datetime(6) NULL,
+        \`lastError\` varchar(1000) NULL,
+        \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        \`updatedAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (\`id\`),
+        UNIQUE INDEX \`UQ_prev_budget_reconcile_org_event_scenario\` (\`organizationId\`,\`eventId\`,\`scenarioId\`),
+        INDEX \`IDX_prev_budget_reconcile_status\` (\`organizationId\`,\`status\`,\`availableAt\`),
+        INDEX \`IDX_prev_budget_reconcile_report\` (\`organizationId\`,\`reportId\`,\`status\`),
+        CONSTRAINT \`FK_prev_budget_reconcile_org\` FOREIGN KEY (\`organizationId\`) REFERENCES \`organizations\` (\`id\`) ON DELETE CASCADE,
+        CONSTRAINT \`FK_prev_budget_reconcile_scenario\` FOREIGN KEY (\`organizationId\`,\`scenarioId\`) REFERENCES \`prevention_budget_scenarios\` (\`organizationId\`,\`id\`) ON DELETE CASCADE,
+        CONSTRAINT \`CK_prev_budget_reconcile_lock\` CHECK ((\`status\`='PROCESSING' AND \`lockedAt\` IS NOT NULL AND \`lockedBy\` IS NOT NULL) OR \`status\`<>'PROCESSING'),
+        CONSTRAINT \`CK_prev_budget_reconcile_processed\` CHECK ((\`status\`='PROCESSED' AND \`processedAt\` IS NOT NULL) OR \`status\`<>'PROCESSED')
+      ) ENGINE=InnoDB
+    `);
+    await q.query(`
       CREATE TABLE \`prevention_budget_items\` (
         \`id\` varchar(36) NOT NULL,
         \`organizationId\` varchar(36) NOT NULL,
@@ -94,6 +122,9 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
         CONSTRAINT \`CK_prevention_budget_items_source_status\` CHECK (
           (\`status\` = 'A_CHIFFRER' AND \`unitCostHt\` IS NULL AND \`priceSource\` IS NULL) OR
           (\`status\` <> 'A_CHIFFRER' AND \`unitCostHt\` IS NOT NULL AND \`priceSource\` IS NOT NULL AND CHAR_LENGTH(TRIM(\`priceSource\`)) > 0)
+        ),
+        CONSTRAINT \`CK_prevention_budget_items_locked_status\` CHECK (
+          \`status\` NOT IN ('VALIDE','ENGAGE','REALISE') OR \`lockedManual\` = 1
         )
       ) ENGINE=InnoDB
     `);
@@ -103,16 +134,21 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
         \`organizationId\` varchar(36) NOT NULL,
         \`itemId\` varchar(36) NOT NULL,
         \`sourceKind\` enum('RECOMMENDATION','FINDING','REPORT') NOT NULL,
+        \`sourceKey\` char(64) NOT NULL,
         \`findingId\` varchar(36) NULL,
         \`reportId\` varchar(36) NULL,
         \`createdAt\` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
         PRIMARY KEY (\`id\`),
-        UNIQUE INDEX \`UQ_prevention_budget_item_sources_org_item_kind_source\` (\`organizationId\`, \`itemId\`, \`sourceKind\`, \`findingId\`, \`reportId\`),
+        UNIQUE INDEX \`UQ_prevention_budget_item_sources_org_item_kind_source\` (\`organizationId\`, \`itemId\`, \`sourceKind\`, \`sourceKey\`),
         INDEX \`IDX_prevention_budget_item_sources_org_finding\` (\`organizationId\`, \`findingId\`),
         INDEX \`IDX_prevention_budget_item_sources_org_report\` (\`organizationId\`, \`reportId\`),
         CONSTRAINT \`FK_prevention_budget_item_sources_organization\` FOREIGN KEY (\`organizationId\`) REFERENCES \`organizations\` (\`id\`) ON DELETE CASCADE,
         CONSTRAINT \`FK_prevention_budget_item_sources_item\` FOREIGN KEY (\`organizationId\`, \`itemId\`) REFERENCES \`prevention_budget_items\` (\`organizationId\`, \`id\`) ON DELETE CASCADE,
-        CONSTRAINT \`FK_prevention_budget_item_sources_report\` FOREIGN KEY (\`organizationId\`, \`reportId\`) REFERENCES \`reports\` (\`organizationId\`, \`id\`) ON DELETE CASCADE
+        CONSTRAINT \`CK_prevention_budget_source_key\` CHECK (CHAR_LENGTH(\`sourceKey\`)=64 AND \`sourceKey\` REGEXP '^[0-9a-fA-F]{64}$'),
+        CONSTRAINT \`CK_prevention_budget_source_shape\` CHECK (
+          ((\`sourceKind\` IN ('RECOMMENDATION','FINDING')) AND \`findingId\` IS NOT NULL AND \`reportId\` IS NOT NULL) OR
+          (\`sourceKind\`='REPORT' AND \`findingId\` IS NULL AND \`reportId\` IS NOT NULL)
+        )
       ) ENGINE=InnoDB
     `);
     await q.query(`
@@ -122,6 +158,7 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
         \`scenarioId\` varchar(36) NOT NULL,
         \`scenarioVersion\` int unsigned NOT NULL,
         \`action\` enum('BUILD','RECALCULATE','REFRESH_ITEM','RECONCILE') NOT NULL,
+        \`actorType\` enum('WORKER','ADMIN') NOT NULL DEFAULT 'WORKER',
         \`actorId\` varchar(36) NULL,
         \`beforeState\` json NULL,
         \`afterState\` json NOT NULL,
@@ -129,7 +166,8 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
         PRIMARY KEY (\`id\`),
         INDEX \`IDX_prevention_budget_audit_org_scenario\` (\`organizationId\`, \`scenarioId\`, \`scenarioVersion\`),
         CONSTRAINT \`FK_prevention_budget_audit_organization\` FOREIGN KEY (\`organizationId\`) REFERENCES \`organizations\` (\`id\`) ON DELETE CASCADE,
-        CONSTRAINT \`FK_prevention_budget_audit_scenario\` FOREIGN KEY (\`organizationId\`, \`scenarioId\`) REFERENCES \`prevention_budget_scenarios\` (\`organizationId\`, \`id\`) ON DELETE CASCADE
+        CONSTRAINT \`FK_prevention_budget_audit_scenario\` FOREIGN KEY (\`organizationId\`, \`scenarioId\`) REFERENCES \`prevention_budget_scenarios\` (\`organizationId\`, \`id\`) ON DELETE CASCADE,
+        CONSTRAINT \`CK_prevention_budget_audit_actor\` CHECK ((\`actorType\`='WORKER' AND \`actorId\` IS NULL) OR (\`actorType\`='ADMIN' AND \`actorId\` IS NOT NULL))
       ) ENGINE=InnoDB
     `);
     await q.query(`
@@ -187,8 +225,23 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
         IF NOT EXISTS (SELECT 1 FROM prevention_budget_items WHERE organizationId=NEW.organizationId AND id=NEW.itemId) THEN
           SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget source item tenant mismatch';
         END IF;
-        IF NEW.findingId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM prevention_findings WHERE organizationId=NEW.organizationId AND id=NEW.findingId) THEN
+        IF NEW.sourceKind IN ('RECOMMENDATION','FINDING') AND (NEW.findingId IS NULL OR NEW.reportId IS NULL) THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention finding source requires finding and report';
+        END IF;
+        IF NEW.sourceKind='REPORT' AND (NEW.findingId IS NOT NULL OR NEW.reportId IS NULL) THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention report source requires report only';
+        END IF;
+        IF NEW.findingId IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM prevention_findings WHERE organizationId=NEW.organizationId AND id=NEW.findingId)
+           AND NOT EXISTS (SELECT 1 FROM prevention_budget_item_sources WHERE organizationId=NEW.organizationId
+             AND sourceKind=NEW.sourceKind AND sourceKey=NEW.sourceKey AND findingId=NEW.findingId AND reportId=NEW.reportId) THEN
           SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget source finding tenant mismatch';
+        END IF;
+        IF NEW.reportId IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM reports WHERE organizationId=NEW.organizationId AND id=NEW.reportId)
+           AND NOT EXISTS (SELECT 1 FROM prevention_budget_item_sources WHERE organizationId=NEW.organizationId
+             AND sourceKind=NEW.sourceKind AND sourceKey=NEW.sourceKey AND findingId <=> NEW.findingId AND reportId=NEW.reportId) THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget source report tenant mismatch';
         END IF;
       END
     `);
@@ -198,14 +251,33 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
         IF NOT EXISTS (SELECT 1 FROM prevention_budget_items WHERE organizationId=NEW.organizationId AND id=NEW.itemId) THEN
           SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget source item tenant mismatch';
         END IF;
-        IF NEW.findingId IS NOT NULL AND NOT EXISTS (SELECT 1 FROM prevention_findings WHERE organizationId=NEW.organizationId AND id=NEW.findingId) THEN
+        IF NEW.sourceKind IN ('RECOMMENDATION','FINDING') AND (NEW.findingId IS NULL OR NEW.reportId IS NULL) THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention finding source requires finding and report';
+        END IF;
+        IF NEW.sourceKind='REPORT' AND (NEW.findingId IS NOT NULL OR NEW.reportId IS NULL) THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention report source requires report only';
+        END IF;
+        IF NEW.findingId IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM prevention_findings WHERE organizationId=NEW.organizationId AND id=NEW.findingId)
+           AND NOT EXISTS (SELECT 1 FROM prevention_budget_item_sources WHERE organizationId=NEW.organizationId AND id<>OLD.id
+             AND sourceKind=NEW.sourceKind AND sourceKey=NEW.sourceKey AND findingId=NEW.findingId AND reportId=NEW.reportId) THEN
           SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget source finding tenant mismatch';
+        END IF;
+        IF NEW.reportId IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM reports WHERE organizationId=NEW.organizationId AND id=NEW.reportId)
+           AND NOT EXISTS (SELECT 1 FROM prevention_budget_item_sources WHERE organizationId=NEW.organizationId AND id<>OLD.id
+             AND sourceKind=NEW.sourceKind AND sourceKey=NEW.sourceKey AND findingId <=> NEW.findingId AND reportId=NEW.reportId) THEN
+          SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget source report tenant mismatch';
         END IF;
       END
     `);
+    await q.query(`CREATE TRIGGER \`TRG_prev_budget_audit_bu\` BEFORE UPDATE ON \`prevention_budget_audit\` FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget audit is append-only'`);
+    await q.query(`CREATE TRIGGER \`TRG_prev_budget_audit_bd\` BEFORE DELETE ON \`prevention_budget_audit\` FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Prevention budget audit is append-only'`);
   }
 
   async down(q: QueryRunner): Promise<void> {
+    await q.query('DROP TRIGGER `TRG_prev_budget_audit_bd`');
+    await q.query('DROP TRIGGER `TRG_prev_budget_audit_bu`');
     await q.query('DROP TRIGGER `TRG_prev_budget_source_tenant_bu`');
     await q.query('DROP TRIGGER `TRG_prev_budget_source_tenant_bi`');
     await q.query('DROP TRIGGER `TRG_prev_budget_catalog_bd`');
@@ -214,6 +286,7 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
     await q.query('DROP TRIGGER `TRG_prev_budget_scenario_bd`');
     await q.query('DROP TRIGGER `TRG_prev_budget_scenario_bu`');
     await q.query('DROP TRIGGER `TRG_prev_budget_scenario_bi`');
+    await q.query('DROP TABLE `prevention_budget_reconciliation_intents`');
     await q.query('DROP TABLE `prevention_budget_audit`');
     await q.query('DROP TABLE `prevention_budget_item_sources`');
     await q.query('DROP TABLE `prevention_budget_items`');
@@ -221,4 +294,3 @@ export class PreventionBudget1830000013000 implements MigrationInterface {
     await q.query('DROP TABLE `prevention_cost_catalog`');
   }
 }
-

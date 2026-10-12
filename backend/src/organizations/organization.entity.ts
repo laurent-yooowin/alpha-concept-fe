@@ -61,6 +61,9 @@ export class Organization {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ default: false })
+  preventionEnabled: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

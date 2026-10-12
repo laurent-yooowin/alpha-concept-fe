@@ -1,7 +1,7 @@
 import { apiRequest } from '../lib/api';
 
 export const filesService = {
-    async downloadFile(publicUrl, folder, isBase64) {
+    async downloadFile(publicUrl: string, folder: string, isBase64 = false) {
         const url = '/upload/download';
         const data = {
             publicUrl: publicUrl,

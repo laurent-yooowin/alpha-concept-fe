@@ -29,7 +29,67 @@ test('findings query is tenant scoped and returns only derived fields', async ()
   const result = await service.findings(admin, { from: '2026-01-01', to: '2026-01-31', page: 1, limit: 10, sortBy: 'businessDate', sortOrder: 'desc' } as any);
   assert.equal(result.items[0].id, 'f1');
   assert.match(calls[0].sql, /f\.organizationId=\?/);
+  assert.match(calls.at(-1).sql, /DATE_FORMAT\(f\.businessDate,'%Y-%m-%d'\) businessDate/);
   assert.ok(!Object.keys(result.items[0]).some((key) => /prompt|directive|sourceGroup|snapshot/i.test(key)));
+});
+
+test('critical severity is derived from elevated risk and a priority score of at least 80', async () => {
+  const calls: Array<{ sql: string; args: unknown[] }> = [];
+  const db = { query: async (sql: string, args: unknown[]) => {
+    calls.push({ sql, args });
+    return sql.startsWith('SELECT COUNT') ? [{ count: 0 }] : [];
+  } };
+  const service = new PreventionApiService(db as any, {} as any);
+
+  await service.findings(admin, {
+    from: '2026-01-01', to: '2026-01-31', severity: 'critique', page: 1, limit: 10,
+  } as any);
+
+  assert.ok(calls.every((call) => call.args[0] === 'org-a'));
+  assert.ok(calls.every((call) => call.args.includes(80)));
+  assert.match(calls[0].sql, /f\.riskLevel='eleve'/);
+  assert.match(calls[0].sql, /prevention_priority_scores ps/);
+  assert.match(calls[0].sql, />=\?/);
+});
+
+test('recommendations support priority ordering by descending score', async () => {
+  const calls: Array<{ sql: string; args: unknown[] }> = [];
+  const db = { query: async (sql: string, args: unknown[]) => {
+    calls.push({ sql, args });
+    return sql.startsWith('SELECT COUNT') ? [{ count: 0 }] : [];
+  } };
+  const service = new PreventionApiService(db as any, {} as any);
+
+  await service.recommendations(admin, {
+    from: '2026-01-01',
+    to: '2026-01-31',
+    sortBy: 'score',
+    sortOrder: 'desc',
+  } as any);
+
+  const listQuery = calls.find((call) => call.sql.includes('LIMIT ? OFFSET ?'));
+  const countQuery = calls.find((call) => call.sql.includes('recommendationPatterns'));
+  assert.match(countQuery?.sql ?? '', /GROUP BY f\.patternKey,f\.missionType,COALESCE\(f\.categoryId,'UNCATEGORIZED'\)/);
+  assert.match(listQuery?.sql ?? '', /ROW_NUMBER\(\) OVER/);
+  assert.match(listQuery?.sql ?? '', /WHERE patternRank=1/);
+  assert.match(listQuery?.sql ?? '', /ORDER BY score DESC,id ASC/);
+  assert.match(listQuery?.sql ?? '', /DATE_FORMAT\(f\.businessDate,'%Y-%m-%d'\) businessDate/);
+});
+
+test('categories are active and tenant scoped', async () => {
+  const calls: Array<{ sql: string; args: unknown[] }> = [];
+  const db = { query: async (sql: string, args: unknown[]) => {
+    calls.push({ sql, args });
+    return [{ id: 'category-a', code: 'HEIGHT', label: 'Travaux en hauteur', color: '#3182CE', displayOrder: '2' }];
+  } };
+  const service = new PreventionApiService(db as any, {} as any);
+
+  const result = await service.categories(admin);
+
+  assert.equal(result.items[0].displayOrder, 2);
+  assert.match(calls[0].sql, /organizationId=\?/);
+  assert.match(calls[0].sql, /isActive=1/);
+  assert.deepEqual(calls[0].args, ['org-a']);
 });
 
 test('job status does not cross organization boundary', async () => {
@@ -63,18 +123,78 @@ test("dashboard and trends use tenant-scoped distinct counts and bounded buckets
   assert.match(calls.at(-1).sql, /f\.missionId=\?/);
 });
 
+test('day and week trend buckets are returned as date-only strings', async () => {
+  const calls: string[] = [];
+  const db = { query: async (sql: string) => { calls.push(sql); return []; } };
+  const service = new PreventionApiService(db as any, {} as any);
+  const missionId = '10000000-0000-4000-8000-000000000001';
+  await service.trends(admin, { from: '2026-01-01', to: '2026-01-02', missionId } as any);
+  assert.match(calls.at(-1) ?? '', /DATE_FORMAT\(f\.businessDate,'%Y-%m-%d'\) bucket/);
+  await service.trends(admin, { from: '2026-01-01', to: '2026-05-01', missionId } as any);
+  assert.match(calls.at(-1) ?? '', /DATE_FORMAT\(DATE_SUB\(f\.businessDate,INTERVAL WEEKDAY\(f\.businessDate\) DAY\),'%Y-%m-%d'\) bucket/);
+});
+
+test('dashboard exposes RTE category and unique recommendation priority dimensions', async () => {
+  const calls: string[] = [];
+  const db = { query: async (sql: string) => {
+    calls.push(sql);
+    if (sql.includes('GROUP BY f.missionId,f.categoryId')) return [{ missionId: 'mission-a', missionTitle: 'Chantier A', categoryId: 'cat-a', categoryCode: 'EPI', categoryLabel: 'EPI & Équipements', observationCount: '4' }];
+    if (sql.includes('GROUP BY f.missionId')) return [{ missionId: 'mission-a', missionTitle: 'Chantier A', faibleCount: '1', moyenCount: '2', eleveCount: '1' }];
+    if (sql.includes("'critique','eleve','moyen','faible'")) return [{ riskLevel: 'critique', count: '1' }, { riskLevel: 'moyen', count: '2' }];
+    if (sql.includes("SUM(f.riskLevel='faible')")) return [{ categoryKey: 'cat-a', categoryId: 'cat-a', categoryLabel: 'EPI', faibleCount: '1', moyenCount: '2', eleveCount: '1' }];
+    if (sql.includes('prioritizedPatterns')) return [{ prioritizedPatterns: '3', averageScore: '72.5', maxScore: '91' }];
+    if (sql.includes('GROUP BY f.missionType')) return [{ missionType: 'CSPS', reportCount: '2', observationCount: '4' }];
+    if (sql.includes('averageConformity')) return [{ measuredReports: '2', averageConformity: '72.5' }];
+    if (sql.includes('riskRank')) return [{ id: 'risk-a', content: 'Garde-corps absent', riskLevel: 'eleve', score: '88', occurrenceCount: '3', reportCount: '2', reportId: 'report-a', reportTitle: 'Rapport A' }];
+    if (sql.includes("NULLIF(TRIM(m.client),''")) return [{ client: 'Entreprise A', categoryId: 'cat-a', categoryCode: 'EPI', categoryLabel: 'EPI & Équipements', observationCount: '4' }];
+    if (sql.includes('prevention_analysis_groups g')) return [{ effectivePhase: 'INSTALLATION_ELECTRIQUE', reportCount: '2' }];
+    if (sql.includes('MAX(c.label) categoryLabel')) return [{ categoryKey: 'cat-a', categoryId: 'cat-a', categoryLabel: 'EPI', findingCount: '4' }];
+    if (sql.includes('ROW_NUMBER() OVER')) return [{ id: 'finding-a', content: 'Porter le casque', categoryLabel: 'EPI', riskLevel: 'eleve', score: '91', occurrenceCount: '3', reportCount: '2', reportId: 'report-a', reportTitle: 'Rapport A' }];
+    if (sql.includes('SUM(s.findingCount)')) return [{ findings: '4' }];
+    if (sql.includes('prevention_report_snapshots')) return [{ reports: '2', visits: '2', missions: '1' }];
+    return [];
+  } };
+  const service = new PreventionApiService(db as any, {} as any);
+
+  const result = await service.dashboard(admin, { from: '2026-01-01', to: '2026-01-31' } as any);
+
+  assert.deepEqual(result.categoryBreakdown, [{ categoryKey: 'cat-a', categoryId: 'cat-a', categoryLabel: 'EPI', findingCount: 4 }]);
+  assert.equal(result.topPriorities[0].content, 'Porter le casque');
+  assert.equal(result.topPriorities[0].score, 91);
+  assert.deepEqual(result.categoryRiskMatrix[0], { categoryKey: 'cat-a', categoryId: 'cat-a', categoryLabel: 'EPI', faible: 1, moyen: 2, eleve: 1 });
+  assert.deepEqual(result.scoreSummary, { prioritizedPatterns: 3, averageScore: 72.5, maxScore: 91 });
+  assert.deepEqual(result.missionTypeBreakdown, [{ missionType: 'CSPS', reportCount: 2, observationCount: 4 }]);
+  assert.deepEqual(result.conformitySummary, { measuredReports: 2, averageConformity: 72.5 });
+  assert.deepEqual(result.missionRiskMatrix[0], { missionId: 'mission-a', missionTitle: 'Chantier A', faible: 1, moyen: 2, eleve: 1 });
+  assert.deepEqual(result.missionCategoryMatrix[0], { missionId: 'mission-a', missionTitle: 'Chantier A', categoryId: 'cat-a', categoryCode: 'EPI', categoryLabel: 'EPI & Équipements', observationCount: 4 });
+  assert.deepEqual(result.clientCategoryMatrix[0], { client: 'Entreprise A', categoryId: 'cat-a', categoryCode: 'EPI', categoryLabel: 'EPI & Équipements', observationCount: 4 });
+  assert.deepEqual(result.phaseBreakdown[0], { phase: 'INSTALLATION_ELECTRIQUE', label: 'Installation électrique', reportCount: 2 });
+  assert.deepEqual(result.riskBreakdown, [{ riskLevel: 'critique', count: 1 }, { riskLevel: 'moyen', count: 2 }]);
+  assert.equal(result.topRisks[0].content, 'Garde-corps absent');
+  assert.equal(result.topRisks[0].score, 88);
+  const severityQuery = calls.find((sql) => sql.includes("'critique','eleve','moyen','faible'"));
+  assert.ok(severityQuery);
+  assert.doesNotMatch(severityQuery, /FIELD\(\s*riskLevel\s*,/);
+  assert.match(severityQuery, /\) severityCounts\s+ORDER BY FIELD\(severityCounts\.riskLevel,/);
+  const phaseQuery = calls.find((sql) => sql.includes('prevention_analysis_groups g'));
+  assert.match(phaseQuery ?? '', /COUNT\(DISTINCT g\.reportId\)/);
+  assert.match(phaseQuery ?? '', /prevention_report_snapshots s/);
+  const clientMatrixQuery = calls.find((sql) => sql.includes("NULLIF(TRIM(m.client),''"));
+  assert.match(clientMatrixQuery ?? '', /GROUP BY COALESCE\(NULLIF\(TRIM\(m\.client\),''\),'Client non renseigné'\),f\.categoryId/);
+});
+
 
 test("materialized trends count each report and visit once per bucket", async () => {
   const calls: any[] = [];
   const db = { query: async (sql: string, args: unknown[]) => {
     calls.push({ sql, args });
-    if (sql.includes("prevention_daily_statistics")) return [{ bucket: "2026-01-01", findingCount: "6" }];
+    if (sql.includes("prevention_daily_statistics")) return [{ bucket: "2026-01-01", findingCount: "6", observationCount: "4" }];
     if (sql.includes("prevention_report_snapshots")) return [{ bucket: "2026-01-01", reportCount: "1", visitCount: "1" }];
     return [];
   } };
   const service = new PreventionApiService(db as any, {} as any);
   const result = await service.trends(admin, { from: "2026-01-01", to: "2026-01-31" } as any);
-  assert.deepEqual(result.items, [{ bucket: "2026-01-01", findingCount: 6, reportCount: 1, visitCount: 1 }]);
+  assert.deepEqual(result.items, [{ bucket: "2026-01-01", findingCount: 6, observationCount: 4, reportCount: 1, visitCount: 1 }]);
   assert.match(calls[0].sql, /SUM\(s\.findingCount\)/);
   assert.doesNotMatch(calls[0].sql, /SUM\(s\.(?:reportCount|visitCount)\)/);
   assert.match(calls[1].sql, /COUNT\(DISTINCT p\.reportId\).*COUNT\(DISTINCT p\.visitId\)/);
@@ -86,6 +206,10 @@ test("references return paginated tenant-scoped report sources", async () => {
   const db = { query: async (sql: string, args: unknown[]) => {
     calls.push({ sql, args });
     if (sql.startsWith("SELECT COUNT")) return [{ count: 1 }];
+    if (sql.includes('f.regulatoryReferences')) return [
+      { reportId: '10000000-0000-4000-8000-000000000001', reportTitle: 'Rapport', reportFileUrl: 'https://example.invalid/report.pdf', categoryLabel: 'Travaux en hauteur', severity: 'critique', regulatoryReferences: JSON.stringify(['R. 4534-1', 'R. 4534-1']) },
+      { reportId: '10000000-0000-4000-8000-000000000002', reportTitle: 'Rapport 2', reportFileUrl: 'https://example.invalid/report-2.pdf', categoryLabel: 'EPI', severity: 'moyen', regulatoryReferences: JSON.stringify(['R. 4534-1']) },
+    ];
     return [{ reportId: "10000000-0000-4000-8000-000000000001", title: "Rapport", reportFileUrl: "https://example.invalid/report.pdf", visitId: "20000000-0000-4000-8000-000000000001", missionId: "30000000-0000-4000-8000-000000000001", findingCount: "2" }];
   } };
   const service = new PreventionApiService(db as any, {} as any);
@@ -93,6 +217,13 @@ test("references return paginated tenant-scoped report sources", async () => {
   assert.equal(result.total, 1);
   assert.equal(result.items[0].reportRoute, "/reports/10000000-0000-4000-8000-000000000001");
   assert.equal(result.items[0].findingCount, 2);
+  assert.match(calls.find((call) => call.sql.includes('GROUP BY f.reportId'))?.sql ?? '', /DATE_FORMAT\(MIN\(f\.businessDate\),'%Y-%m-%d'\) businessDate/);
+  assert.equal(result.regulatoryItems[0].reference, 'R.4534-1');
+  assert.equal(result.regulatoryItems[0].citationCount, 2);
+  assert.equal(result.regulatoryItems[0].reportCount, 2);
+  assert.deepEqual(result.regulatoryItems[0].domains, ['Travaux en hauteur', 'EPI']);
+  assert.deepEqual(result.regulatoryItems[0].riskLevels, ['critique', 'moyen']);
+  assert.ok(result.regulatoryItems[0].reports.every((report: any) => !('url' in report)));
   assert.ok(calls.every((call) => call.args[0] === "org-a"));
 });
 
@@ -100,12 +231,70 @@ test("references return paginated tenant-scoped report sources", async () => {
 test("manual rebuild enforces the tenant cooldown with 429", async () => {
   const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
   let call = 0;
+  const queries: string[] = [];
   rebuild.cooldownSeconds = 3600;
-  rebuild.dataSource = { query: async () => { call += 1; return call === 1 ? [] : [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "COMPLETED", ageSeconds: 60 }]; } };
+  rebuild.dataSource = { query: async (sql: string) => { queries.push(sql); call += 1; return call === 1 ? [] : [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "COMPLETED", ageSeconds: 60 }]; } };
   await assert.rejects(
     () => rebuild.enqueue("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
     (error: any) => error?.getStatus?.() === 429 && error?.getResponse?.().retryAfterSeconds === 3540,
   );
+  assert.match(queries[1], /CURRENT_TIMESTAMP\(\)/);
+  assert.doesNotMatch(queries[1], /UTC_TIMESTAMP/);
+});
+
+test("manual rebuild checkpoint is immediately available in UTC", async () => {
+  const transactionQueries: string[] = [];
+  let queryCall = 0;
+  const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
+  rebuild.cooldownSeconds = 3600;
+  rebuild.activation = undefined;
+  rebuild.dataSource = {
+    query: async () => {
+      queryCall += 1;
+      if (queryCall <= 2) return [];
+      return [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "PROCESSING" }];
+    },
+    transaction: async (callback: (manager: any) => Promise<void>) => callback({
+      query: async (sql: string) => { transactionQueries.push(sql); return { affectedRows: 1 }; },
+    }),
+  };
+  rebuild.queue = { getJob: async () => null, add: async () => undefined };
+
+  await rebuild.enqueue("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+
+  const checkpointInsert = transactionQueries.find((sql) => sql.includes("prevention_scheduler_checkpoints"));
+  assert.match(checkpointInsert ?? "", /availableAt\).*UTC_TIMESTAMP\(6\)/);
+});
+
+test("manual rebuild resumes an orphaned active run without creating another run", async () => {
+  const queued: any[] = [];
+  let removed = 0;
+  const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
+  rebuild.activation = undefined;
+  rebuild.dataSource = {
+    query: async () => [{
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      status: "PROCESSING",
+      scheduledFor: "2026-09-23T09:33:28.925Z",
+    }],
+  };
+  rebuild.queue = {
+    getJob: async () => ({
+      getState: async () => "completed",
+      remove: async () => { removed += 1; },
+    }),
+    add: async (...args: any[]) => { queued.push(args); },
+  };
+
+  const result = await rebuild.enqueue("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+
+  assert.deepEqual(result, {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    status: "PROCESSING",
+  });
+  assert.equal(removed, 1);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0][1].runId, result.id);
 });
 
 
@@ -124,4 +313,22 @@ test("prevention query DTO rejects invalid status, preset and unbounded pages", 
   assert.ok(properties.has("preset"));
   assert.ok(properties.has("page"));
   assert.ok(properties.has("limit"));
+});
+
+test("prevention query DTO accepts the complete available period", () => {
+  const dto = plainToInstance(PreventionQueryDto, { preset: "ALL" });
+  assert.equal(validateSync(dto).length, 0);
+  const service = new PreventionApiService(query([]) as any, {} as any);
+  const period = (service as any).period(dto);
+  const durationDays = Math.floor((Date.parse(period.to) - Date.parse(period.from)) / 86400000) + 1;
+  assert.ok(durationDays >= 3650 && durationDays <= 3660);
+});
+
+test('prevention query DTO accepts the approved four display severities', () => {
+  for (const severity of ['critique', 'eleve', 'moyen', 'faible']) {
+    const dto = plainToInstance(PreventionQueryDto, { severity });
+    assert.equal(validateSync(dto).length, 0);
+  }
+  assert.ok(validateSync(plainToInstance(PreventionQueryDto, { severity: 'inconnue' }))
+    .some((error) => error.property === 'severity'));
 });

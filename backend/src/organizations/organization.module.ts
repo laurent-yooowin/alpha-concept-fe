@@ -8,6 +8,8 @@ import { CurrentOrganizationController } from './current-organization.controller
 import { UserModule } from '../user/user.module';
 import { UploadModule } from '../upload/upload.module';
 import { MailModule } from '../mail/mail.module';
+import { PreventionOrganizationActivationService } from '../prevention/prevention-organization-activation.service';
+import { PreventionApiModule } from '../prevention/api/prevention-api.module';
 
 @Module({
   imports: [
@@ -15,9 +17,10 @@ import { MailModule } from '../mail/mail.module';
     UserModule,
     UploadModule,
     MailModule,
+    PreventionApiModule,
   ],
   controllers: [OrganizationController, PublicOrganizationController, CurrentOrganizationController],
-  providers: [OrganizationService],
+  providers: [OrganizationService, PreventionOrganizationActivationService],
   exports: [OrganizationService],
 })
 export class OrganizationModule {}

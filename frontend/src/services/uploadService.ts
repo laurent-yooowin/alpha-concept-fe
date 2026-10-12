@@ -3,6 +3,8 @@ import { apiUploadsRequest } from '../lib/api';
 export interface UploadResult {
   url?: string;
   key?: string;
+  /** Short-lived provenance proof required when attaching visit photos. */
+  receipt?: string;
 }
 
 export const uploadService = {

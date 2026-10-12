@@ -27,6 +27,7 @@ export class CurrentOrganizationController {
       backgroundImageUrl,
       primaryColor: org.primaryColor,
       secondaryColor: org.secondaryColor,
+      preventionEnabled: org.preventionEnabled,
       cguContent: org.cguContent,
       privacyContent: org.privacyContent,
       loginTitle: org.loginTitle,

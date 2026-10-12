@@ -7,6 +7,19 @@ export interface AiPromptContext {
   missionType?: string;
 }
 
+export interface AiAnalysisResult {
+  nonConformities: string[];
+  observations: string[];
+  recommendations: string[];
+  riskLevel: 'faible' | 'moyen' | 'eleve';
+  confidence: number;
+  photoConformity: boolean;
+  photoConformityMessage: string | any;
+  references: string[];
+  unreadableSections: string[];
+  content: any;
+}
+
 @Injectable()
 export class AiService {
   private openaiApiKey: string;
@@ -37,6 +50,25 @@ export class AiService {
     const contentType = file.contentType || 'image/jpeg';
     return `data:${contentType};base64,${file.data}`;
   }
+
+  private async loadBoundedBatchImages(imageUrls: string[]) {
+    const maxSingleBase64Chars = 16 * 1024 * 1024;
+    const maxTotalBase64Chars = 40 * 1024 * 1024;
+    const imageContents: Array<{ type: 'image_url'; image_url: { url: string } }> = [];
+    let totalBase64Chars = 0;
+    // Sequential downloads bound peak memory and stop before building an
+    // oversized LLM request. Upload validation alone permits much larger files.
+    for (const url of imageUrls) {
+      const file = await this.uploadService.downloadFile(url, '', true);
+      const dataLength = file.data.length;
+      totalBase64Chars += dataLength;
+      if (dataLength > maxSingleBase64Chars || totalBase64Chars > maxTotalBase64Chars) {
+        throw new BadRequestException('Lot de photos trop volumineux pour l’analyse IA');
+      }
+      imageContents.push({ type: 'image_url', image_url: { url: this.toImageDataUrl(file) } });
+    }
+    return imageContents;
+  }
   private composeSystemPrompt(basePrompt: string, context?: AiPromptContext): string {
     const missionType = context?.missionType || 'CSPS';
     let prompt = basePrompt +
@@ -57,16 +89,7 @@ export class AiService {
       'Retourne uniquement le JSON brut conforme au schéma défini dans le prompt principal, sans Markdown, sans commentaire avant ou après, et sans nouvelle propriété.';
   }
 
-  async analyzePhoto(imageUrl: string, promptContext?: AiPromptContext): Promise<{
-    nonConformities: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: string[];
-    unreadableSections: string[];
-  }> {
+  async analyzePhoto(imageUrl: string, promptContext?: AiPromptContext): Promise<AiAnalysisResult> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
     }
@@ -134,16 +157,7 @@ export class AiService {
     userDirectives: string,
     previousReport: any,
     promptContext?: AiPromptContext,
-  ): Promise<{
-    nonConformities: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: string[];
-    unreadableSections: string[];
-  }> {
+  ): Promise<AiAnalysisResult> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
     }
@@ -226,16 +240,7 @@ export class AiService {
     client?: string;
     address?: string;
     type?: string;
-  }, previousReport?: string, promptContext?: AiPromptContext): Promise<{
-    nonConformities: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: string[];
-    unreadableSections: string[];
-  }> {
+  }, previousReport?: string, promptContext?: AiPromptContext): Promise<AiAnalysisResult> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
     }
@@ -301,16 +306,7 @@ export class AiService {
     userDirectives?: string,
     previousReport?: string,
     promptContext?: AiPromptContext,
-  ): Promise<{
-    nonConformities: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: string[];
-    unreadableSections: string[];
-  }> {
+  ): Promise<AiAnalysisResult> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
     }
@@ -320,18 +316,7 @@ export class AiService {
     }
 
     try {
-      // Download all images as base64
-      const imageContents = await Promise.all(
-        imageUrls.map(async (url) => {
-          const imgBase64 = await this.uploadService.downloadFile(url, '', true);
-          return {
-            type: 'image_url' as const,
-            image_url: {
-              url: this.toImageDataUrl(imgBase64),
-            },
-          };
-        })
-      );
+      const imageContents = await this.loadBoundedBatchImages(imageUrls);
 
       const prompt = this.composeSystemPrompt(this.buildCSPSPrompt(), promptContext);
       const directivesText = userDirectives?.trim()
@@ -403,16 +388,7 @@ export class AiService {
     unreadableSections?: string[],
     userDirectives?: string,
     promptContext?: AiPromptContext,
-  ): Promise<{
-    nonConformities: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: string[];
-    unreadableSections: string[];
-  }> {
+  ): Promise<AiAnalysisResult> {
     if (!this.openaiApiKey) {
       throw new BadRequestException('OpenAI API key not configured');
     }
@@ -422,17 +398,7 @@ export class AiService {
     }
 
     try {
-      const imageContents = await Promise.all(
-        imageUrls.map(async (url) => {
-          const imgBase64 = await this.uploadService.downloadFile(url, '', true);
-          return {
-            type: 'image_url' as const,
-            image_url: {
-              url: this.toImageDataUrl(imgBase64),
-            },
-          };
-        })
-      );
+      const imageContents = await this.loadBoundedBatchImages(imageUrls);
 
       const prompt = this.composeSystemPrompt(this.buildCSPSPrompt(), promptContext);
 
@@ -505,16 +471,7 @@ Toujours fournir la réponse sous format JSON valide.`,
     }
   }
 
-  async analyzePhotoGemini(imageUrl: string): Promise<{
-    nonConformities: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: string[];
-    unreadableSections: string[];
-  }> {
+  async analyzePhotoGemini(imageUrl: string): Promise<AiAnalysisResult> {
     // Assurez-vous d'avoir votre clé Gemini dans vos variables d'env
     if (!this.geminiApiKey) {
       throw new BadRequestException('Gemini API key not configured');
@@ -586,16 +543,7 @@ Toujours fournir la réponse sous format JSON valide.`,
     imageUrl: string,
     userDirectives: string,
     previousReport: any
-  ): Promise<{
-    nonConformities: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: string[];
-    unreadableSections: string[];
-  }> {
+  ): Promise<AiAnalysisResult> {
 
     // 1. Vérification de la clé Gemini
     if (!this.geminiApiKey) {
@@ -953,18 +901,7 @@ Output: ONLY the raw JSON object.
     return partitioned.filter(Boolean);
   }
 
-  private parseAIResponse(content: string): {
-    nonConformities: string[];
-    observations: string[];
-    recommendations: string[];
-    riskLevel: 'faible' | 'moyen' | 'eleve';
-    confidence: number;
-    photoConformity: boolean;
-    photoConformityMessage: string | any;
-    references: any;
-    unreadableSections: string[];
-    content: any;
-  } {
+  private parseAIResponse(content: string): AiAnalysisResult {
     try {
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
@@ -990,7 +927,6 @@ Output: ONLY the raw JSON object.
 
       // const parsed = JSON.parse(jsonMatch[0]);
       this.logger.log('parseAIResponse parsed >>> :', parsed);
-
       return {
         nonConformities: this.normalizeListField(parsed.nonConformities),
         observations: this.normalizeListField(parsed.observations),
@@ -1003,7 +939,7 @@ Output: ONLY the raw JSON object.
         photoConformityMessage: parsed.photoConformityMessage || "",
         references: this.normalizeListField(parsed.references),
         unreadableSections: this.normalizeListField(parsed.unreadableSections),
-        content: content
+        content: content,
       };
     } catch (error) {
       console.error('Error parsing AI response:', error);
@@ -1011,4 +947,5 @@ Output: ONLY the raw JSON object.
         ${content} `);
     }
   }
+
 }

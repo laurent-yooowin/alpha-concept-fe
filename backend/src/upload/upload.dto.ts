@@ -5,6 +5,10 @@ export class DeleteFileDto {
     @IsString()
     @IsNotEmpty()
     url: string;
+
+    @IsString()
+    @IsOptional()
+    receipt?: string;
 }
 
 export class DownloadFileDto {

@@ -18,6 +18,7 @@ import {
 } from './prevention.enums';
 import { PreventionCategory } from './prevention-category.entity';
 import { PreventionReportSnapshot } from './prevention-report-snapshot.entity';
+import type { PreventionActionMetric } from '../prevention-action-types';
 
 @Entity('prevention_findings')
 @Index('UQ_prevention_findings_snapshot_key_type', ['snapshotId', 'normalizedKey', 'findingType'], {
@@ -42,6 +43,7 @@ import { PreventionReportSnapshot } from './prevention-report-snapshot.entity';
 @Index('IDX_prevention_findings_org_snapshot', ['organizationId', 'snapshotId'])
 @Index('IDX_prevention_findings_org_visit', ['organizationId', 'visitId'])
 @Index('IDX_prevention_findings_org_mission', ['organizationId', 'missionId'])
+@Index('IDX_prevention_findings_org_action_date', ['organizationId', 'actionType', 'businessDate'])
 export class PreventionFinding {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -130,6 +132,19 @@ export class PreventionFinding {
 
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   confidence: string | null;
+
+  /** Controlled corrective-action type; independent of the RTE risk category. */
+  @Column({ type: 'varchar', length: 48, nullable: true })
+  actionType: string | null;
+
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  actionTypeConfidence: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  actionTypeVersion: string | null;
+
+  @Column({ type: 'json', nullable: true })
+  actionMetric: PreventionActionMetric | null;
 
   @Column({ type: 'json', nullable: true })
   regulatoryReferences: string[] | null;

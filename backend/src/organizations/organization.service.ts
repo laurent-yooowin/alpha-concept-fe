@@ -17,7 +17,9 @@ import {
 import { UserService } from '../user/user.service';
 import { User, UserRole } from '../user/user.entity';
 import { UploadService } from '../upload/upload.service';
+import { UploadedAssetType } from '../upload/uploaded-asset.entity';
 import { MailService } from '../mail/mail.service';
+import { PreventionOrganizationActivationService } from '../prevention/prevention-organization-activation.service';
 
 @Injectable()
 export class OrganizationService {
@@ -29,6 +31,7 @@ export class OrganizationService {
     private readonly userService: UserService,
     private readonly uploadService: UploadService,
     private readonly mailService: MailService,
+    private readonly preventionOrganizationActivation: PreventionOrganizationActivationService,
   ) {}
 
   private portalUrl(slug: string) {
@@ -196,6 +199,7 @@ ${dto.contactEmail || dto.adminEmail || ''}`;
 
   async update(id: string, dto: UpdateOrganizationDto, requestedBy?: User): Promise<Organization> {
     const org = await this.findOne(id);
+    const activating = dto.isActive === true && !org.isActive;
 
     if (dto.slug && dto.slug !== org.slug) {
       const exists = await this.orgRepo.findOne({ where: { slug: dto.slug } });
@@ -230,7 +234,9 @@ ${dto.contactEmail || dto.adminEmail || ''}`;
       }
     }
 
-    const saved = await this.orgRepo.save(org);
+    const saved = activating
+      ? await this.preventionOrganizationActivation.saveActivatedOrganization(org)
+      : await this.orgRepo.save(org);
 
     if (legalContentChanged && saved.legalValidationStatus === 'en_cours') {
       const admin = await this.userService
@@ -283,7 +289,7 @@ ${dto.contactEmail || dto.adminEmail || ''}`;
     await this.orgRepo.remove(org);
   }
 
-  async setLogo(id: string, file: Express.Multer.File): Promise<Organization> {
+  async setLogo(id: string, file: Express.Multer.File, user?: User): Promise<Organization> {
     if (!file) throw new BadRequestException('Aucun fichier fourni');
     const org = await this.findOne(id);
 
@@ -291,6 +297,9 @@ ${dto.contactEmail || dto.adminEmail || ''}`;
     const folder = `${prefix}${id}`.replace(/\/+$/, '');
 
     const uploaded = await this.uploadService.uploadFile(file, folder, {
+      user,
+      organizationId: id,
+      objectType: UploadedAssetType.ORGANIZATION_LOGO,
       allowedMimeTypes: [
         'image/jpeg',
         'image/png',
@@ -308,6 +317,7 @@ ${dto.contactEmail || dto.adminEmail || ''}`;
   async setBackgroundImage(
     id: string,
     file: Express.Multer.File,
+    user?: User,
   ): Promise<Organization> {
     if (!file) throw new BadRequestException('Aucun fichier fourni');
     const org = await this.findOne(id);
@@ -316,7 +326,7 @@ ${dto.contactEmail || dto.adminEmail || ''}`;
       process.env.AWS_S3_BACKGROUNDS_PREFIX || 'organizations/backgrounds/';
     const folder = `${prefix}${id}`.replace(/\/+$/, '');
 
-    const uploaded = await this.uploadService.uploadFile(file, folder);
+    const uploaded = await this.uploadService.uploadFile(file, folder, { user, organizationId: id, objectType: UploadedAssetType.ORGANIZATION_BACKGROUND });
     org.backgroundImageS3Key = uploaded.key;
     return this.orgRepo.save(org);
   }

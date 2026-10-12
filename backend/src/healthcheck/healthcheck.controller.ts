@@ -1,11 +1,16 @@
-import { Controller, Post, Get, Body, UseGuards, Optional } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
+import { AllowNoOrg } from '../common/decorators/scope.decorators';
 
 @Controller('healthcheck')
-// @UseGuards(JwtAuthGuard)
+@AllowNoOrg()
 export class HealthcheckController {
-  
   @Get()
-  async healthcheck() {
-    return "Servic is running, have a fan !";
+  healthcheck() {
+    return { status: 'ok' };
+  }
+
+  @Get('live')
+  live() {
+    return { status: 'ok' };
   }
 }

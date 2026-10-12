@@ -1,6 +1,6 @@
 # Iteration 010 — Fondations Budget prévisionnel
 
-STATUS: IN_PROGRESS
+STATUS: COMPLETED
 
 ## Roadmap reference
 
@@ -113,4 +113,11 @@ Le backend possède une fondation budgétaire sûre et reproductible, prête à 
 
 ## Execution record
 
-Not started.
+- Implémentation des six tables Budget : catalogue versionné, scénarios, intentions durables de réconciliation, postes, sources historiques et audit append-only.
+- Ajout du calcul monétaire déterministe en centimes et des jobs BullMQ de construction, recalcul, rafraîchissement et réconciliation avec payloads identifiants/version uniquement.
+- Ajout de la conservation des lignes manuelles verrouillées et de leurs sources, y compris après suppression de la recommandation ou du rapport d'origine.
+- Intégration transactionnelle de la suppression des rapports avec intention de réconciliation persistée avant cascade.
+- Validation utilisateur : build backend réussi ; suite Prévention 48/48 ; migration MySQL aller/retour/aller et contraintes d'intégrité validées.
+- Security : `SECURITY_STATUS: PASS`.
+- Reviewer : `REVIEW_STATUS: APPROVED` après correction de la conservation des lignes verrouillées et des sources historiques.
+- Aucun endpoint ni écran Budget ajouté ; ils restent dans la prochaine itération P8B.

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { v4 as uuid } from 'uuid';
 import { PreventionOutboxEvent, PreventionOutboxAggregateType } from './prevention-outbox.entity';
@@ -7,9 +7,12 @@ import {
   PreventionReportEventType,
   preventionDeduplicationKey,
 } from './prevention-outbox.types';
+import { PreventionActivationService } from '../prevention-activation.service';
 
 @Injectable()
 export class PreventionOutboxService {
+  constructor(@Optional() private readonly activation?: PreventionActivationService) {}
+
   async enqueueReportEvent(
     manager: EntityManager,
     input: {
@@ -23,6 +26,7 @@ export class PreventionOutboxService {
     // Historical reports without a tenant are intentionally left to the P9
     // backfill. Never trust a client-provided tenant or create an unscoped job.
     if (!input.organizationId) return null;
+    if (this.activation && !(await this.activation.isEnabled(input.organizationId, manager))) return null;
 
     const eventId = uuid();
     const occurredAt = input.occurredAt ?? new Date();
@@ -72,8 +76,8 @@ export class PreventionOutboxService {
       return repository.findOneByOrFail({ id: event.id });
     } catch (error: any) {
       // The unique key is the idempotency boundary. A retry of the same
-      // logical version is a successful no-op, while other DB errors bubble
-      // and roll back the report transaction.
+      // logical version is a successful no-op. Other DB errors are handled by
+      // the independent Prevention caller after the SPS transaction commits.
       if (error?.code === 'ER_DUP_ENTRY' || error?.errno === 1062) {
         return repository.findOneBy({
           deduplicationKey: event.deduplicationKey,

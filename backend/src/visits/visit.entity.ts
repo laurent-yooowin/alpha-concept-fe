@@ -80,11 +80,37 @@ export class Visit {
       photoConformityMessage?: string;
       references?: string;
       unreadableSections?: string[];
+      prevention?: {
+        phase?: string;
+        confidence?: number;
+        justification?: string;
+        observations?: Array<{ index: number; riskLevel: 'faible' | 'moyen' | 'eleve'; confidence: number }>;
+        processingStatus?: 'PENDING' | 'PROCESSING' | 'RETRY' | 'READY' | 'FAILED';
+        phaseStatus?: 'PROPOSED' | 'VALIDATED';
+        effectivePhase?: string;
+        validatedBy?: string;
+        validatedAt?: string;
+      };
+      preventionPhase?: string;
+      preventionPhaseEffective?: string;
+      preventionPhaseConfidence?: number;
+      preventionPhaseJustification?: string;
+      preventionPhaseSource?: 'PHOTO' | 'DIRECTIVE' | 'MIXED';
+      preventionPhaseStatus?: 'PROPOSED' | 'VALIDATED';
+      preventionPhaseValidatedBy?: string;
+      preventionPhaseValidatedAt?: string;
+      // Legacy aliases kept readable for previously stored analyses.
+      constructionPhase?: string;
+      phaseConfidence?: number;
+      phaseJustification?: string;
+      phaseSource?: 'PHOTO' | 'DIRECTIVE' | 'MIXED';
+      modelVersion?: string;
     };
     comment?: string;
     userDirectives?: string;
     customPromptIds?: string[];
     appliedCustomPrompts?: { id: string; name: string; content: string }[];
+    requestId?: string;
     validated: boolean;
   }[];
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { withReportDatesAfterLocation } from './reportDatePresentation';
 
 // Group photos by groupId
 interface PhotoGroup {
@@ -24,17 +25,18 @@ function PhotoReportEditor({
     downloadImages,
     isEditing,
     editedHeader = '',
+    headerDates = [],
     editedFooter = '',
     onPhotosChange,
     onHeaderChange,
     onFooterChange,
-    onSave,
 }: any) {
     const [photos, setPhotos] = useState(initialPhotos);
     const [base64Images, setBase64Images] = useState({});
     const [loading, setLoading] = useState(true);
     const [header, setHeader] = useState(editedHeader);
     const [footer, setFooter] = useState(editedFooter);
+    const displayedHeader = withReportDatesAfterLocation(header, headerDates);
 
     // Block-based editing state (keyed by groupId)
     const [blockItems, setBlockItems] = useState<Record<string, string[]>>({});
@@ -438,6 +440,11 @@ function PhotoReportEditor({
                         <label style={{ fontWeight: '700', display: 'block', marginBottom: '12px', fontSize: '16px', color: '#2c3e50' }}>
                             📝 En-tête du rapport
                         </label>
+                        {headerDates.length > 0 && (
+                            <div style={{ whiteSpace: 'pre-wrap', marginBottom: '12px', fontFamily: 'monospace', fontSize: '14px', color: '#2c3e50' }}>
+                                {headerDates.map((item: { label: string; value: string }) => `${item.label} : ${item.value || '—'}`).join('\n')}
+                            </div>
+                        )}
                         <textarea
                             value={header}
                             onChange={(e) => setHeader(e.target.value)}
@@ -489,9 +496,9 @@ function PhotoReportEditor({
                     lineHeight: '1.8', backgroundColor: '#ffffff', padding: '40px',
                     borderRadius: '12px', border: '1px solid #e0e0e0', boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
                 }}>
-                    {header && (
+                    {displayedHeader && (
                         <div style={{ marginBottom: '30px', padding: '20px', backgroundColor: '#f8f9fa', borderRadius: '8px', borderLeft: '4px solid #4a90e2' }}>
-                            {header}
+                            {displayedHeader}
                         </div>
                     )}
 

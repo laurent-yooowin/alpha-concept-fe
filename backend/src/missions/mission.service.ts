@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, forwardRef, Inject, HttpException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, forwardRef, Inject, HttpException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { orgScope } from '../common/utils/org-scope';
@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { VisitService } from '../visits/visit.service';
 import { ReportService } from '../reports/report.service';
-import { ReportStatus } from '../reports/report.entity';
+import { ReportStatus, isReportLocked } from '../reports/report.entity';
 
 @Injectable()
 export class MissionService {
@@ -165,21 +165,33 @@ export class MissionService {
   }
 
   async update(id: string, user: User, updateMissionDto: UpdateMissionDto): Promise<Mission> {
-    try {
-      const mission = await this.missionRepository.findOne({
-        where: orgScope(user, { id }),
-      });
-
-      if (!mission) {
-        throw new NotFoundException('Mission not found');
-      }
-
+    const mission = await this.missionRepository.findOne({ where: orgScope(user, { id }) });
+    if (!mission) throw new NotFoundException('Mission not found');
+    return this.missionRepository.manager.transaction(async (manager) => {
+      const [lockedMission] = await manager.query(
+        `SELECT id,title,client,address,type FROM missions WHERE organizationId=? AND id=? LIMIT 1 FOR UPDATE`,
+        [mission.organizationId, id],
+      );
+      if (!lockedMission) throw new NotFoundException('Mission not found');
+      const pdfMetadataChanged = (['title', 'client', 'address', 'type'] as const).some(
+        (field) => updateMissionDto[field] !== undefined && updateMissionDto[field] !== lockedMission[field],
+      );
       Object.assign(mission, updateMissionDto);
-      return this.missionRepository.save(mission);
-    } catch (error) {
-      this.logger.error(error);
-      throw new HttpException('Impossible de mettre à jours la mission  !', 500);
-    }
+      const saved = await manager.getRepository(Mission).save(mission);
+      if (pdfMetadataChanged) {
+        await manager.query(
+          `SELECT id FROM visits WHERE organizationId=? AND missionId=? ORDER BY id FOR UPDATE`,
+          [mission.organizationId, id],
+        );
+        await manager.query(
+          `UPDATE reports r JOIN visits v ON v.id=r.visitId AND v.organizationId=?
+           SET r.reportFileUrl=NULL WHERE v.missionId=?
+             AND r.status NOT IN ('envoye_au_client','archive')`,
+          [mission.organizationId, id],
+        );
+      }
+      return saved;
+    });
   }
 
   async delete(id: string, user: User): Promise<void> {
@@ -200,7 +212,35 @@ export class MissionService {
       const errorMsg = mission.status == MissionStatus.TERMINATED ? 'Mission terminée, impossible de la supprimer. ' : "La mission a été assignée impossible de la supprimer";
       throw new Error(errorMsg);
     } else {
-      await this.missionRepository.remove(mission);
+      let deletedReportIds: string[] = [];
+      await this.missionRepository.manager.transaction(async (manager) => {
+        const [lockedMission] = await manager.query(
+          `SELECT id FROM missions WHERE organizationId=? AND id=? LIMIT 1 FOR UPDATE`,
+          [mission.organizationId, missionId],
+        );
+        if (!lockedMission) throw new NotFoundException('Mission not found');
+        await manager.query(
+          `SELECT id FROM visits WHERE organizationId=? AND missionId=? ORDER BY id FOR UPDATE`,
+          [mission.organizationId, missionId],
+        );
+        const linkedReports: Array<{ id: string; status: ReportStatus }> = await manager.query(
+          `SELECT r.id,r.status FROM reports r
+           JOIN visits v ON v.id=r.visitId AND v.organizationId=?
+           WHERE v.missionId=? FOR UPDATE`,
+          [mission.organizationId, missionId],
+        );
+        if (linkedReports.some((report) => isReportLocked(report.status))) {
+          throw new ConflictException('Ce chantier contient un rapport envoyé au client ou archivé');
+        }
+        for (const report of linkedReports) {
+          await this.reportService.markReportDeletionPartitions(manager, mission.organizationId, report.id);
+        }
+        deletedReportIds = linkedReports.map((report) => report.id);
+        await manager.getRepository(Mission).remove(mission);
+      });
+      for (const reportId of deletedReportIds) {
+        this.reportService.notifyReportDeletedAfterCommit(mission.organizationId, reportId);
+      }
     }
   }
 

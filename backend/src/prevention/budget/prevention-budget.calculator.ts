@@ -42,13 +42,6 @@ function multiplyQuantityByCents(quantity: string, unitCostCents: bigint): bigin
   return raw / divisor + (remainder >= divisor / 2n ? 1n : 0n);
 }
 
-function addRate(amountCents: bigint, ratePercent: string): bigint {
-  const rateBasisPoints = decimalToScaled(ratePercent, 2);
-  const raw = amountCents * rateBasisPoints;
-  const divisor = 10_000n;
-  return raw / divisor + (raw % divisor >= divisor / 2n ? 1n : 0n);
-}
-
 function sum(values: bigint[]): bigint {
   return values.reduce((total, value) => total + value, 0n);
 }
@@ -61,32 +54,38 @@ export function calculatePreventionBudget(
   if (parseCents(contingencyRatePercent) > 10_000n) throw new Error('Contingency rate must be between 0 and 100 percent');
 
   const lines = inputs.map((input): PreventionBudgetCalculation['lines'][number] => {
-    const manualLocked = input.manual && LOCKED_STATUSES.includes(input.manual.status);
-    const quantity = manualLocked ? input.manual!.quantity : input.quantity;
-    const unit = manualLocked ? input.manual!.unit : input.unit;
+    const manualLocked = input.manual && (Boolean(input.manual.lockedManual) || LOCKED_STATUSES.includes(input.manual.status));
     const priority = manualLocked ? input.manual!.priority : input.priority;
-    const unitCostValue = manualLocked ? input.manual!.unitCostHt : input.catalogMatch?.unitCostHt ?? null;
-    const priceSource = manualLocked ? input.manual!.priceSource : input.catalogMatch?.priceSource ?? null;
+    const unitCostValue = manualLocked ? input.manual!.unitCostHt : input.aiEstimate?.unitCostHt ?? input.catalogMatch?.unitCostHt ?? null;
+    const priceSource = manualLocked ? input.manual!.priceSource : input.aiEstimate ? 'Estimation IA — indicative, à valider' : input.catalogMatch?.priceSource ?? null;
+    const estimatedQuantity = manualLocked ? input.manual!.quantity : input.aiEstimate?.quantity ?? input.quantity;
+    const estimatedUnit = manualLocked ? input.manual!.unit : input.aiEstimate?.unit ?? input.unit;
     const hasSourcedPrice = unitCostValue !== null && Boolean(priceSource?.trim());
     if (manualLocked && !hasSourcedPrice) {
       throw new Error('Locked manual budget line requires a sourced price');
     }
     const status = manualLocked ? input.manual!.status : hasSourcedPrice ? 'ESTIME' : 'A_CHIFFRER';
     const unitCostCents = hasSourcedPrice ? parseCents(unitCostValue!) : null;
-    const totalCents = unitCostCents === null ? 0n : multiplyQuantityByCents(quantity, unitCostCents);
+    const totalCents = unitCostCents === null ? 0n : multiplyQuantityByCents(estimatedQuantity, unitCostCents);
+    if (!manualLocked && input.aiEstimate && totalCents !== parseCents(input.aiEstimate.totalHt)) {
+      throw new Error('AI estimate total does not match quantity and unit cost');
+    }
     return {
       itemKey: input.itemKey,
       title: input.title,
       categoryId: input.categoryId,
       categoryKey: input.categoryKey,
+      clientKey: input.clientKey ?? null,
+      clientLabel: input.clientLabel ?? null,
       priority,
-      quantity,
-      unit,
+      quantity: estimatedQuantity,
+      unit: estimatedUnit,
       unitCostHt: unitCostCents === null ? null : formatCents(unitCostCents),
       totalHt: formatCents(totalCents),
       status,
       priceSource,
       lockedManual: Boolean(manualLocked),
+      aiEstimateDetails: manualLocked ? input.manual!.aiEstimateDetails ?? null : input.aiEstimate?.details ?? null,
     };
   });
 
@@ -94,16 +93,15 @@ export function calculatePreventionBudget(
   const retained = sum(priced);
   const estimated = sum(lines.map((line) => line.status === 'ESTIME' ? parseCents(line.totalHt) : 0n));
   const validated = sum(lines.map((line) => LOCKED_STATUSES.includes(line.status) ? parseCents(line.totalHt) : 0n));
-  const contingency = addRate(retained, contingencyRatePercent);
   return {
     lines,
     totals: {
       retainedBudgetHt: formatCents(retained),
       estimatedBudgetHt: formatCents(estimated),
       validatedBudgetHt: formatCents(validated),
-      contingencyRatePercent: scaledToDecimal(decimalToScaled(contingencyRatePercent, 2), 2),
-      contingencyAmountHt: formatCents(contingency),
-      totalBudgetHt: formatCents(retained + contingency),
+      contingencyRatePercent: '0.00',
+      contingencyAmountHt: '0.00',
+      totalBudgetHt: formatCents(retained),
     },
   };
 }

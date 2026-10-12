@@ -13,10 +13,21 @@ import { PreventionScoreConfigurationService } from '../statistics/prevention-sc
 import { PreventionScoreEnvironmentService } from '../statistics/prevention-score.config';
 import { PreventionSchedulerService } from '../scheduler/prevention-scheduler.service';
 import { PreventionBudgetService } from '../budget/prevention-budget.service';
+import { PreventionBudgetEstimationAiService } from '../budget/prevention-budget-estimation-ai.service';
+import { PreventionActivationService } from '../prevention-activation.service';
+import { PreventionGroupProcessingService } from './prevention-group-processing.service';
+import { PreventionOnlyAiService } from '../ai/prevention-only-ai.service';
+import { PreventionPhotoDownloadService } from './prevention-photo-download.service';
+import { PreventionOutboxService } from '../outbox/prevention-outbox.service';
+import { UploadModule } from '../../upload/upload.module';
+import { PreventionBulkAdmissionService } from '../scheduler/prevention-bulk-admission.service';
+import { PreventionHyperAdminRecoveryService } from '../api/prevention-hyper-admin-recovery.service';
+import { PreventionRebuildQueueService } from '../api/prevention-rebuild-queue.service';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    UploadModule,
     TypeOrmModule.forRoot({ ...databaseConfig(), logging: false }),
   ],
   providers: [
@@ -37,8 +48,17 @@ import { PreventionBudgetService } from '../budget/prevention-budget.service';
     PreventionScoreConfigurationService,
     PreventionStatisticsService,
     PreventionSchedulerService,
+    PreventionBulkAdmissionService,
     PreventionBudgetService,
+    PreventionBudgetEstimationAiService,
+    PreventionActivationService,
     PreventionReportConsumerService,
+    PreventionGroupProcessingService,
+    PreventionOnlyAiService,
+    PreventionPhotoDownloadService,
+    PreventionOutboxService,
+    PreventionHyperAdminRecoveryService,
+    PreventionRebuildQueueService,
   ],
 })
 export class PreventionWorkerModule {}

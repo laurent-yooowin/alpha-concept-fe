@@ -5,11 +5,19 @@ import { VisitService } from './visit.service';
 import { VisitController } from './visit.controller';
 import { MissionModule } from '../missions/mission.module';
 import { ReportModule } from '../reports/report.module';
+import { AiModule } from '../ai/ai.module';
+import { CustomPromptModule } from '../custom-prompts/custom-prompt.module';
+import { PreventionQueueModule } from '../prevention/queue/prevention-queue.module';
+import { UploadModule } from '../upload/upload.module';
 
 @Module({
   imports: [
     forwardRef(() => MissionModule),
     forwardRef(() => ReportModule),
+    AiModule,
+    CustomPromptModule,
+    UploadModule,
+    PreventionQueueModule.register(),
     TypeOrmModule.forFeature([Visit]),
   ],
   controllers: [VisitController],

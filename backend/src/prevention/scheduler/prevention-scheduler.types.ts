@@ -8,6 +8,7 @@ export const PREVENTION_ORGANIZATION_SCAN_JOB = 'prevention.scheduler.organizati
 export const PREVENTION_AUDIT_REPORT_JOB = 'prevention.scheduler.audit-report';
 export const PREVENTION_RECOVERY_JOB = 'prevention.scheduler.recovery';
 export const PREVENTION_MANUAL_REBUILD_JOB = 'prevention.scheduler.manual-rebuild';
+export const PREVENTION_HYPER_ADMIN_RECOVERY_JOB = 'prevention.hyper-admin.recovery';
 
 export const PREVENTION_SCHEDULED_JOBS = [
   PREVENTION_DIFFERENTIAL_JOB,
@@ -55,7 +56,7 @@ export interface PreventionOrganizationScanPayload {
 
 export interface PreventionRecoveryPayload {
   scheduledFor: string;
-  recoveryType: 'CHECKPOINT' | 'TASK';
+  recoveryType: 'RUN' | 'CHECKPOINT' | 'TASK';
   cursor: string | null;
 }
 

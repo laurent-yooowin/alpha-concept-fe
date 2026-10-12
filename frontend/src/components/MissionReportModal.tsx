@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { X, FileText, Calendar, CheckCircle, Clock, Send, AlertTriangle, Image as ImageIcon, Eye, Edit2, Download, Loader2, Search, Plus } from 'lucide-react';
-import { reportsAPI, missionsAPI, mailingListAPI } from '../lib/api';
-import { visitService } from '../services/visitService';
+import { X, FileText, Calendar, CheckCircle, Send, AlertTriangle, Image as ImageIcon, Edit2, Download, Loader2, Search, Plus } from 'lucide-react';
+import { reportsAPI, mailingListAPI, visitsAPI } from '../lib/api';
 import { filesService } from '../services/filesService';
 import { generatePdfService } from '../services/generatePdfService';
 import { useAuth } from '../contexts/AuthContext';
 import PhotoReportEditor from './PhotoReportEditor';
+import { changedReportGroups } from './reportEdits';
+import { isFinalReportStatus } from './reportFinalStatus';
+import { formatReportDate, withoutLegacyGeneratedFooterDate, withoutLegacyGeneratedHeaderDate } from './reportDatePresentation';
 import Swal from 'sweetalert2';
 
 interface Report {
@@ -156,9 +158,9 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
       }
       setSelectedReport(fullReport);
       setReportPhotos(fullReport.visit?.photos || []);
-      setEditedHeader(fullReport.header || '');
+      setEditedHeader(withoutLegacyGeneratedHeaderDate(fullReport.header || ''));
       setEditedContent(fullReport.content || '');
-      setEditedFooter(fullReport.footer || '');
+      setEditedFooter(withoutLegacyGeneratedFooterDate(fullReport.footer || ''));
       setEditedObservations(fullReport.observations || '');
       setAdminRemarks(fullReport.remarquesAdmin || '');
       setIsEditing(false);
@@ -181,17 +183,22 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
   const handleSaveEdits = async () => {
     if (!selectedReport) return;
     try {
-      const resp = await reportsAPI.update(selectedReport.id, {
-        content: editedContent,
+      const groups = changedReportGroups(selectedReport.visit?.photos || [], reportPhotos || []);
+      if (groups.length > 0 && selectedReport.visitId) {
+        await visitsAPI.analysisGroups.updateMany(selectedReport.visitId, groups);
+      }
+      await reportsAPI.update(selectedReport.id, {
+        ...(groups.length ? {} : { content: editedContent }),
         header: editedHeader,
         footer: editedFooter,
         observations: editedObservations,
         remarquesAdmin: adminRemarks,
       });
-      if (selectedReport.visitId) {
-        await visitService.update(selectedReport.visitId, { photos: reportPhotos });
-      }
-      setSelectedReport(prev => prev ? { ...prev, ...resp } : null);
+      const refreshed = await reportsAPI.getById(selectedReport.id);
+      const currentReport = { ...selectedReport, ...refreshed };
+      setSelectedReport(currentReport);
+      setReportPhotos(refreshed.visit?.photos || []);
+      setReports(prev => prev.map(report => report.id === currentReport.id ? { ...report, ...currentReport } : report));
       setIsEditing(false);
       Swal.fire({ icon: 'success', title: 'Rapport sauvegardé', timer: 1500, showConfirmButton: false });
     } catch (error) {
@@ -200,7 +207,7 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
   };
 
   const handleSendToClient = async () => {
-    if (!selectedReport || selectedReport.status === 'envoye_au_client' || selectedReport.missionStatus === 'terminee') return;
+    if (!selectedReport || isFinalReportStatus(selectedReport.status) || selectedReport.missionStatus === 'terminee') return;
     const missionId = selectedReport.missionId || mission.id;
     setRecipientsLoading(true);
     setShowRecipientsModal(true);
@@ -272,7 +279,7 @@ export default function MissionReportModal({ mission, onClose, initialReportId }
   };
 
   const sendReportToClient = async (selectedCc: string[], fileName: string) => {
-    if (!selectedReport || selectedReport.status === 'envoye_au_client' || selectedReport.missionStatus === 'terminee') return;
+    if (!selectedReport || isFinalReportStatus(selectedReport.status) || selectedReport.missionStatus === 'terminee') return;
 
 
     try {
@@ -330,17 +337,13 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     }
   };
 
-  const downloadReportFile = async (fileUrl: string) => {
-    // continue ...
-    return _downloadReportFile(fileUrl);
-  };
-
   const handleDownloadReportPdf = async (report: Report, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setGeneratingPdf(true);
     try {
       const ok = await generatePdfService.downloadReportPDF({
         reportId: report.id,
+        reportFileUrl: report.reportFileUrl,
         title: report.title || mission.title,
         mission: mission.title,
       }, getSuggestedPdfFileName(report));
@@ -364,6 +367,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
     try {
       const ok = await generatePdfService.downloadReportPDF({
         reportId: selectedReport.id,
+        reportFileUrl: selectedReport.reportFileUrl,
         title: selectedReport.title || mission.title,
         mission: mission.title,
       }, getSuggestedPdfFileName(selectedReport));
@@ -378,30 +382,6 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
       Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la génération du PDF' });
     } finally {
       setGeneratingPdf(false);
-    }
-  };
-
-  const _downloadReportFile = async (fileUrl: string) => {
-    try {
-      const response = await filesService.downloadFile(fileUrl, 'reports', true);
-      const { base64, contentType, fileName } = response.data;
-      const byteCharacters = atob(base64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: contentType });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName || 'document.pdf';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Erreur téléchargement:', error);
     }
   };
 
@@ -498,8 +478,8 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                     <span className="ml-1 font-medium text-slate-900">{selectedReport.client || mission.client}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500">Date:</span>
-                    <span className="ml-1 font-medium text-slate-900">{new Date(selectedReport.createdAt).toLocaleDateString('fr-FR')}</span>
+                    <span className="text-slate-500">Date du chantier:</span>
+                    <span className="ml-1 font-medium text-slate-900">{formatReportDate(selectedReport.missionDate) || '—'}</span>
                   </div>
                   {selectedReport.conformityPercentage != null && (
                     <div>
@@ -525,6 +505,10 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                   isEditing={isEditing}
                   editedFooter={editedFooter}
                   editedHeader={editedHeader}
+                  headerDates={[
+                    { label: 'Date de la visite', value: formatReportDate(selectedReport.visit?.visitDate) },
+                    { label: 'Date du rapport', value: formatReportDate(selectedReport.createdAt) },
+                  ]}
                   onPhotosChange={isEditing ? setReportPhotos : undefined}
                   onHeaderChange={isEditing ? setEditedHeader : undefined}
                   onFooterChange={isEditing ? setEditedFooter : undefined}
@@ -641,7 +625,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
               {generatingPdf ? 'Génération...' : 'Télécharger PDF'}
             </button>
 
-            {selectedReport.status !== 'envoye_au_client' && selectedReport.status !== 'annule' && selectedReport.missionStatus !== 'terminee' && (
+            {!isFinalReportStatus(selectedReport.status) && selectedReport.status !== 'annule' && selectedReport.missionStatus !== 'terminee' && (
               <>
                 {isEditing ? (
                   <>
@@ -668,7 +652,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                       <Edit2 className="w-4 h-4" />
                       Modifier
                     </button>
-                    {!isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
+                    {!isAdmin && !isFinalReportStatus(selectedReport.status) && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
                       <button
                         onClick={handleSendToClient}
                         disabled={sendingToClient}
@@ -678,7 +662,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                         {sendingToClient ? 'Envoi...' : 'Envoyer au client'}
                       </button>
                     )}
-                    {isAdmin && selectedReport.status !== 'envoye_au_client' && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
+                    {isAdmin && !isFinalReportStatus(selectedReport.status) && selectedReport.missionStatus !== 'terminee' && selectedReport.missionStatus !== 'archivee' && (
                       <button
                         onClick={handleSendToClient}
                         disabled={sendingToClient}

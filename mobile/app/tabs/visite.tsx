@@ -24,7 +24,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { visitService } from '@/services/visitService';
 import { reportService } from '@/services/reportService';
 import { uploadService } from '@/services/uploadService';
@@ -36,10 +35,17 @@ import * as MailComposer from 'expo-mail-composer';
 import { useAuth } from '@/contexts/AuthContext';
 import { missionService } from '@/services/missionService';
 import { userService } from '@/services/userService';
-import { getStoredOrganizationSlug, loginRoute, organizationStorageKey } from '@/services/organizationContext';
+import { getStoredOrganizationSlug, loginRoute } from '@/services/organizationContext';
 import { Visit } from 'src/visits/visit.entity';
 import { reportsAPI } from '../../../frontend/src/lib/api';
 import { ImageManipulator } from 'expo-image-manipulator';
+import {
+  preventionPhaseService,
+  PREVENTION_PHASES,
+  PREVENTION_PHASE_LABELS,
+  PreventionGroupPhaseStatus,
+  PreventionPhase,
+} from '@/services/preventionPhaseService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -52,6 +58,7 @@ interface Photo {
   id: string;
   uri: string;
   s3Url?: string;
+  receipt?: string;
   timestamp: Date;
   groupId: string;
   isDirectiveOnly?: boolean;
@@ -114,8 +121,14 @@ interface Mission {
 }
 
 export default function VisiteScreen() {
+  const { user } = useAuth();
+  const identity = `${user?.organizationId || ''}:${user?.id || ''}`;
+  return <VisiteScreenContent key={identity} />;
+}
+
+function VisiteScreenContent() {
   const params = useLocalSearchParams();
-  // const user = useAuth();
+  const { user } = useAuth();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [mission, setMission] = useState<Mission | null>(null);
   const [availableMissions, setAvailableMissions] = useState<Mission[]>([]);
@@ -221,6 +234,15 @@ export default function VisiteScreen() {
   const [isRegeneratingGroup, setIsRegeneratingGroup] = useState(false);
   const [groupCustomPromptIds, setGroupCustomPromptIds] = useState<string[]>([]);
   const [expandedAppliedPromptId, setExpandedAppliedPromptId] = useState<string | null>(null);
+  const [preventionPhaseStatus, setPreventionPhaseStatus] = useState<PreventionGroupPhaseStatus | null>(null);
+  const [preventionPhaseLoading, setPreventionPhaseLoading] = useState(false);
+  const [preventionPhaseSaving, setPreventionPhaseSaving] = useState(false);
+  const [preventionPhaseError, setPreventionPhaseError] = useState<string | null>(null);
+  const [preventionPhaseRefresh, setPreventionPhaseRefresh] = useState(0);
+  const phaseScopeRef = useRef('');
+  const phaseScope = `${user?.organizationId || ''}:${user?.id || ''}:${existingVisitId || ''}:${selectedGroupId || ''}`;
+  phaseScopeRef.current = phaseScope;
+  useEffect(() => { setPreventionPhaseSaving(false); }, [phaseScope]);
 
   // Group report editing states
   const [editingGroupReport, setEditingGroupReport] = useState(false);
@@ -311,6 +333,64 @@ export default function VisiteScreen() {
     setExpandedAppliedPromptId(null);
   }, [showGroupDetail, selectedGroupId]);
 
+  useEffect(() => {
+    if (!showGroupDetail || !selectedGroupId || !existingVisitId) {
+      setPreventionPhaseStatus(null);
+      setPreventionPhaseError(null);
+      setPreventionPhaseLoading(false);
+      return;
+    }
+    const group = reportGroups.find(item => item.groupId === selectedGroupId);
+    // Prevention is optional and must only be read after the SPS analysis exists.
+    if (!group?.aiAnalysis) {
+      setPreventionPhaseStatus(null);
+      setPreventionPhaseLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPreventionPhaseLoading(true);
+    setPreventionPhaseStatus(null);
+    setPreventionPhaseError(null);
+    preventionPhaseService.getGroupStatus(existingVisitId, selectedGroupId).then(response => {
+      if (cancelled) return;
+      if (response.data) setPreventionPhaseStatus(response.data);
+      else if (response.status === 403 || response.status === 404) setPreventionPhaseError('Prévention indisponible pour ce groupe.');
+      else setPreventionPhaseError(response.error || 'Statut Prévention indisponible.');
+    }).catch(() => {
+      if (!cancelled) setPreventionPhaseError('Prévention indisponible pour ce groupe.');
+    }).finally(() => {
+      if (!cancelled) setPreventionPhaseLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [showGroupDetail, selectedGroupId, existingVisitId, reportGroups, phaseScope, preventionPhaseRefresh]);
+
+  const canValidatePreventionPhase = ['ROLE_USER', 'ROLE_ADMIN', 'USER', 'ADMIN', 'user', 'admin'].includes(String(user?.role || ''));
+  const preventionPhaseLabel = (phase: PreventionPhase | null) => phase
+    ? PREVENTION_PHASE_LABELS[phase]
+    : 'En attente';
+  const savePreventionPhase = async (phase: PreventionPhase) => {
+    if (!existingVisitId || !selectedGroupId || !canValidatePreventionPhase || preventionPhaseSaving) return;
+    const requestScope = phaseScope;
+    setPreventionPhaseSaving(true);
+    setPreventionPhaseError(null);
+    try {
+      const response = await preventionPhaseService.updateGroupPhase(existingVisitId, selectedGroupId, phase);
+      if (phaseScopeRef.current !== requestScope) return;
+      if (response.data) {
+        const refreshed = await preventionPhaseService.getGroupStatus(existingVisitId, selectedGroupId);
+        if (phaseScopeRef.current !== requestScope) return;
+        if (refreshed.data) setPreventionPhaseStatus(refreshed.data);
+        else setPreventionPhaseError(refreshed.error || 'Phase confirmée, mais le statut actualisé est indisponible.');
+      } else {
+        setPreventionPhaseError(response.status === 403 ? 'Vous n’êtes pas autorisé à confirmer cette phase.' : response.error || 'Impossible de confirmer la phase.');
+      }
+    } catch {
+      if (phaseScopeRef.current === requestScope) setPreventionPhaseError('Impossible de confirmer la phase.');
+    } finally {
+      if (phaseScopeRef.current === requestScope) setPreventionPhaseSaving(false);
+    }
+  };
+
   const handleCustomPromptChange = async (nextIds: string[]) => {
     const previousIds = customPromptIds;
     setCustomPromptIds(nextIds);
@@ -331,6 +411,7 @@ export default function VisiteScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!user?.id || !user.organizationId) return;
       setMission(null);
       if (params.mission) {
         try {
@@ -343,7 +424,7 @@ export default function VisiteScreen() {
       } else {
         loadAvailableMissions();
       }
-    }, [params.mission])
+    }, [params.mission, user?.organizationId, user?.id])
   );
 
   const loadUserProfile = async () => {
@@ -433,19 +514,30 @@ export default function VisiteScreen() {
   };
 
   const selectMission = async (selectedMissionParam: any, visitId?: string | null, isInitVisit?: boolean) => {
-    const parsedUserMissions = await loadAvailableMissions();
     if (isInitVisit) {
-      await selectVisit(selectedMissionParam, visitId);
+      const authorizedMission = selectedMissionParam?.id
+        ? await missionService.getMission(selectedMissionParam.id)
+        : null;
+      if (!authorizedMission?.data) {
+        Alert.alert('Visite indisponible', 'Ce chantier n’est pas accessible dans cette organisation.');
+        return;
+      }
+      await selectVisit(authorizedMission.data, visitId ?? null);
     } else {
+      const parsedUserMissions = await loadAvailableMissions();
+      const selectedMission = parsedUserMissions.find(m => m.id === selectedMissionParam?.id);
+      if (!selectedMission) {
+        Alert.alert('Visite indisponible', 'Ce chantier n’est pas accessible dans cette organisation.');
+        return;
+      }
       const createVisit = {
         id: null,
         missionId: selectedMissionParam.id,
         visitDate: new Date().toLocaleDateString('fr-FR'),
         userId: selectedMissionParam.userId
       };
-      const selectedMission = parsedUserMissions.find(m => m.id === selectedMissionParam.id);
       if (selectedMission && selectedMission.visits?.length > 0 && selectedMission.status != 'terminee') {
-        if (!selectedMission.visits.some(v => !v.id)) {
+        if (!selectedMission.visits.some((v: any) => !v.id)) {
           selectedMission.visits.unshift(createVisit);
         }
         // const notSentReport: { hasNotSentReport: boolean; visitId: string | null | undefined; reportId: any; }[] = [];
@@ -531,8 +623,8 @@ export default function VisiteScreen() {
               };
 
               let fileUri = "";
-              if (!photo.isDirectiveOnly) {
-                const fileName = photo.uri.split('/').pop();
+              if (!photo.isDirectiveOnly && photo.s3Url) {
+                const fileName = `${user?.organizationId || 'unknown'}-${photo.id || 'photo'}-${String(photo.uri || '').split('/').pop() || 'image'}`;
                 fileUri = `${FileSystem.cacheDirectory}${fileName}`;
                 console.log("Photo n'existe pas >>> : ", photo.uri);
                 const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
@@ -691,58 +783,11 @@ export default function VisiteScreen() {
 
         return analysis;
       }
+      throw new Error(response.error || 'Analyse IA indisponible');
     } catch (error) {
       console.error('AI analysis error:', error);
-      // Fallback to mock data if AI fails
+      throw error instanceof Error ? error : new Error('Analyse IA indisponible');
     }
-
-    const analyses = [
-      {
-        observations: [
-          "Échafaudage installé selon les normes",
-          "Garde-corps présents et conformes",
-          "Zone de travail bien délimitée"
-        ],
-        recommendations: [
-          "Vérifier la fixation des garde-corps quotidiennement",
-          "Maintenir la signalisation visible"
-        ],
-        riskLevel: 'low' as const,
-        confidence: 92,
-        references: []
-      },
-      {
-        observations: [
-          "Absence de protection collective",
-          "Matériaux stockés de manière désordonnée",
-          "Accès non sécurisé à la zone de travail"
-        ],
-        recommendations: [
-          "Installer immédiatement des garde-corps",
-          "Organiser le stockage des matériaux",
-          "Sécuriser les accès avec barrières"
-        ],
-        riskLevel: 'high' as const,
-        confidence: 88,
-        references: []
-      },
-      {
-        observations: [
-          "EPI portés par les ouvriers",
-          "Signalisation présente mais partiellement masquée",
-          "Outillage en bon état"
-        ],
-        recommendations: [
-          "Repositionner la signalisation",
-          "Vérifier l'état des EPI régulièrement"
-        ],
-        riskLevel: 'medium' as const,
-        confidence: 85,
-        references: []
-      }
-    ];
-
-    return analyses[Math.floor(Math.random() * analyses.length)];
   };
 
   const analyzePhotoWithDirectives = async (photoUri: string): Promise<Photo['aiAnalysis']> => {
@@ -799,58 +844,11 @@ export default function VisiteScreen() {
           unreadableSections: unreadableSections || [],
         };
       }
+      throw new Error(response.error || 'Analyse IA indisponible');
     } catch (error) {
       console.error('AI analysis error:', error);
-      // Fallback to mock data if AI fails
+      throw error instanceof Error ? error : new Error('Analyse IA indisponible');
     }
-
-    const analyses = [
-      {
-        observations: [
-          "Échafaudage installé selon les normes",
-          "Garde-corps présents et conformes",
-          "Zone de travail bien délimitée"
-        ],
-        recommendations: [
-          "Vérifier la fixation des garde-corps quotidiennement",
-          "Maintenir la signalisation visible"
-        ],
-        riskLevel: 'low' as const,
-        confidence: 92,
-        references: []
-      },
-      {
-        observations: [
-          "Absence de protection collective",
-          "Matériaux stockés de manière désordonnée",
-          "Accès non sécurisé à la zone de travail"
-        ],
-        recommendations: [
-          "Installer immédiatement des garde-corps",
-          "Organiser le stockage des matériaux",
-          "Sécuriser les accès avec barrières"
-        ],
-        riskLevel: 'high' as const,
-        confidence: 88,
-        references: []
-      },
-      {
-        observations: [
-          "EPI portés par les ouvriers",
-          "Signalisation présente mais partiellement masquée",
-          "Outillage en bon état"
-        ],
-        recommendations: [
-          "Repositionner la signalisation",
-          "Vérifier l'état des EPI régulièrement"
-        ],
-        riskLevel: 'medium' as const,
-        confidence: 85,
-        references: []
-      }
-    ];
-
-    return analyses[Math.floor(Math.random() * analyses.length)];
   };
 
   // Prendre une photo
@@ -1235,65 +1233,7 @@ export default function VisiteScreen() {
   const savePendingPhotosOnly = async () => {
     if (pendingPhotos.length === 0) return;
 
-    setIsAnalyzingMultiple(true);
-    setMultiAnalysisProgress('Upload des photos...');
-    const batchGroupId = `group-${Date.now()}`;
-
-    try {
-      for (let i = 0; i < pendingPhotos.length; i++) {
-        const pending = pendingPhotos[i];
-        setMultiAnalysisProgress(`Upload photo ${i + 1}/${pendingPhotos.length}...`);
-
-        const newPhoto: Photo = {
-          id: pending.id,
-          uri: pending.uri,
-          timestamp: new Date(),
-          groupId: batchGroupId,
-          comment: '',
-          userDirectives: multiPhotoDirectives,
-          validated: false,
-          customPromptIds: newGroupCustomPromptIds,
-        };
-
-        setPhotos(prev => [...prev, newPhoto]);
-        setHasChanges(true);
-
-        // Upload photo
-        let fileToUpload: Blob | string;
-        if (Platform.OS === 'web') {
-          const response = await fetch(pending.uri);
-          fileToUpload = await response.blob();
-        } else {
-          fileToUpload = pending.uri;
-        }
-
-        try {
-          const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
-          if (uploadResults?.data && uploadResults.data?.length > 0) {
-            const s3Url = uploadResults.data[0].url;
-            setPhotos(prev => prev.map(p =>
-              p.id === pending.id
-                ? { ...p, s3Url: s3Url }
-                : p
-            ));
-            setUploadedPhotoUrls(prev => [...prev, s3Url]);
-          }
-        } catch (error) {
-          console.error('Erreur upload photo:', error);
-        }
-      }
-
-      Alert.alert('Succès', `${pendingPhotos.length} photo(s) sauvegardée(s) avec succès.`);
-    } catch (error) {
-      console.error('Erreur sauvegarde photos:', error);
-      Alert.alert('Erreur', 'Impossible de sauvegarder les photos.');
-    } finally {
-      setPendingPhotos([]);
-      setMultiPhotoDirectives('');
-      setShowMultiPhotoModal(false);
-      setIsAnalyzingMultiple(false);
-      setMultiAnalysisProgress('');
-    }
+    Alert.alert('Analyse requise', 'Les photos doivent être analysées avant leur rattachement à la visite.');
   };
 
   // Process multiple photos: upload all then analyze as batch
@@ -1303,31 +1243,15 @@ export default function VisiteScreen() {
     setIsAnalyzingMultiple(true);
     setShowMultiPhotoModal(false);
     setAnalyzingPhoto(true);
-    const batchGroupId = `group-${Date.now()}`;
     const batchCustomPromptIds = [...newGroupCustomPromptIds];
-    let unreadableSections = null;
+    const initialPhotos = photosRef.current;
+    const uploadedPhotos: { id: string; uri: string; s3Url: string; receipt: string }[] = [];
+    let createdVisitId: string | null = null;
 
     try {
-      // Step 1: Upload all photos first
-      const uploadedPhotos: { id: string; uri: string; s3Url: string }[] = [];
-
       for (let i = 0; i < pendingPhotos.length; i++) {
         const pending = pendingPhotos[i];
         setMultiAnalysisProgress(`Upload photo ${i + 1}/${pendingPhotos.length}...`);
-
-        const newPhoto: Photo = {
-          id: pending.id,
-          uri: pending.uri,
-          timestamp: new Date(),
-          groupId: batchGroupId,
-          comment: '',
-          userDirectives: multiPhotoDirectives,
-          validated: false,
-          customPromptIds: batchCustomPromptIds,
-        };
-
-        setPhotos(prev => [...prev, newPhoto]);
-        setHasChanges(true);
 
         let fileToUpload: Blob | string;
         if (Platform.OS === 'web') {
@@ -1337,108 +1261,40 @@ export default function VisiteScreen() {
           fileToUpload = pending.uri;
         }
 
-        try {
-          const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
-          if (uploadResults?.data && uploadResults.data?.length > 0) {
-            const s3Url = uploadResults.data[0].url;
-            newPhoto.s3Url = s3Url;
-            setPhotos(prev => prev.map(p =>
-              p.id === pending.id ? { ...p, s3Url } : p
-            ));
-            setUploadedPhotoUrls(prev => [...prev, s3Url]);
-            uploadedPhotos.push({ id: pending.id, uri: pending.uri, s3Url });
-          } else {
-            console.warn('Photo uploadée mais pas de S3 URL');
-          }
-        } catch (error) {
-          console.error('Erreur upload photo:', error);
-        }
+        const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
+        const s3Url = uploadResults?.data?.[0]?.url;
+        const receipt = uploadResults?.data?.[0]?.receipt;
+        if (!s3Url || !receipt) throw new Error('Le reçu signé de la photo est manquant');
+        uploadedPhotos.push({ id: pending.id, uri: pending.uri, s3Url, receipt });
       }
 
-      // Step 2: Batch analyze all uploaded photos at once
-      if (uploadedPhotos.length > 0) {
-        setMultiAnalysisProgress(`Analyse IA de ${uploadedPhotos.length} photo(s) en cours...`);
-        try {
-          const imageUrls = uploadedPhotos.map(p => p.s3Url);
-          const batchResult = await aiService.analyzeBatchPhotos(imageUrls, multiPhotoDirectives || undefined, undefined, getPromptSelection(batchCustomPromptIds));
-
-          if (batchResult?.data) {
-            const batchAnalysis = batchResult.data;
-            const nonPhotoConformityMsgExists = batchAnalysis.nonConformities && batchAnalysis.nonConformities.length > 0;
-            const conformityMsgExist = batchAnalysis.photoConformityMessage && String(batchAnalysis.photoConformityMessage).trim() !== "";
-
-            let refs = batchAnalysis.references;
-            if (refs && !Array.isArray(refs)) refs = String(refs).split(', ').filter((s: string) => s.length > 0);
-            let observations = batchAnalysis.observations;
-            if (observations && !Array.isArray(observations)) observations = String(observations).split(', ').filter((s: string) => s.length > 0);
-            let nonConformities = batchAnalysis.nonConformities;
-            if (nonConformities && !Array.isArray(nonConformities)) nonConformities = String(nonConformities).split(', ').filter((s: string) => s.length > 0);
-            let photoConformityMessage = batchAnalysis.photoConformityMessage;
-            if (photoConformityMessage && !Array.isArray(photoConformityMessage)) photoConformityMessage = String(photoConformityMessage).split(', ').filter((s: string) => s.length > 0);
-            let recommendations = batchAnalysis.recommendations;
-            if (recommendations && !Array.isArray(recommendations)) recommendations = String(recommendations).split(', ').filter((s: string) => s.length > 0);
-
-            unreadableSections = batchAnalysis.unreadableSections;
-            if (unreadableSections && !Array.isArray(unreadableSections)) unreadableSections = String(unreadableSections).split(', ').filter((s: string) => s.length > 0);
-
-            const sharedAnalysis = {
-              observations: nonPhotoConformityMsgExists ? nonConformities : photoConformityMessage || observations,
-              recommendations: recommendations,
-              riskLevel: (batchAnalysis.riskLevel === 'faible' ? 'low' : batchAnalysis.riskLevel === 'moyen' ? 'medium' : 'high') as 'low' | 'medium' | 'high',
-              confidence: parseInt(batchAnalysis.confidence || 0),
-              photoConformity: conformityMsgExist ? false : batchAnalysis.photoConformity || true,
-              photoConformityMessage: batchAnalysis.photoConformityMessage || "",
-              references: refs || [],
-              unreadableSections: unreadableSections || [],
-            };
-
-            // Show unreadable sections modal if detected in batch
-            if (unreadableSections && unreadableSections.length > 0) {
-              setTimeout(() => {
-                openUnreadableSectionsModal(batchGroupId, unreadableSections);
-              }, 500);
-            }
-
-            // Apply the same batch analysis to all uploaded photos
-            setPhotos(prev => prev.map(p => {
-              if (uploadedPhotos.some(up => up.id === p.id)) {
-                return { ...p, aiAnalysis: sharedAnalysis, customPromptIds: batchCustomPromptIds, appliedCustomPrompts: batchAnalysis.appliedCustomPrompts || [] };
-              }
-              return p;
-            }));
-            setHasChanges(true);
-            setReportSaved(false);
-          }
-        } catch (error) {
-          console.error('Erreur analyse IA batch:', error);
-          Alert.alert('Erreur', 'L\'analyse IA groupée a échoué.');
-        }
+      if (uploadedPhotos.length !== pendingPhotos.length) throw new Error('Certaines photos n’ont pas pu être uploadées');
+      let analysisVisitId = existingVisitId;
+      if (!analysisVisitId && mission) {
+        const visitResponse = await visitService.createVisit({ missionId: mission.id, visitDate: new Date().toISOString(), notes: visitNotes, customPromptIds });
+        if (visitResponse.error || !visitResponse.data?.id) throw new Error(visitResponse.error || 'Visite indisponible');
+        analysisVisitId = visitResponse.data.id;
+        createdVisitId = analysisVisitId;
+        setExistingVisitId(analysisVisitId);
       }
-
-      const mergedPhotos = photos.map(p => {
-        const match = uploadedPhotos.find(up => up.id === p.id);
-        if (!match) return p;
-        const analyzedPhoto = uploadedPhotos.find(up => up.id === p.id);
-        return {
-          ...p,
-          s3Url: analyzedPhoto?.s3Url || p.s3Url,
-          userDirectives: multiPhotoDirectives,
-        };
+      if (!analysisVisitId || !mission) throw new Error('Visite indisponible');
+      setMultiAnalysisProgress(`Analyse SPS de ${uploadedPhotos.length} photo(s) en cours...`);
+      const groupResponse = await visitService.analysisGroups.create(analysisVisitId, {
+        requestId: `mobile-${Date.now()}`,
+        imageUrls: uploadedPhotos.map(photo => photo.s3Url),
+        imageReceipts: uploadedPhotos.map(photo => photo.receipt),
+        userDirectives: multiPhotoDirectives || undefined,
+        customPromptIds: batchCustomPromptIds,
       });
-
-      await saveVisit(photosRef.current, true);
-      // Alert.alert('Succès', `${pendingPhotos.length} photo(s) traitée(s) avec succès.`);
-
-      // Auto-show group report modal after analysis
-      setSelectedGroupId(batchGroupId);
-      // Show Group photos repport modal directly if no unreadableSections identified
-      if (!unreadableSections || unreadableSections.length == 0) {
-        setShowGroupDetail(true);
-      }
-      setTempGroupDirectives(multiPhotoDirectives || '');
-      setTempGroupComments('');
+      if (groupResponse.error) throw new Error(groupResponse.error);
+      await loadExistingVisitData(mission.id, analysisVisitId);
+      setShowGroupDetail(false);
+      setSelectedGroupId(null);
     } catch (error) {
       console.error('Erreur traitement photos:', error);
+      setPhotos(initialPhotos);
+      if ((existingVisitId || createdVisitId) && mission) await loadExistingVisitData(mission.id, existingVisitId || createdVisitId);
+      await Promise.all(uploadedPhotos.map(photo => uploadService.deletePhotoByUrl(photo.s3Url, photo.receipt).catch(() => undefined)));
       Alert.alert('Erreur', 'Erreur lors du traitement des photos.');
     } finally {
       setPendingPhotos([]);
@@ -1491,32 +1347,25 @@ export default function VisiteScreen() {
           unreadableSections: unreadableSections || [],
         };
       }
+      throw new Error(response.error || 'Analyse IA indisponible');
     } catch (error) {
       console.error('AI analysis error:', error);
+      throw error instanceof Error ? error : new Error('Analyse IA indisponible');
     }
-    return {
-      observations: [],
-      recommendations: [],
-      riskLevel: 'low' as const,
-      confidence: 0,
-      references: [],
-    };
   };
 
   const addDirectivesAndAnalyseAI = async () => {
-    await saveDirectives();
-    // Lancer l'analyse IA
     setAnalyzingPhoto(true);
     try {
-      const analysis = await analyzePhotoWithDirectives(selectedPhoto.s3Url);
-      console.log('analisis >>> : ', analysis);
-      setPhotos(prev => prev.map(p =>
-        p.id === selectedPhoto.id
-          ? { ...p, aiAnalysis: analysis }
-          : p
-      ));
-      setHasChanges(true);
-      setReportSaved(false);
+      if (!existingVisitId || !selectedPhoto) throw new Error('Visite ou photo indisponible');
+      const groupId = selectedPhoto.groupId || selectedPhoto.id;
+      const response = await visitService.analysisGroups.reanalyze(existingVisitId, groupId, {
+        requestId: `mobile-photo-reanalyze-${Date.now()}`,
+        userDirectives: tempDirectives,
+        customPromptIds: selectedPhoto.customPromptIds || customPromptIds,
+      });
+      if (response.error) throw new Error(response.error);
+      if (mission) await loadExistingVisitData(mission.id, existingVisitId);
       setShowPhotoDetail(false);
     } catch (error) {
       console.error('Erreur analyse IA:', error);
@@ -1527,36 +1376,22 @@ export default function VisiteScreen() {
   }
 
   // Save group directives
-  const saveGroupDirectives = () => {
+  const saveGroupDirectives = async () => {
     if (!selectedGroupId) return;
-    setPhotos(prev => prev.map(p =>
-      (p.groupId || p.id) === selectedGroupId
-        ? { ...p, userDirectives: tempGroupDirectives }
-        : p
-    ));
+    if (!existingVisitId) return Alert.alert('Erreur', 'Visite indisponible');
+    const response = await visitService.analysisGroups.update(existingVisitId, selectedGroupId, { userDirectives: tempGroupDirectives });
+    if (response.error) return Alert.alert('Erreur', response.error);
+    if (mission) await loadExistingVisitData(mission.id, existingVisitId);
     setEditingGroupDirectives(false);
-    setHasChanges(true);
-    setReportSaved(false);
   };
 
   // Save group report edits (observations, recommendations, references)
-  const saveGroupReportEdits = () => {
+  const saveGroupReportEdits = async () => {
     if (!selectedGroupId) return;
-    setPhotos(prev => prev.map(p => {
-      if ((p.groupId || p.id) === selectedGroupId) {
-        return {
-          ...p,
-          aiAnalysis: p.aiAnalysis ? {
-            ...p.aiAnalysis,
-            observations: tempGroupObservations,
-            recommendations: tempGroupRecommendations,
-            references: tempGroupReferences,
-          } : p.aiAnalysis,
-          customPromptIds: groupCustomPromptIds,
-        };
-      }
-      return p;
-    }));
+    if (!existingVisitId) return Alert.alert('Erreur', 'Visite indisponible');
+    const response = await visitService.analysisGroups.update(existingVisitId, selectedGroupId, { observations: tempGroupObservations, recommendations: tempGroupRecommendations, references: tempGroupReferences });
+    if (response.error) return Alert.alert('Erreur', response.error);
+    if (mission) await loadExistingVisitData(mission.id, existingVisitId);
     setEditingGroupReport(false);
     setHasChanges(true);
     setReportSaved(false);
@@ -1564,13 +1399,12 @@ export default function VisiteScreen() {
   };
 
   // Save group comments
-  const saveGroupComments = () => {
+  const saveGroupComments = async () => {
     if (!selectedGroupId) return;
-    setPhotos(prev => prev.map(p =>
-      (p.groupId || p.id) === selectedGroupId
-        ? { ...p, comment: tempGroupComments }
-        : p
-    ));
+    if (!existingVisitId) return Alert.alert('Erreur', 'Visite indisponible');
+    const response = await visitService.analysisGroups.update(existingVisitId, selectedGroupId, { comment: tempGroupComments });
+    if (response.error) return Alert.alert('Erreur', response.error);
+    if (mission) await loadExistingVisitData(mission.id, existingVisitId);
     setEditingGroupComments(false);
     setHasChanges(true);
     setReportSaved(false);
@@ -1595,6 +1429,19 @@ export default function VisiteScreen() {
     setIsRegeneratingGroup(true);
     setAnalyzingPhoto(true);
     try {
+      if (!existingVisitId || !mission) throw new Error('Visite indisponible');
+      const response = await visitService.analysisGroups.reanalyze(existingVisitId, selectedGroupId, {
+        requestId: `mobile-reanalyze-${Date.now()}`,
+        userDirectives: directivesToApply || undefined,
+        customPromptIds: selectedPromptIds,
+      });
+      if (response.error) throw new Error(response.error);
+      await loadExistingVisitData(mission.id, existingVisitId);
+      setHasChanges(false);
+      setReportSaved(false);
+      Alert.alert('Succès', 'La réanalyse a été envoyée au traitement SPS.');
+      return;
+
       let updatedPhotos = [...photos];
       if (group.isDirectiveOnly) {
         const missionContext = mission ? {
@@ -1701,6 +1548,19 @@ export default function VisiteScreen() {
     setRegeneratingAllProgress('Réanalyse en cours...');
 
     try {
+      if (!existingVisitId || !mission) throw new Error('Visite indisponible');
+      const response = await visitService.analysisGroups.reanalyzeAll(existingVisitId, {
+        requestId: `mobile-reanalyze-all-${Date.now()}`,
+        userDirectives: visitNotes.trim() || undefined,
+        customPromptIds,
+      });
+      if (response.error) throw new Error(response.error);
+      await loadExistingVisitData(mission.id, existingVisitId);
+      setHasChanges(false);
+      setReportSaved(false);
+      Alert.alert('Succès', 'La réanalyse globale a été envoyée au traitement SPS.');
+      return;
+
       let nextPhotos = [...photos];
 
       for (let i = 0; i < reportGroups.length; i++) {
@@ -1812,12 +1672,13 @@ export default function VisiteScreen() {
   };
 
   const deletePhotoFromServer = async (photo: Photo) => {
-    if (!photo?.s3Url) return;
+    if (!photo?.id || !existingVisitId) return;
     try {
-      await uploadService.deletePhotoByUrl(photo?.s3Url);
+      const groupId = photo.groupId || photo.id;
+      const response = await visitService.analysisGroups.deletePhoto(existingVisitId, groupId, photo.id);
+      if (response.error) throw new Error(response.error);
       const photosParam = photos.filter(p => p.id !== photo.id);
       setPhotos(prev => photosParam);
-      // await saveVisit(photosParam);
       setHasChanges(true);
       setReportSaved(false);
       Alert.alert('Succès', 'Photo suppriméee du serveur');
@@ -1837,16 +1698,13 @@ export default function VisiteScreen() {
           text: 'Supprimer', style: 'destructive',
           onPress: async () => {
             try {
-              if (photo.s3Url) {
-                try { await uploadService.deletePhotoByUrl(photo.s3Url); } catch (e) { console.error('S3 delete error:', e); }
-              }
+              if (!existingVisitId) throw new Error('Visite introuvable');
+              const response = await visitService.analysisGroups.deletePhoto(existingVisitId, groupId, photo.id);
+              if (response.error) throw new Error(response.error);
               const updatedPhotos = photosRef.current.filter(p => p.id !== photo.id);
               setPhotos(updatedPhotos);
               setHasChanges(true);
               setReportSaved(false);
-              if (existingVisitId) {
-                await saveVisit(updatedPhotos, true);
-              }
               Alert.alert('Succès', 'Photo jointe supprimée');
             } catch (error) {
               console.error('Erreur suppression photo jointe:', error);
@@ -1858,8 +1716,15 @@ export default function VisiteScreen() {
     );
   };
 
+  const cleanupUnattachedUploads = async (items: Array<{ s3Url: string; receipt: string }>) => {
+    await Promise.all(items.map(item => uploadService.deletePhotoByUrl(item.s3Url, item.receipt).catch(() => undefined)));
+  };
+
   const processDetailPhotosForGroup = async (targetGroupId: string, detailSources: { id: string; uri: string }[]) => {
     if (!detailSources.length) return;
+
+    const uploadedDetailPhotos: { id: string; uri: string; s3Url: string; receipt: string }[] = [];
+    let attached = false;
 
     try {
       setIsAddingDetailPhotos(true);
@@ -1872,8 +1737,6 @@ export default function VisiteScreen() {
       const previousUnreadable = group?.aiAnalysis?.unreadableSections || [];
 
       let nextPhotosSnapshot = [...photosRef.current];
-      const uploadedDetailPhotos: { id: string; uri: string; s3Url: string }[] = [];
-
       for (let i = 0; i < detailSources.length; i++) {
         const asset = detailSources[i];
         const photoId = `detail-${Date.now()}-${i}`;
@@ -1891,8 +1754,6 @@ export default function VisiteScreen() {
         };
 
         nextPhotosSnapshot = [...nextPhotosSnapshot, newPhoto];
-        setPhotos(nextPhotosSnapshot);
-        setHasChanges(true);
 
         // Upload
         let fileToUpload: Blob | string;
@@ -1907,13 +1768,14 @@ export default function VisiteScreen() {
           const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
           if (uploadResults?.data && uploadResults.data?.length > 0) {
             const s3Url = uploadResults.data[0].url;
+            const receipt = uploadResults.data[0].receipt;
+            if (!s3Url || !receipt) throw new Error('Le reçu signé de la photo est manquant');
             newPhoto.s3Url = s3Url;
+            newPhoto.receipt = receipt;
             nextPhotosSnapshot = nextPhotosSnapshot.map(p =>
               p.id === photoId ? { ...p, s3Url } : p
             );
-            setPhotos(nextPhotosSnapshot);
-            setUploadedPhotoUrls(prev => [...prev, s3Url]);
-            uploadedDetailPhotos.push({ id: photoId, uri: asset.uri, s3Url });
+            uploadedDetailPhotos.push({ id: photoId, uri: asset.uri, s3Url, receipt });
           }
         } catch (error) {
           console.error('Erreur upload photo de détail:', error);
@@ -1926,6 +1788,20 @@ export default function VisiteScreen() {
         setAnalyzingPhoto(false);
         return;
       }
+
+      if (!existingVisitId) throw new Error('Visite introuvable');
+      const clarifyResponse = await visitService.analysisGroups.clarify(existingVisitId, targetGroupId, {
+        requestId: `mobile-clarify-${Date.now()}`,
+        detailImageUrls: uploadedDetailPhotos.map(photo => photo.s3Url),
+        detailImageReceipts: uploadedDetailPhotos.map(photo => photo.receipt),
+        userDirectives: group?.directives || undefined,
+        customPromptIds: group?.customPromptIds || [],
+      });
+      if (clarifyResponse.error || !clarifyResponse.data) throw new Error(clarifyResponse.error || 'Clarification non confirmée par le serveur');
+      attached = true;
+      if (mission) await loadExistingVisitData(mission.id, existingVisitId);
+      Alert.alert('Analyse enrichie', 'Les photos de détail ont été rattachées et transmises au traitement SPS.');
+      return;
 
       // Get ALL s3Urls of the group (original + new detail)
       const existingS3Urls = (group?.photos || []).filter(p => p.s3Url).map(p => p.s3Url!);
@@ -1978,8 +1854,6 @@ export default function VisiteScreen() {
             }
             return p;
           });
-          setPhotos(nextPhotosSnapshot);
-
           const resolvedCount = previousUnreadable.length - (unreadableSections?.length || 0);
           const remainingCount = unreadableSections?.length || 0;
 
@@ -2011,6 +1885,7 @@ export default function VisiteScreen() {
         await saveVisit(nextPhotosSnapshot, true);
       }
     } catch (error) {
+      if (!attached) await cleanupUnattachedUploads(uploadedDetailPhotos);
       console.error('Erreur ajout photos de détail:', error);
       Alert.alert('Erreur', 'Impossible d\'ajouter les photos de détail.');
     } finally {
@@ -2059,6 +1934,8 @@ export default function VisiteScreen() {
 
   // Attach photos to a group (join to report without re-analysis)
   const attachPhotosToGroup = async (targetGroupId: string) => {
+    const uploadedPhotos: { s3Url: string; receipt: string }[] = [];
+    let attached = false;
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -2080,7 +1957,6 @@ export default function VisiteScreen() {
       }
 
       setUploadingPhotos(true);
-      const newPhotos: Photo[] = [];
       for (let i = 0; i < result.assets.length; i++) {
         const asset = result.assets[i];
         try {
@@ -2092,39 +1968,33 @@ export default function VisiteScreen() {
             fileToUpload = asset.uri;
           }
 
-          const fileName = `photo_attach_${Date.now()}_${i}.jpg`;
-          const uploadResult = await uploadService.uploadSingleFile(fileToUpload, fileName);
-          const s3Url = uploadResult?.data?.url || uploadResult?.url;
+          const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
+          const s3Url = uploadResults?.data?.[0]?.url;
+          const receipt = uploadResults?.data?.[0]?.receipt;
 
-          if (s3Url) {
-            newPhotos.push({
-              id: `attach-${Date.now()}-${i}`,
-              uri: asset.uri,
-              s3Url,
-              timestamp: new Date(),
-              groupId: targetGroupId,
-              isAttachedPhoto: true,
-              comment: '',
-              userDirectives: '',
-              validated: false,
-            });
-          }
+          if (s3Url && receipt) uploadedPhotos.push({ s3Url, receipt });
         } catch (error) {
           console.error(`Erreur upload photo jointe ${i}:`, error);
         }
       }
 
-      if (newPhotos.length > 0) {
-        const updatedPhotos = [...photos, ...newPhotos];
-        setPhotos(updatedPhotos);
-        await saveVisit(updatedPhotos, true);
+      if (uploadedPhotos.length > 0 && existingVisitId) {
+        const response = await visitService.analysisGroups.attachPhotos(existingVisitId, targetGroupId, {
+          imageUrls: uploadedPhotos.map(photo => photo.s3Url),
+          imageReceipts: uploadedPhotos.map(photo => photo.receipt),
+        });
+        if (response.error || !response.data) throw new Error(response.error || 'Rattachement non confirmé par le serveur');
+        attached = true;
+        if (mission) await loadExistingVisitData(mission.id, existingVisitId);
         setHasChanges(true);
         setReportSaved(false);
-        Alert.alert('Succès', `${newPhotos.length} photo(s) jointe(s) au rapport du groupe.`);
+        Alert.alert('Succès', `${uploadedPhotos.length} photo(s) jointe(s) au rapport du groupe.`);
       } else {
+        await cleanupUnattachedUploads(uploadedPhotos);
         Alert.alert('Erreur', 'Aucune photo n\'a pu être uploadée.');
       }
     } catch (error) {
+      if (!attached) await cleanupUnattachedUploads(uploadedPhotos);
       console.error('Erreur joindre photos:', error);
       Alert.alert('Erreur', 'Impossible de joindre les photos.');
     } finally {
@@ -2243,14 +2113,15 @@ export default function VisiteScreen() {
     setShowUnreadableSectionsModal(false);
     setAnalyzingPhoto(true);
 
+    const uploadedDetailPhotos: { id: string; uri: string; s3Url: string; receipt: string }[] = [];
+    let attached = false;
+
     try {
       const group = reportGroups.find(g => g.groupId === unreadableTargetGroupId);
       const previousAnalysis = group?.aiAnalysis || null;
       const previousUnreadable = [...unreadableSectionsList];
 
       // Upload all section photos
-      const uploadedDetailPhotos: { id: string; uri: string; s3Url: string }[] = [];
-
       for (let i = 0; i < allSectionPhotos.length; i++) {
         const sectionPhoto = allSectionPhotos[i];
         setUnreadableProgress(`Upload photo ${i + 1}/${allSectionPhotos.length}...`);
@@ -2272,8 +2143,6 @@ export default function VisiteScreen() {
           validated: false,
         };
 
-        setPhotos(prev => [...prev, newPhoto]);
-        setHasChanges(true);
 
         let fileToUpload: Blob | string;
         if (Platform.OS === 'web') {
@@ -2287,9 +2156,9 @@ export default function VisiteScreen() {
           const uploadResults = await uploadService.uploadVisitPhotos([fileToUpload]);
           if (uploadResults?.data && uploadResults.data?.length > 0) {
             const s3Url = uploadResults.data[0].url;
-            setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, s3Url } : p));
-            setUploadedPhotoUrls(prev => [...prev, s3Url]);
-            uploadedDetailPhotos.push({ id: photoId, uri: sectionPhoto.uri, s3Url });
+            const receipt = uploadResults.data[0].receipt;
+            if (!s3Url || !receipt) throw new Error('Le reçu signé de la photo est manquant');
+            uploadedDetailPhotos.push({ id: photoId, uri: sectionPhoto.uri, s3Url, receipt });
           }
         } catch (error) {
           console.error('Erreur upload photo section:', error);
@@ -2300,6 +2169,20 @@ export default function VisiteScreen() {
         Alert.alert('Erreur', 'Aucune photo n\'a pu être uploadée.');
         return;
       }
+
+      if (!existingVisitId) throw new Error('Visite introuvable');
+      const clarifyResponse = await visitService.analysisGroups.clarify(existingVisitId, unreadableTargetGroupId!, {
+        requestId: `mobile-readability-${Date.now()}`,
+        detailImageUrls: uploadedDetailPhotos.map(photo => photo.s3Url),
+        detailImageReceipts: uploadedDetailPhotos.map(photo => photo.receipt),
+        userDirectives: group?.directives || undefined,
+        customPromptIds: group?.customPromptIds || [],
+      });
+      if (clarifyResponse.error || !clarifyResponse.data) throw new Error(clarifyResponse.error || 'Clarification non confirmée par le serveur');
+      attached = true;
+      if (mission) await loadExistingVisitData(mission.id, existingVisitId);
+      Alert.alert('Analyse enrichie', 'Les photos de lisibilité ont été rattachées au traitement SPS.');
+      return;
 
       // Get all S3 URLs for the group (original + new)
       const existingS3Urls = (group?.photos || []).filter(p => p.s3Url).map(p => p.s3Url!);
@@ -2392,6 +2275,7 @@ export default function VisiteScreen() {
         }
       }
     } catch (error) {
+      if (!attached) await cleanupUnattachedUploads(uploadedDetailPhotos);
       console.error('Erreur traitement sections illisibles:', error);
       Alert.alert('Erreur', 'L\'analyse enrichie a échoué.');
     } finally {
@@ -2465,94 +2349,29 @@ export default function VisiteScreen() {
     setAnalyzingPhoto(true);
 
     try {
-      // Call AI to analyze directives
-      const missionContext = mission ? {
-        title: mission.title,
-        client: mission.client,
-        address: mission.location,
-        type: mission.type,
-      } : undefined;
-
-      const response = await aiService.analyzeDirectives(directiveOnlyText, missionContext, undefined, getPromptSelection(directiveOnlyCustomPromptIds));
-
-      const groupId = `directive-${Date.now()}`;
-      let aiAnalysis: Photo['aiAnalysis'] = {
-        observations: [directiveOnlyText],
-        recommendations: [],
-        references: [],
-        riskLevel: 'low',
-        confidence: 100,
-      };
-
-      if (response.data) {
-        const aiData = response.data as any;
-        const obs = aiData.observations || aiData.nonConformities || [directiveOnlyText];
-        aiAnalysis = {
-          observations: Array.isArray(obs) ? obs : [obs],
-          recommendations: aiData.recommendations || [],
-          references: aiData.references || [],
-          riskLevel: aiData.riskLevel === 'eleve' ? 'high' : aiData.riskLevel === 'moyen' ? 'medium' : 'low',
-          confidence: aiData.confidence || 85,
-        };
+      let visitId = existingVisitId;
+      if (!visitId && mission) {
+        const visitResponse = await visitService.createVisit({ missionId: mission.id, visitDate: new Date().toISOString(), notes: visitNotes, customPromptIds });
+        if (visitResponse.error || !visitResponse.data?.id) throw new Error(visitResponse.error || 'Visite indisponible');
+        visitId = visitResponse.data.id;
+        setExistingVisitId(visitId);
       }
-
-      const newPhoto: Photo = {
-        id: `directive-${Date.now()}-${Math.random()}`,
-        uri: '',
-        timestamp: new Date(),
-        groupId,
-        isDirectiveOnly: true,
-        comment: directiveOnlyComment,
+      if (!visitId) throw new Error('Visite indisponible');
+      const response = await visitService.analysisGroups.create(visitId, {
+        requestId: `mobile-directive-${Date.now()}`,
         userDirectives: directiveOnlyText,
-        validated: true,
-        aiAnalysis,
+        comment: directiveOnlyComment || undefined,
         customPromptIds: directiveOnlyCustomPromptIds,
-        appliedCustomPrompts: response.data?.appliedCustomPrompts || [],
-      };
-
-      const updatedPhotos = [...photos, newPhoto];
-      setPhotos(updatedPhotos);
-      setHasChanges(true);
-      setReportSaved(false);
+      });
+      if (response.error) throw new Error(response.error);
+      if (mission) await loadExistingVisitData(mission.id, visitId);
       setDirectiveOnlyText('');
       setDirectiveOnlyComment('');
       setShowDirectiveOnlyModal(false);
-      // Auto-save to DB
-      setTimeout(() => saveVisit(updatedPhotos, true), 500);
-      Alert.alert('Succès', 'Rapport directive analysé et ajouté avec succès');
+      Alert.alert('Succès', 'Rapport directive envoyé pour analyse SPS');
     } catch (error) {
       console.error('Error analyzing directives:', error);
-      // Fallback: create without AI
-      const groupId = `directive-${Date.now()}`;
-      const newPhoto: Photo = {
-        id: `directive-${Date.now()}-${Math.random()}`,
-        uri: '',
-        timestamp: new Date(),
-        groupId,
-        isDirectiveOnly: true,
-        comment: directiveOnlyComment,
-        userDirectives: directiveOnlyText,
-        validated: true,
-        aiAnalysis: {
-          observations: [directiveOnlyText],
-          recommendations: [],
-          references: [],
-          riskLevel: 'low',
-          confidence: 100,
-        },
-        customPromptIds: directiveOnlyCustomPromptIds,
-        appliedCustomPrompts: [],
-      };
-      const updatedPhotos = [...photos, newPhoto];
-      setPhotos(updatedPhotos);
-      setHasChanges(true);
-      setReportSaved(false);
-      setDirectiveOnlyText('');
-      setDirectiveOnlyComment('');
-      setShowDirectiveOnlyModal(false);
-      // Auto-save to DB
-      setTimeout(() => saveVisit(updatedPhotos, true), 500);
-      Alert.alert('Info', 'Rapport directive ajouté (sans analyse IA)');
+      Alert.alert('Erreur', 'L’analyse des directives a échoué. Aucun rapport n’a été créé.');
     } finally {
       setAnalyzingPhoto(false);
     }
@@ -2570,15 +2389,14 @@ export default function VisiteScreen() {
           style: 'destructive',
           onPress: async () => {
             const groupPhotos = photos.filter(p => (p.groupId || p.id) === groupId);
-            // Delete S3 files
-            for (const photo of groupPhotos) {
-              if (photo.s3Url) {
-                try {
-                  await uploadService.deletePhotoByUrl(photo.s3Url);
-                } catch (e) {
-                  console.error('Error deleting S3 photo:', e);
-                }
-              }
+            if (!existingVisitId) {
+              Alert.alert('Erreur', 'Visite introuvable');
+              return;
+            }
+            const response = await visitService.analysisGroups.delete(existingVisitId, groupId);
+            if (response.error) {
+              Alert.alert('Erreur', response.error);
+              return;
             }
             setPhotos(prev => prev.filter(p => (p.groupId || p.id) !== groupId));
             setUploadedPhotoUrls(prev => prev.filter(url => !groupPhotos.some(p => p.s3Url === url)));
@@ -2645,41 +2463,11 @@ export default function VisiteScreen() {
     setSavingVisit(true);
 
     try {
-      const visitPhotos = photosData.map((p: any) => ({
-        id: p.id,
-        uri: p.uri,
-        s3Url: p.s3Url,
-        groupId: p.groupId,
-        isDirectiveOnly: p.isDirectiveOnly || false,
-        isDetailPhoto: p.isDetailPhoto || false,
-        isReadabilityPhoto: p.isReadabilityPhoto || false,
-        isAttachedPhoto: p.isAttachedPhoto === true || String(p.id || '').startsWith('attach-'),
-        detailContext: p.detailContext || '',
-        analysis: {
-          observation: p.aiAnalysis?.observations || [],
-          recommendation: p.aiAnalysis?.recommendations || [],
-          riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
-            p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
-              'faible' as const,
-          confidence: p.aiAnalysis?.confidence || 0,
-          photoConformity: p.aiAnalysis?.photoConformity || true,
-          photoConformityMessage: p.aiAnalysis?.photoConformityMessage || "",
-          references: p.aiAnalysis?.references || [],
-          unreadableSections: p.aiAnalysis?.unreadableSections || [],
-        },
-        comment: p.comment,
-        userDirectives: p.userDirectives,
-        validated: p.validated,
-        customPromptIds: p.customPromptIds || [],
-        appliedCustomPrompts: p.appliedCustomPrompts || [],
-      }));
-
       let visitResponse;
       let visitId = existingVisitId;
       if (existingVisitId) {
         visitResponse = await visitService.updateVisit(existingVisitId, {
           visitDate: new Date().toISOString(),
-          photos: visitPhotos,
           notes: visitNotes,
           customPromptIds,
         });
@@ -2687,21 +2475,20 @@ export default function VisiteScreen() {
         visitResponse = await visitService.createVisit({
           missionId: mission?.id?.toString() || '',
           visitDate: new Date().toISOString(),
-          photos: visitPhotos,
           notes: visitNotes,
           customPromptIds,
         });
         visitId = visitResponse.data?.id;
-        setExistingVisitId(visitId);
       }
 
-      if (visitResponse.error) {
+      if (visitResponse.error || !visitId) {
         console.error('Error saving visit:', visitResponse.error);
         if (!silent) {
           Alert.alert('Erreur', "La visite n'a pas pu être enregistrée, veuillez réessayer ou contacter l'administrateur.");
         }
         return;
       }
+      if (!existingVisitId) setExistingVisitId(visitId);
 
       if (!silent) {
         loadExistingVisitData(mission.id, visitId);
@@ -2923,32 +2710,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         }, 0) / currentPhotos.length
       );
 
-      // 1. Save visit to backend
-      const visitPhotos = photosRef.current.map(p => ({
-        id: p.id,
-        uri: p.uri,
-        s3Url: p.s3Url,
-        groupId: p.groupId,
-        isDirectiveOnly: p.isDirectiveOnly || false,
-        isDetailPhoto: p.isDetailPhoto || false,
-        isReadabilityPhoto: p.isReadabilityPhoto || false,
-        isAttachedPhoto: p.isAttachedPhoto === true || String(p.id || '').startsWith('attach-'),
-        detailContext: p.detailContext || '',
-        analysis: {
-          observation: p.aiAnalysis?.observations || [],
-          recommendation: p.aiAnalysis?.recommendations || [],
-          riskLevel: p.aiAnalysis?.riskLevel === 'high' ? 'eleve' as const :
-            p.aiAnalysis?.riskLevel === 'medium' ? 'moyen' as const :
-              'faible' as const,
-          confidence: p.aiAnalysis?.confidence || 0,
-          references: p.aiAnalysis?.references || [],
-          unreadableSections: p.aiAnalysis?.unreadableSections || [],
-        },
-        comment: p.comment,
-        userDirectives: p.userDirectives,
-        validated: p.validated,
-      }));
-
+      // 1. Save visit metadata only; photos and groups use analysis-groups commands.
       let visitResponse;
       let visitId = existingVisitId;
 
@@ -2957,7 +2719,6 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         // Update existing visit
         visitResponse = await visitService.updateVisit(existingVisitId, {
           visitDate: new Date().toISOString(),
-          photos: visitPhotos,
           notes: visitNotes,
           customPromptIds,
         });
@@ -2967,7 +2728,6 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         visitResponse = await visitService.createVisit({
           missionId: mission?.id?.toString() || '',
           visitDate: new Date().toISOString(),
-          photos: visitPhotos,
           notes: visitNotes,
           customPromptIds,
         });
@@ -3052,33 +2812,6 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
         return false;
       }
       setReportSaved(true);
-      // 3. Also save locally as fallback
-      const newReport = {
-        id: Date.now(),
-        title: `RAPPORT VISITE - ${mission?.title}`,
-        mission: mission?.title || 'Chantier inconnu',
-        client: mission?.client || 'Client inconnu',
-        date: new Date().toISOString().split('T')[0],
-        status: 'envoyes',
-        type: mission?.type || 'CSPS',
-        pages: Math.ceil((reportHeader + reportContent + reportFooter).length / 500),
-        photos: photos.length,
-        anomalies: photos.filter(p => p.aiAnalysis?.riskLevel === 'high').length,
-        conformity,
-        aiGenerated: true,
-        gradient: ['#10B981', '#059669'],
-        backgroundImage: 'https://images.pexels.com/photos/1216589/pexels-photo-1216589.jpeg?auto=compress&cs=tinysrgb&w=800',
-        reportHeader: reportHeader,
-        reportContent: reportContent,
-        reportFooter: reportFooter,
-        visitPhotos: photos
-      };
-      const reportsStorageKey = await organizationStorageKey('userReports');
-      const existingReports = await AsyncStorage.getItem(reportsStorageKey)
-        || await AsyncStorage.getItem('userReports');
-      const parsedReports = existingReports ? JSON.parse(existingReports) : [];
-      const updatedReports = [newReport, ...parsedReports];
-      await AsyncStorage.setItem(reportsStorageKey, JSON.stringify(updatedReports));
       //       if (isToSend) {
       //         setReportSended(false);
       //         // const pdfPhotos = photos.map(p => ({
@@ -4915,6 +4648,64 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                         </View>
 
                         <ScrollView style={styles.photoDetailContent} showsVerticalScrollIndicator={false} nestedScrollEnabled={true}>
+                          {preventionPhaseLoading && (
+                            <View style={{ marginBottom: 14, padding: 12, borderRadius: 10, backgroundColor: '#1E3A5F' }}>
+                              <ActivityIndicator size="small" color="#93C5FD" />
+                              <Text style={{ color: '#BFDBFE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 6 }}>
+                                Chargement du statut Prévention…
+                              </Text>
+                            </View>
+                          )}
+                          {preventionPhaseError && (
+                            <View style={{ marginBottom: 14, padding: 12, borderRadius: 10, backgroundColor: '#451A03' }}>
+                              <Text style={{ color: '#FCD34D', fontSize: 12, fontFamily: 'Inter-Regular' }}>{preventionPhaseError}</Text>
+                              <TouchableOpacity disabled={preventionPhaseLoading} onPress={() => setPreventionPhaseRefresh(value => value + 1)} style={{ marginTop: 8 }}>
+                                <Text style={{ color: '#BFDBFE', fontSize: 12, fontFamily: 'Inter-Bold' }}>Actualiser le statut</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                          {preventionPhaseStatus && (
+                            <View style={{ marginBottom: 14, padding: 14, borderRadius: 12, backgroundColor: '#172554', borderWidth: 1, borderColor: '#1D4ED8' }}>
+                              <Text style={{ color: '#93C5FD', fontSize: 11, fontFamily: 'Inter-Bold', letterSpacing: 0.5 }}>PRÉVENTION — PHASE DU GROUPE</Text>
+                              <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 7 }}>
+                                Traitement : {preventionPhaseStatus.processingStatus}
+                              </Text>
+                              <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 3 }}>
+                                Proposée : {preventionPhaseLabel(preventionPhaseStatus.proposedPhase)}
+                              </Text>
+                              <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 3 }}>
+                                Effective : {preventionPhaseLabel(preventionPhaseStatus.effectivePhase)} ({preventionPhaseStatus.phaseStatus})
+                              </Text>
+                              <TouchableOpacity disabled={preventionPhaseLoading || preventionPhaseSaving} onPress={() => setPreventionPhaseRefresh(value => value + 1)} style={{ marginTop: 8 }}>
+                                <Text style={{ color: '#BFDBFE', fontSize: 12, fontFamily: 'Inter-Bold' }}>Actualiser le statut</Text>
+                              </TouchableOpacity>
+                              {preventionPhaseStatus.processingStatus === 'FAILED' && (
+                                <Text style={{ color: '#FCA5A5', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 6 }}>
+                                  Le traitement a échoué. Réessayez plus tard.
+                                </Text>
+                              )}
+                              {preventionPhaseStatus.processingStatus === 'READY' && canValidatePreventionPhase && (
+                                <View style={{ marginTop: 10 }}>
+                                  <Text style={{ color: '#BFDBFE', fontSize: 11, fontFamily: 'Inter-Regular', marginBottom: 7 }}>
+                                    {preventionPhaseStatus.phaseStatus === 'VALIDATED' ? 'Modifier la phase confirmée :' : 'Confirmer ou modifier la phase :'}
+                                  </Text>
+                                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                                    {PREVENTION_PHASES.map(phase => (
+                                      <TouchableOpacity
+                                        key={phase}
+                                        disabled={preventionPhaseSaving}
+                                        onPress={() => savePreventionPhase(phase)}
+                                        style={{ paddingHorizontal: 9, paddingVertical: 7, borderRadius: 8, backgroundColor: preventionPhaseStatus.effectivePhase === phase ? '#2563EB' : '#1E40AF', opacity: preventionPhaseSaving ? 0.6 : 1 }}
+                                      >
+                                        <Text style={{ color: '#FFFFFF', fontSize: 10, fontFamily: 'Inter-Bold' }}>{preventionPhaseLabel(phase)}</Text>
+                                      </TouchableOpacity>
+                                    ))}
+                                  </View>
+                                </View>
+                              )}
+                              {preventionPhaseSaving && <ActivityIndicator style={{ marginTop: 8 }} size="small" color="#BFDBFE" />}
+                            </View>
+                          )}
                           {editingGroupReport ? (
                             <CustomPromptSelector
                               missionType={mission.type}

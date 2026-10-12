@@ -6,6 +6,20 @@ export interface AIPromptSelection {
   customPromptIds?: string[];
 }
 
+export const PREVENTION_PHASES = [
+  { value: 'GROS_OEUVRE', label: 'Gros œuvre' },
+  { value: 'STRUCTURE_CLOS_COUVERT', label: 'Structure & Clos couvert' },
+  { value: 'SECOND_OEUVRE', label: 'Second œuvre' },
+  { value: 'INSTALLATIONS_FINITIONS', label: 'Installations & Finitions' },
+  { value: 'INSTALLATION_ELECTRIQUE', label: 'Installation électrique' },
+  { value: 'FINITIONS_INTERIEURES', label: 'Finitions intérieures' },
+  { value: 'FINITIONS_EXTERIEURES', label: 'Finitions extérieures' },
+] as const;
+
+export type PreventionPhase = typeof PREVENTION_PHASES[number]['value'];
+export type PreventionPhaseStatus = 'PROPOSED' | 'VALIDATED';
+export type PreventionPhaseSource = 'PHOTO' | 'DIRECTIVE' | 'MIXED';
+
 export interface AIAnalysis {
   observations: string[];
   recommendations: string[];
@@ -14,6 +28,18 @@ export interface AIAnalysis {
   confidence: number;
   unreadableSections?: string[];
   appliedCustomPrompts?: Array<{ id: string; name: string; content: string }>;
+  prevention?: {
+    phase: PreventionPhase;
+    confidence: number;
+    justification: string;
+    observations: Array<{ index: number; riskLevel: 'faible' | 'moyen' | 'eleve'; confidence: number }>;
+    attestation?: string;
+  };
+  preventionPhase?: PreventionPhase;
+  preventionPhaseConfidence?: number;
+  preventionPhaseJustification?: string;
+  preventionPhaseSource?: PreventionPhaseSource;
+  preventionPhaseStatus?: PreventionPhaseStatus;
 }
 
 const parseArrayField = (val: unknown): string[] => {

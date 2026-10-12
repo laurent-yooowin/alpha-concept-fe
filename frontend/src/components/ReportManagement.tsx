@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { mailingListAPI, missionsAPI, reportsAPI, usersAPI } from '../lib/api';
+import { mailingListAPI, missionsAPI, reportsAPI, usersAPI, visitsAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, FileText, FileCheck, Clock, Loader2, Plus, X } from 'lucide-react';
+import { Search, Filter, Eye, Edit2, CheckCircle, Send, Calendar, MapPin, Download, Loader2, Plus, X } from 'lucide-react';
 import { generatePdfService } from '../services/generatePdfService';
-import { visitService } from '../services/visitService';
 import { filesService } from '../services/filesService';
 import Swal from 'sweetalert2';
 import PhotoReportEditor from './PhotoReportEditor';
+import { changedReportGroups, ReportPhotoEditSource, ChangedReportGroup } from './reportEdits';
+import { isFinalReportStatus } from './reportFinalStatus';
+import { formatReportDate, withoutLegacyGeneratedFooterDate, withoutLegacyGeneratedHeaderDate } from './reportDatePresentation';
 
 interface Report {
   id: string;
@@ -65,8 +67,9 @@ export default function ReportManagement() {
   const [editedObservations, setEditedObservations] = useState('');
   const [adminRemarks, setAdminRemarks] = useState('');
   const [isEditing, setIsEditing] = useState(false);
-  const [cursorPos, setCursorPos] = useState(null);
-  const [photos, setPhotos] = useState([]);
+  const [cursorPos, setCursorPos] = useState<number | null>(null);
+  const [photos, setPhotos] = useState<ReportPhotoEditSource[]>([]);
+  const [savingEdits, setSavingEdits] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [downloadingReportId, setDownloadingReportId] = useState<string | null>(null);
   const [showRecipientsModal, setShowRecipientsModal] = useState(false);
@@ -79,7 +82,7 @@ export default function ReportManagement() {
   const [addingRecipient, setAddingRecipient] = useState(false);
   const [pdfFileName, setPdfFileName] = useState('');
 
-  const editedContentRef = useRef(null);
+  const editedContentRef = useRef<HTMLTextAreaElement | null>(null);
   const isAdmin = currentUser?.role === 'ROLE_ADMIN';
   const getReportMissionType = (report: Report | null) => (
     report?.missionType ||
@@ -127,7 +130,7 @@ export default function ReportManagement() {
     }
   }, [editedContent, cursorPos]);
 
-  const processData = (reports) => {
+  const processData = (reports: Report[]) => {
     return reports.map((report: Report) => {
       report.createdAt = new Date(report.createdAt).toLocaleDateString('fr-FR');
 
@@ -262,8 +265,8 @@ export default function ReportManagement() {
     setSelectedReport(report);
     setPhotos(report.visit?.photos || []);
     setEditedContent(report.content || '');
-    setEditedHeader(report.header || '');
-    setEditedFooter(report.footer || '');
+    setEditedHeader(withoutLegacyGeneratedHeaderDate(report.header || ''));
+    setEditedFooter(withoutLegacyGeneratedFooterDate(report.footer || ''));
     setEditedObservations(report.observations || '');
     setAdminRemarks(report.remarquesAdmin || '');
     setIsEditing(false);
@@ -291,47 +294,12 @@ export default function ReportManagement() {
     }
   };
 
-  const handleSubmitReport = async () => {
-    if (!selectedReport) return;
-    const confirm = await Swal.fire({
-      title: 'Soumettre le rapport',
-      text: 'Voulez-vous soumettre ce rapport pour validation ?',
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'Soumettre',
-      cancelButtonText: 'Annuler',
-    });
-    if (!confirm.isConfirmed) return;
-
-    try {
-      await reportsAPI.update(selectedReport.id, {
-        content: editedContent,
-        header: editedHeader,
-        footer: editedFooter,
-        observations: editedObservations,
-        status: 'envoye',
-      });
-
-      Swal.fire({ icon: 'success', title: 'Rapport soumis', timer: 1500, showConfirmButton: false });
-      setShowViewModal(false);
-      setSelectedReport(null);
-      await fetchReports();
-    } catch (error) {
-      console.error('Error submitting report:', error);
-      Swal.fire({ icon: 'error', title: 'Erreur', text: 'Erreur lors de la soumission' });
-    }
-  };
-
   const handleDownloadRowPdf = async (report: Report, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setDownloadingReportId(report.id);
     try {
-      const fileName = getSuggestedPdfFileName(report);
-      const generated = await generatePdfService.generateServerPDF(report.id, fileName);
-      if (!generated?.url) {
-        throw new Error('Le serveur n’a pas généré de PDF valide');
-      }
-      await downloadReportFile(generated.url);
+      const downloaded = await generatePdfService.downloadReportPDF(report, getSuggestedPdfFileName(report));
+      if (!downloaded) throw new Error('Aucun PDF disponible');
       Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 2000, showConfirmButton: false });
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -345,12 +313,8 @@ export default function ReportManagement() {
     if (!selectedReport) return;
     setGeneratingPdf(true);
     try {
-      const fileName = getSuggestedPdfFileName(selectedReport);
-      const generated = await generatePdfService.generateServerPDF(selectedReport.id, fileName);
-      if (!generated?.url) {
-        throw new Error('Le serveur n’a pas généré de PDF valide');
-      }
-      await downloadReportFile(generated.url);
+      const downloaded = await generatePdfService.downloadReportPDF(selectedReport, getSuggestedPdfFileName(selectedReport));
+      if (!downloaded) throw new Error('Aucun PDF disponible');
       Swal.fire({ icon: 'success', title: 'PDF téléchargé', timer: 2000, showConfirmButton: false });
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -366,80 +330,6 @@ export default function ReportManagement() {
     await fetchReports();
   }
 
-  const terminateMision = async () => {
-    try {
-      if (selectedReport?.missionStatus === 'terminee') return;
-
-      const hasUnsentReports = reports.some(
-        r =>
-          r.missionId === selectedReport?.missionId &&
-          r.status !== 'envoye_au_client' &&
-          r.id != selectedReport.id
-      );
-
-      // Cas : rapports non envoyés → confirmation
-      if (hasUnsentReports) {
-        const result = await Swal.fire({
-          title: 'Attention !',
-          text: `Le chantier ${selectedReport?.mission} a un ou plusieurs rapports non envoyés.
-
-Si vous clôturez le chantier, les rapports non envoyés seront annulés.`,
-          icon: 'warning',
-          showCancelButton: true,
-          confirmButtonText: 'Oui',
-          cancelButtonText: 'Non',
-          confirmButtonColor: '#dc3545',
-          cancelButtonColor: '#6c757d',
-          reverseButtons: true,
-        });
-
-        if (!result.isConfirmed) {
-          await terminateReportFn();
-          return;
-        } else {
-          // Clôture de la mission
-          await missionsAPI.update(selectedReport?.missionId, {
-            status: 'terminee',
-          });
-          await terminateReportFn();
-
-          // Succès
-          await Swal.fire({
-            title: 'Chantier clôturé',
-            text: `Le chantier ${selectedReport?.mission} est clôturé.
-La gestion et la modification des rapports ne sont plus autorisées pour ce chantier.`,
-            icon: 'success',
-          });
-        }
-      } else {
-        // Clôture de la mission
-        await missionsAPI.update(selectedReport?.missionId, {
-          status: 'terminee',
-        });
-        await terminateReportFn();
-
-        // Succès
-        await Swal.fire({
-          title: 'Chantier clôturé',
-          text: `Le chantier ${selectedReport?.mission} est clôturé.
-La gestion et la modification des rapports ne sont plus autorisées pour ce chantier.`,
-          icon: 'success',
-        });
-      }
-
-
-
-    } catch (error) {
-      console.error(error);
-      await terminateReportFn();
-      await Swal.fire({
-        title: 'Erreur',
-        text: "Une erreur est survenue lors de la clôture du chantier. Veuillez réessayer.",
-        icon: 'error',
-      });
-    }
-  };
-
   const validateSentReport = async () => {
     Swal.fire({
       title: 'Rapport envoyé au client',
@@ -452,7 +342,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
   };
 
   const handleSendToClient = async () => {
-    if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
+    if (!selectedReport || isFinalReportStatus(selectedReport.status) ||
       selectedReport.missionStatus == 'terminee' || selectedReport.missionStatus == 'archivee') return;
     setRecipientsLoading(true);
     setShowRecipientsModal(true);
@@ -521,7 +411,7 @@ La gestion et la modification des rapports ne sont plus autorisées pour ce chan
   };
 
   const sendReportToClient = async (selectedCc: string[], fileName: string) => {
-    if (!selectedReport || selectedReport.status == 'envoye_au_client' ||
+    if (!selectedReport || isFinalReportStatus(selectedReport.status) ||
       selectedReport.missionStatus == 'terminee' || selectedReport.missionStatus == 'archivee') return;
 
     try {
@@ -587,117 +477,26 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
     }
   };
 
-  // Update photo data from edited report content
-  const updatePhotosFromEditedContent = (photos: any[]) => {
-    const updatedPhotos: any = [];
-    photos.map((photo, index) => {
-      const photoSectionRegex = new RegExp(
-        `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
-        'i'
-      );
-      const photoSection = editedContent?.match(photoSectionRegex)?.[0] || '';
-
-      if (photoSection) {
-        const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-        const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
-        const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
-        const refsRegex = /🏛️\s*Références:\s*([\s\S]*?)(?=\n💬\s*Commentaires du coordonnateur:|$)/i;
-
-        const observationsMatch = photoSection.match(obsRegex);
-        const recommendationsMatch = photoSection.match(recRegex);
-        const commentsMatch = photoSection.match(comRegex);
-        const refsMatch = photoSection.match(refsRegex);
-
-        const observations = observationsMatch?.[1]
-          ?.split('•')
-          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-          .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
-
-        const recommendations = recommendationsMatch?.[1]
-          ?.split('•')
-          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-          .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
-
-        const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
-
-        // const references = refsMatch?.[1].replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
-        const references = refsMatch?.[1]
-          ?.split('•')
-          .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-          .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
-
-        updatedPhotos.push({
-          ...photo,
-          analysis: photo.analysis ? {
-            riskLevel: photo.analysis.riskLevel,
-            confidence: photo.analysis.confidence,
-            observation: observations,
-            recommendation: recommendations,
-            references,
-          } : undefined,
-          comment: comments,
-        });
-      } else {
-        updatedPhotos.push(photo);
-      }
-      return photo;
-    });
-    return updatedPhotos;
-    // setPhotos(updatedPhotos);
-  };
-
-  const handleChange = (e) => {
-    const textarea = e.target;
-    const value = textarea.value;
-    const cursor = textarea.selectionStart;
-
-    // Détection d'un saut de ligne
-    if (value.length > editedContent.length && value[cursor - 1] === "\n") {
-      const before = value.slice(0, cursor);
-      const after = value.slice(cursor);
-      const newText = before + "• " + after;
-
-      setEditedContent(newText);
-      setCursorPos(cursor + 2); // position exacte après "• "
-    } else {
-      setEditedContent(value);
-    }
-  };
-
-  const handleSaveEdits = async () => {
+  const handleSaveEdits = async (contentToSave: string, changedGroups: ChangedReportGroup[]) => {
     if (!selectedReport) return;
-    // let photos = [];
-
+    setSavingEdits(true);
     try {
-      // const visitResponse = await visitService.getVisit(selectedReport.visitId);
-      // // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
-      // if (visitResponse && visitResponse.photos) {
-      //   photos = updatePhotosFromEditedContent(visitResponse.photos);
-      // }
-      const respReport = await reportsAPI.update(selectedReport.id, {
-        content: editedContent,
+      if (changedGroups.length) await visitsAPI.analysisGroups.updateMany(selectedReport.visitId, changedGroups);
+      await reportsAPI.update(selectedReport.id, {
+        ...(changedGroups.length ? {} : { content: contentToSave }),
         header: editedHeader,
         footer: editedFooter,
         observations: editedObservations,
         remarquesAdmin: adminRemarks,
       });
-
-      const respVisit = await visitService.update(selectedReport.visitId, {
-        photos: photos
-      });
-
-      setSelectedReport(prev => prev ? {
-        ...prev,
-        content: respReport?.content,
-        header: respReport?.header,
-        footer: respReport?.footer,
-        observations: respReport?.observations,
-        remarquesAdmin: respReport?.remarquesAdmin,
-        sentToClientAt: respReport?.sentToClientAt,
-        updatedAt: respReport?.updatedAt,
-        visit: respVisit
-      } : null)
-
+      const currentReport = processData([await reportsAPI.getById(selectedReport.id)])[0];
+      setSelectedReport(currentReport);
+      setPhotos(currentReport.visit?.photos || []);
+      setEditedContent(currentReport.content || '');
+      setEditedHeader(withoutLegacyGeneratedHeaderDate(currentReport.header || ''));
+      setEditedFooter(withoutLegacyGeneratedFooterDate(currentReport.footer || ''));
+      setEditedObservations(currentReport.observations || '');
+      setAdminRemarks(currentReport.remarquesAdmin || '');
       setIsEditing(false);
       await fetchReports();
       Swal.fire({
@@ -714,6 +513,8 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
         icon: 'error',
         confirmButtonText: 'OK',
       });
+    } finally {
+      setSavingEdits(false);
     }
   };
 
@@ -760,37 +561,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
     }
   };
 
-  const downloadReportFile = async (fileUrl: string) => {
-    const link = document.createElement('a');
-    const response = await filesService.downloadFile(fileUrl, 'reports', true);
-    console.log('response for download >>> : ', response);
-    // const blob = await response.data.data.blob();
-    // const url = window.URL.createObjectURL(blob);
-    const { base64, contentType, fileName } = response.data;
-
-    // convertir base64 en Uint8Array
-    const byteCharacters = atob(base64); // decode base64
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-
-    // créer le blob
-    const blob = new Blob([byteArray], { type: contentType });
-
-    // créer le lien et déclencher le téléchargement
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName || `document.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
-  }
-
-  const downloadImages = async (url) => {
+  const downloadImages = async (url: string) => {
     try {
       const response = await filesService.downloadFile(url, 'reports', true);
       // console.log('response for download >>> : ', response);
@@ -804,42 +575,10 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
 
   }
 
-  const generateEditedContent = (photosData) => {
-    let content = 'OBSERVATIONS PRINCIPALES:\n';
-
-    photosData.forEach((photo, index) => {
-      const getRiskLevel = (level) => {
-        const levels = { 'eleve': 'HIGH', 'moyen': 'MEDIUM', 'faible': 'LOW' };
-        return levels[level] || level.toUpperCase();
-      };
-
-      content += '━'.repeat(25) + '\n';
-      content += `Photo ${index + 1} - Niveau de risque: ${getRiskLevel(photo.analysis.riskLevel)}\n`;
-      content += `📸 Photo: ${photo.s3Url}\n\n`;
-      content += 'Observations:\n';
-      content += photo.analysis.observation.map(obs => `• ${obs}`).join('\n') + '\n\n';
-      content += 'Recommandations:\n';
-      content += photo.analysis.recommendation.map(rec => `• ${rec}`).join('\n') + '\n\n';
-      content += '🏛️ Références:\n';
-      content += photo.analysis.references.map(ref => `• ${ref}`).join('\n') + '\n\n';
-      content += '💬 Commentaires du coordonnateur:\n';
-      content += (photo.comment || '') + '\n\n';
-    });
-
-    return content;
-  };
-
   const handleSave = async () => {
-    const updatedContent = generateEditedContent(photos);
-
-    console.log('Photos:', photos);
-    console.log('Header:', editedHeader);
-    console.log('Content:', editedContent);
-    console.log('Footer:', editedFooter);
-    setEditedContent(updatedContent);
-    // Sauvegarder dans votre backend
-    setIsEditing(false);
-    await handleSaveEdits();
+    if (!selectedReport || savingEdits) return;
+    const changedGroups = changedReportGroups(selectedReport.visit?.photos || [], photos);
+    await handleSaveEdits(editedContent, changedGroups);
   };
 
   const filteredMailingEntries = mailingEntries.filter((entry) => {
@@ -999,9 +738,9 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                     </p>
                   </div>
                   <div>
-                    <p className="text-slate-600">Date de création</p>
+                    <p className="text-slate-600">Date du chantier</p>
                     <p className="font-medium text-slate-900">
-                      {selectedReport.createdAt}
+                      {formatReportDate(selectedReport.missionDate) || '—'}
                     </p>
                   </div>
                 </div>
@@ -1042,6 +781,10 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                       isEditing={isEditing}
                       editedFooter={editedFooter}
                       editedHeader={editedHeader}
+                      headerDates={[
+                        { label: 'Date de la visite', value: formatReportDate(selectedReport.visit?.visitDate) },
+                        { label: 'Date du rapport', value: formatReportDate(selectedReport.createdAt) },
+                      ]}
                       onPhotosChange={setPhotos}
                       onHeaderChange={setEditedHeader}
                       onFooterChange={setEditedFooter}
@@ -1058,6 +801,10 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                     isEditing={isEditing}
                     editedFooter={editedFooter}
                     editedHeader={editedHeader}
+                    headerDates={[
+                      { label: 'Date de la visite', value: formatReportDate(selectedReport.visit?.visitDate) },
+                      { label: 'Date du rapport', value: formatReportDate(selectedReport.createdAt) },
+                    ]}
                   />
                 )}
               </div>
@@ -1144,16 +891,17 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                   </button>
                   <button
                     onClick={handleSave}
-                    className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
+                    disabled={savingEdits}
+                    className="flex items-center gap-2 bg-prosps-blue text-white px-6 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium disabled:opacity-50"
                   >
                     <CheckCircle className="w-4 h-4" />
-                    Enregistrer
+                    {savingEdits ? 'Enregistrement...' : 'Enregistrer'}
                   </button>
                 </>
               ) : (
                 <>
                   {/* Modifier - when not sent/terminated/cancelled */}
-                  {selectedReport && selectedReport.status !== 'envoye_au_client' &&
+                  {selectedReport && !isFinalReportStatus(selectedReport.status) &&
                     selectedReport.status !== 'annule' &&
                     selectedReport.missionStatus !== 'terminee' &&
                     selectedReport.missionStatus !== 'archivee' &&
@@ -1192,7 +940,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
 
                   {/* Envoyer au client */}
                   {selectedReport &&
-                    selectedReport.status !== 'envoye_au_client' &&
+                    !isFinalReportStatus(selectedReport.status) &&
                     selectedReport.missionStatus !== 'terminee' &&
                     selectedReport.missionStatus !== 'archivee' &&
                     selectedReport.status !== 'annule' && (

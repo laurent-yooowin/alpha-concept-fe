@@ -5,10 +5,8 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { DataSource } from 'typeorm';
 import { ALLOW_NO_ORG_KEY } from '../decorators/scope.decorators';
 import { UserRole } from '../../user/user.entity';
-import { Organization } from '../../organizations/organization.entity';
 
 /**
  * Defense-in-depth: requires every authenticated business request to have
@@ -19,10 +17,7 @@ import { Organization } from '../../organizations/organization.entity';
  */
 @Injectable()
 export class OrganizationScopeGuard implements CanActivate {
-  constructor(
-    private reflector: Reflector,
-    private dataSource: DataSource,
-  ) {}
+  constructor(private reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const allowNoOrg = this.reflector.getAllAndOverride<boolean>(
@@ -40,27 +35,6 @@ export class OrganizationScopeGuard implements CanActivate {
     if (user.role === UserRole.HYPER_ADMIN) return true;
 
     if (!user.organizationId) {
-      const organizationRepository = this.dataSource.getRepository(Organization);
-      const defaultOrgSlugCandidates = [
-        'alphaconcept',
-        'alpha_concept',
-        'alpha-concept',
-      ];
-      let defaultOrganization: Pick<Organization, 'id'> | null = null;
-
-      for (const slug of defaultOrgSlugCandidates) {
-        defaultOrganization = await organizationRepository.findOne({
-          where: { slug, isActive: true },
-          select: ['id'],
-        });
-        if (defaultOrganization) break;
-      }
-
-      if (defaultOrganization?.id) {
-        user.organizationId = defaultOrganization.id;
-        return true;
-      }
-
       throw new ForbiddenException(
         'Utilisateur sans organisation — accès refusé',
       );

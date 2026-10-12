@@ -102,11 +102,6 @@ export class UpdateReportDto {
 
   @IsOptional()
   @Transform(({ value }) => value === null ? undefined : value)
-  @IsString()
-  reportFileUrl?: string;
-  
-  @IsOptional()
-  @Transform(({ value }) => value === null ? undefined : value)
   @IsDate()
   sentToClientAt?: Date;
 }
@@ -121,6 +116,13 @@ export class GenerateReportPdfDto {
   @IsOptional()
   @IsBoolean()
   forceRegenerate?: boolean;
+}
+
+export class CurrentReportPdfDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  fileName?: string;
 }
 
 export class SendReportPdfDto extends GenerateReportPdfDto {

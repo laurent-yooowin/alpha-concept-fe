@@ -7,6 +7,7 @@ export interface UploadResult {
   data: {
     url?: string;
     key?: string;
+    receipt?: string;
   }
 }
 export interface DeleteResponse {
@@ -18,6 +19,12 @@ export interface UploadResponse {
   success: boolean;
   message: string;
   data: UploadResult | UploadResult[];
+}
+
+export interface VisitPhotoUpload {
+  url: string;
+  key: string;
+  receipt: string;
 }
 
 export interface DownloadFileResponse {
@@ -37,12 +44,12 @@ const imageContentTypeFromFileName = (fileName: string) => {
 
 export const uploadService = {
 
-  async deletePhotoByUrl(url: string): Promise<DeleteResponse> {
+  async deletePhotoByUrl(url: string, receipt?: string): Promise<DeleteResponse> {
     if (!url || url.trim() === '' || !url.includes('https://')) {
       throw new Error('Aucune url fourni');
     }
 
-    const response = await api.post<DeleteResponse>('/upload/delete', { url });
+    const response = await api.post<DeleteResponse>('/upload/delete', { url, receipt });
 
     if (!response || !response.data) {
       throw new Error('Réponse vide du serveur.');
@@ -145,7 +152,7 @@ export const uploadService = {
     return response.data;
   },
 
-  async uploadVisitPhotos(files: (Blob | string)[]): Promise<UploadResult[]> {
+  async uploadVisitPhotos(files: (Blob | string)[]): Promise<{ data: VisitPhotoUpload[] }> {
     const formData = new FormData();
 
     files.forEach((file, index) => {
@@ -170,7 +177,7 @@ export const uploadService = {
       throw new Error(response.error || 'Upload failed');
     }
 
-    return response.data;
+    return response.data as unknown as { data: VisitPhotoUpload[] };
   },
   async downloadFile(publicUrl: string, folder: string, isBase64: boolean) {
     const url = '/upload/download';

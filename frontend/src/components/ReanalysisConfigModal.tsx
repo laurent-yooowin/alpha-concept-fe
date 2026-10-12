@@ -6,8 +6,9 @@ interface Props {
   missionType?: string;
   selectedIds: string[];
   directives: string;
-  loading?: boolean;
   directiveRequired?: boolean;
+  helperText?: string;
+  loading?: boolean;
   onSelectedIdsChange: (ids: string[]) => void;
   onDirectivesChange: (value: string) => void;
   onCancel: () => void;
@@ -15,10 +16,11 @@ interface Props {
 }
 
 export default function ReanalysisConfigModal({
-  title, missionType, selectedIds, directives, loading = false,
-  directiveRequired = false, onSelectedIdsChange, onDirectivesChange, onCancel, onConfirm,
+  title, missionType, selectedIds, directives, directiveRequired = false, helperText, loading = false,
+  onSelectedIdsChange, onDirectivesChange, onCancel, onConfirm,
 }: Props) {
-  const disabled = loading || (directiveRequired && !directives.trim() && selectedIds.length === 0);
+  const missingConfiguration = !directives.trim() && (directiveRequired || selectedIds.length === 0);
+  const disabled = loading || missingConfiguration;
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onMouseDown={onCancel}>
       <div className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-xl bg-white shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
@@ -28,11 +30,13 @@ export default function ReanalysisConfigModal({
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-5">
           <CustomPromptSelector missionType={missionType} selectedIds={selectedIds} onChange={onSelectedIdsChange} />
+          {helperText && <p className="text-sm text-slate-600">{helperText}</p>}
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">Directives {directiveRequired ? '(requises si aucun prompt)' : '(optionnel)'}</label>
+            <label className="mb-2 block text-sm font-medium text-slate-700">{directiveRequired ? 'Directives obligatoires' : 'Directives (ou sélectionnez un prompt custom)'}</label>
             <textarea value={directives} onChange={(event) => onDirectivesChange(event.target.value)} rows={5}
               className="w-full resize-y rounded-lg border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               placeholder="Saisissez les directives à appliquer à la réanalyse..." />
+            {missingConfiguration && <p role="alert" className="mt-2 text-sm text-amber-700">{directiveRequired ? 'Ce rapport est fondé sur les directives : saisissez un contenu, même si un prompt custom est sélectionné. Les espaces et lignes vides ne suffisent pas.' : 'Saisissez une directive ou sélectionnez au moins un prompt custom pour lancer la réanalyse.'}</p>}
           </div>
         </div>
         <div className="flex justify-end gap-3 border-t border-slate-200 p-5">

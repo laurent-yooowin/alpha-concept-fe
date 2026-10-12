@@ -19,16 +19,18 @@ export class LoggingInterceptor implements NestInterceptor {
         const req = http.getRequest();
         const res = http.getResponse();
 
-        const requestId =
-            req.headers['x-request-id'] ||
-            req.headers['x-correlation-id'] ||
-            randomUUID();
+        const suppliedRequestId = req.headers['x-request-id'] || req.headers['x-correlation-id'];
+        const requestId = typeof suppliedRequestId === 'string' &&
+            /^[A-Za-z0-9._-]{1,100}$/.test(suppliedRequestId)
+            ? suppliedRequestId
+            : randomUUID();
         req.requestId = requestId;
         try { res.setHeader('x-request-id', requestId); } catch { /* noop */ }
 
         const start = process.hrtime.bigint();
         const { method, originalUrl, url, ip, headers } = req;
-        const fullUrl = originalUrl || url;
+        const rawUrl = String(originalUrl || url || '/');
+        const fullUrl = rawUrl.split('?', 1)[0];
         const userAgent = headers['user-agent'];
         const userId = req.user?.id || req.user?.userId;
 
@@ -69,7 +71,8 @@ export class LoggingInterceptor implements NestInterceptor {
             if (error) {
                 payload.http.error = {
                     name: error.name,
-                    message: error.message,
+                    message: 'Request failed',
+                    code: typeof error.code === 'string' ? error.code.slice(0, 64) : undefined,
                 };
                 this.logger.error(payload);
             } else if (statusCode >= 500) {

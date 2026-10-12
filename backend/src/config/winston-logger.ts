@@ -3,6 +3,8 @@ import 'winston-daily-rotate-file';
 import { WinstonModule } from 'nest-winston';
 import * as path from 'path';
 import * as fs from 'fs';
+import { hostname } from 'os';
+import { sanitizePersistentLog } from './persistent-log-sanitizer';
 
 const ensureWritableLogDir = (dir: string) => {
     fs.mkdirSync(dir, { recursive: true });
@@ -13,25 +15,120 @@ const ensureWritableLogDir = (dir: string) => {
 };
 
 const resolveLogDir = () => {
-    const candidates = [
-        process.env.LOG_DIR,
-        path.join(__dirname, '../../logs'),
-        '/tmp/reportbtp-logs',
-    ].filter(Boolean) as string[];
-
-    for (const candidate of candidates) {
-        try {
-            return ensureWritableLogDir(candidate);
-        } catch (error: any) {
-            // Keep bootstrap alive even if a mounted logs folder has wrong owner.
-            console.warn(`Logger cannot write to ${candidate}: ${error?.message || error}`);
-        }
-    }
-
-    return null;
+    // Never silently fall back to an ephemeral directory or console-only mode.
+    return ensureWritableLogDir(process.env.LOG_DIR || path.join(__dirname, '../../logs'));
 };
 
 const logDir = resolveLogDir();
+const logInstance = `${hostname().replace(/[^a-zA-Z0-9-]/g, '').slice(0, 32) || 'host'}-${process.pid}`;
+let retentionStarted = false;
+const heartbeatStarted = new Set<string>();
+
+function startLogHeartbeat(service: BackendLogService): void {
+    if (!logDir || heartbeatStarted.has(service)) return;
+    const marker = path.join(logDir, `.active-${service}-${logInstance}.heartbeat`);
+    const touch = () => {
+        const fd = fs.openSync(marker, 'a', 0o600);
+        fs.closeSync(fd);
+        fs.chmodSync(marker, 0o600);
+        const now = new Date();
+        fs.utimesSync(marker, now, now);
+    };
+    // A configured volume that cannot track active writers must fail startup.
+    touch();
+    heartbeatStarted.add(service);
+    setInterval(() => {
+        try { touch(); } catch (error: any) {
+            console.warn(`Log heartbeat failed: ${error?.code || 'UNKNOWN'}`);
+        }
+    }, 60_000).unref();
+}
+
+export function pruneLogDirectory(directory: string, now = Date.now(), quotaBytes = 512 * 1024 * 1024): void {
+        let totalBytes = 0;
+        type LogFile = { filename: string; mtimeMs: number; size: number; channel: string; family: string | null; order: string; auditInstance?: string };
+        const files: LogFile[] = [];
+        const activeByFamily = new Map<string, LogFile>();
+        const activeInstances = new Set<string>();
+        let failures = 0;
+        try {
+            const names = fs.readdirSync(directory);
+            for (const name of names) {
+                if (!/^\.active-(?:api|prevention-worker)-[a-zA-Z0-9-]+\.heartbeat$/.test(name)) continue;
+                try {
+                    const filename = path.join(directory, name);
+                    const stat = fs.lstatSync(filename);
+                    if (!stat.isFile()) continue;
+                    if (stat.mode & 0o077) fs.chmodSync(filename, 0o600);
+                    if (now - stat.mtimeMs < 180_000) activeInstances.add(name.slice(8, -10));
+                    else if (now - stat.mtimeMs > 86_400_000) fs.unlinkSync(filename);
+                } catch { failures += 1; }
+            }
+            for (const name of names) {
+                try {
+                    const match = name.match(/^((?:api|prevention-worker)-[a-zA-Z0-9-]+-(app|error|http|stdio))-(\d{4}-\d{2}-\d{2})(?:\.log(?:\.(\d+))?|\.(\d+)\.log)$/);
+                    const legacy = /^(?:app|error|http)-\d{4}-\d{2}-\d{2}\.log(?:\.gz)?$/.test(name);
+                    const audit = name.match(/^\.audit-((?:api|prevention-worker)-[a-zA-Z0-9-]+)-(app|error|http)\.json$/);
+                    const legacyAudit = /^\.[0-9a-f]{40,64}-audit\.json$/.test(name);
+                    if (!match && !legacy && !audit && !legacyAudit) continue;
+                    const filename = path.join(directory, name);
+                    const stat = fs.lstatSync(filename);
+                    if (!stat.isFile()) continue;
+                    // Legacy archives may have been created without the stream mode.
+                    if (stat.mode & 0o077) fs.chmodSync(filename, 0o600);
+                    const file: LogFile = {
+                        filename, mtimeMs: stat.mtimeMs, size: stat.size,
+                        channel: match?.[2] ?? audit?.[2] ?? name.split('-', 1)[0],
+                        family: match?.[1] ?? null,
+                        order: match ? `${match[3]}-${String(Number(match[4] ?? match[5] ?? 0)).padStart(8, '0')}` : '',
+                        auditInstance: audit?.[1],
+                    };
+                    files.push(file);
+                    if (file.family) {
+                        const current = activeByFamily.get(file.family);
+                        if (!current || file.order > current.order) activeByFamily.set(file.family, file);
+                    }
+                } catch { failures += 1; }
+            }
+            const quotaCandidates: LogFile[] = [];
+            for (const file of files) {
+                // Protect the newest segment per process/transport even across
+                // midnight: it may still be open until the next write.
+                const instance = file.family?.replace(/-(?:app|error|http|stdio)$/, '');
+                const active = (!!instance && activeInstances.has(instance) && activeByFamily.get(file.family!)?.filename === file.filename) ||
+                    (!!file.auditInstance && activeInstances.has(file.auditInstance));
+                // Old shared-name writers cannot be identified; leave today's
+                // legacy files untouched during a rolling deployment.
+                const legacyRecent = !file.family && !file.auditInstance && now - file.mtimeMs < 86_400_000;
+                if (!active && !legacyRecent && now - file.mtimeMs > (file.channel === 'error' ? 30 : 14) * 86_400_000) {
+                    try { fs.unlinkSync(file.filename); continue; } catch { failures += 1; }
+                }
+                totalBytes += file.size;
+                // Let rotation finish before unlinking a closed segment.
+                if (!active && !legacyRecent && now - file.mtimeMs > 120_000) quotaCandidates.push(file);
+            }
+            if (totalBytes > quotaBytes) {
+                quotaCandidates.sort((a, b) => a.mtimeMs - b.mtimeMs);
+                for (const candidate of quotaCandidates) {
+                    if (totalBytes <= quotaBytes) break;
+                    try {
+                        fs.unlinkSync(candidate.filename);
+                        totalBytes -= candidate.size;
+                    } catch { failures += 1; }
+                }
+            }
+        } catch (error: any) {
+            console.warn(`Log retention scan failed: ${error?.code || 'UNKNOWN'}`);
+        }
+        if (failures) console.warn(`Log retention could not secure ${failures} file(s)`);
+}
+
+function startLogRetention(): void {
+    if (retentionStarted) return;
+    retentionStarted = true;
+    pruneLogDirectory(logDir);
+    setInterval(() => pruneLogDirectory(logDir), 300_000).unref();
+}
 
 // ANSI colors for the console
 const COLORS = {
@@ -96,10 +193,10 @@ const consoleFormat = winston.format.printf((info) => {
     const rid = requestId ? `${COLORS.dim}(${String(requestId).slice(0, 8)})${COLORS.reset} ` : '';
 
     if (http) {
-        const m = http.method as string;
+        const m = typeof http.method === 'string' ? http.method : 'HTTP';
         const mc = METHOD_COLOR[m] || COLORS.white;
         const method = `${mc}${COLORS.bold}${m.padEnd(6)}${COLORS.reset}`;
-        const url = `${COLORS.white}${http.url}${COLORS.reset}`;
+        const url = `${COLORS.white}${http.pathFingerprint ? `path#${http.pathFingerprint}` : '-'}${COLORS.reset}`;
         const status = http.statusCode != null ? statusColor(http.statusCode) : '';
         const dur = http.durationMs != null ? durationColor(http.durationMs) : '';
         const ip = http.ip ? `${COLORS.dim}${http.ip}${COLORS.reset}` : '';
@@ -128,6 +225,11 @@ ${COLORS.red}${stack}${COLORS.reset}` : "";
     }
 
     let out = `${ts} ${lvl} ${ctx}${rid}${message}`;
+    if (info.controllerName) out += ` ${info.controllerName}`;
+    if (info.moduleName) out += ` ${info.moduleName}`;
+    if (info.routeMethod) out += ` ${info.routeMethod}`;
+    if (info.routePathFingerprint) out += ` path#${info.routePathFingerprint}`;
+    if (info.messageFingerprint) out += ` message#${info.messageFingerprint}`;
     if (typeof ms === 'number') out += ` ${durationColor(ms)}`;
     if (stack) out += `\n${COLORS.red}${stack}${COLORS.reset}`;
     return out;
@@ -136,7 +238,7 @@ ${COLORS.red}${stack}${COLORS.reset}` : "";
 // ── File format: structured JSON for easy parsing ────────────────────────
 const fileFormat = winston.format.combine(
     winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
-    winston.format.errors({ stack: true }),
+    winston.format((info) => sanitizePersistentLog(info) as unknown as typeof info)(),
     winston.format.json(),
 );
 
@@ -146,52 +248,72 @@ const baseFormat = winston.format.combine(
 );
 
 // ── Transports ───────────────────────────────────────────────────────────
-const appTransport = logDir ? new winston.transports.DailyRotateFile({
-    filename: path.join(logDir, 'app-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    zippedArchive: true,
-    maxSize: '20m',
-    maxFiles: '14d',
-    level: 'info',
-    format: fileFormat,
-}) : null;
+export type BackendLogService = 'api' | 'prevention-worker';
 
-const errorTransport = logDir ? new winston.transports.DailyRotateFile({
-    filename: path.join(logDir, 'error-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    zippedArchive: true,
-    maxSize: '20m',
-    maxFiles: '30d',
-    level: 'error',
-    format: fileFormat,
-}) : null;
+export const createWinstonLogger = (service: BackendLogService) => {
+    startLogHeartbeat(service);
+    startLogRetention();
+    const auditFile = (channel: 'app' | 'error' | 'http') => {
+        const filename = path.join(logDir, `.audit-${service}-${logInstance}-${channel}.json`);
+        const fd = fs.openSync(filename, 'a', 0o600);
+        fs.closeSync(fd);
+        fs.chmodSync(filename, 0o600);
+        return filename;
+    };
+    // Distinct filenames avoid cross-process rotation races on the shared log volume.
+    const appTransport = logDir ? new winston.transports.DailyRotateFile({
+        filename: path.join(logDir, `${service}-${logInstance}-app-%DATE%.log`),
+        datePattern: 'YYYY-MM-DD',
+        zippedArchive: false,
+        maxSize: '20m',
+        maxFiles: '14d',
+        auditFile: auditFile('app'),
+        options: { flags: 'a', mode: 0o600 },
+        level: process.env.LOG_LEVEL || 'info',
+        format: fileFormat,
+    }) : null;
 
-const httpTransport = logDir ? new winston.transports.DailyRotateFile({
-    filename: path.join(logDir, 'http-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    zippedArchive: true,
-    maxSize: '20m',
-    maxFiles: '14d',
-    level: 'info',
-    format: winston.format.combine(
-        winston.format((info) => (info.http ? info : false))(),
-        fileFormat,
-    ),
-}) : null;
+    const errorTransport = logDir ? new winston.transports.DailyRotateFile({
+        filename: path.join(logDir, `${service}-${logInstance}-error-%DATE%.log`),
+        datePattern: 'YYYY-MM-DD',
+        zippedArchive: false,
+        maxSize: '20m',
+        maxFiles: '30d',
+        auditFile: auditFile('error'),
+        options: { flags: 'a', mode: 0o600 },
+        level: 'error',
+        format: fileFormat,
+    }) : null;
 
-const consoleTransport = new winston.transports.Console({
-    format: winston.format.combine(baseFormat, consoleFormat),
-});
+    const httpTransport = service === 'api' && logDir ? new winston.transports.DailyRotateFile({
+        filename: path.join(logDir, `${service}-${logInstance}-http-%DATE%.log`),
+        datePattern: 'YYYY-MM-DD',
+        zippedArchive: false,
+        maxSize: '20m',
+        maxFiles: '14d',
+        auditFile: auditFile('http'),
+        options: { flags: 'a', mode: 0o600 },
+        level: 'info',
+        format: winston.format.combine(
+            winston.format((info) => (info.http ? info : false))(),
+            fileFormat,
+        ),
+    }) : null;
 
-const transports = [
-    consoleTransport,
-    ...(appTransport ? [appTransport] : []),
-    ...(errorTransport ? [errorTransport] : []),
-    ...(httpTransport ? [httpTransport] : []),
-];
-
-export const winstonLogger = WinstonModule.createLogger({
-    level: process.env.LOG_LEVEL || 'info',
-    format: baseFormat,
-    transports,
-});
+    return WinstonModule.createLogger({
+        level: process.env.LOG_LEVEL || 'info',
+        format: winston.format.combine(
+            winston.format((info) => { info.service = service; return info; })(),
+            baseFormat,
+        ),
+        transports: [
+            new winston.transports.Console({ format: winston.format.combine(
+                winston.format((info) => sanitizePersistentLog(info) as unknown as typeof info)(),
+                consoleFormat,
+            ) }),
+            ...(appTransport ? [appTransport] : []),
+            ...(errorTransport ? [errorTransport] : []),
+            ...(httpTransport ? [httpTransport] : []),
+        ],
+    });
+};

@@ -24,6 +24,17 @@ function defaultPermissionsFor(role: UserRole): UserPermissions {
 export function effectivePermission(user: any, module: PermissionModule): PermissionLevel {
   if (!user) return 'none';
   if (user.role === UserRole.HYPER_ADMIN) return 'write';
+  // An explicit permissions object is authoritative. A partial object is
+  // intentionally restrictive: omitted modules are `none`, never a role
+  // preset, so an administrator cannot accidentally regain access through a
+  // stale default after custom permissions were assigned.
+  if (user.permissions !== null && user.permissions !== undefined) {
+    const explicit = typeof user.permissions === 'string'
+      ? (() => { try { return JSON.parse(user.permissions); } catch { return {}; } })()
+      : user.permissions;
+    const value = explicit && typeof explicit === 'object' ? explicit[module] : undefined;
+    return value === 'none' || value === 'read' || value === 'write' ? value : 'none';
+  }
   const source = defaultPermissionsFor(user.role);
   return (source[module] as PermissionLevel) || 'none';
 }

@@ -19,7 +19,7 @@ export interface AIPromptSelection {
 
 export const aiService = {
   async analyzePhoto(imageUrl: string, promptSelection: AIPromptSelection = {}) {
-    return apiRequest('/ai/analyze-photo', {
+    return apiRequest<any>('/ai/analyze-photo', {
       method: 'POST',
       body: JSON.stringify({ imageUrl, ...promptSelection }),
     });
@@ -31,7 +31,7 @@ export const aiService = {
     previousReport: string,
     promptSelection: AIPromptSelection = {},
   ) {
-    return apiRequest('/ai/analyze-photo-directives', {
+    return apiRequest<any>('/ai/analyze-photo-directives', {
       method: 'POST',
       body: JSON.stringify({ imageUrl, userDirectives, previousReport, ...promptSelection }),
     });
@@ -48,7 +48,7 @@ export const aiService = {
     previousReport?: string,
     promptSelection: AIPromptSelection = {},
   ) {
-    return apiRequest('/ai/analyze-directives', {
+    return apiRequest<any>('/ai/analyze-directives', {
       method: 'POST',
       body: JSON.stringify({ userDirectives, missionContext, previousReport, ...promptSelection }),
     });
@@ -60,7 +60,7 @@ export const aiService = {
     previousReport?: string,
     promptSelection: AIPromptSelection = {},
   ) {
-    return apiRequest('/ai/analyze-batch', {
+    return apiRequest<any>('/ai/analyze-batch', {
       method: 'POST',
       body: JSON.stringify({ imageUrls, userDirectives, previousReport, ...promptSelection }),
     });
@@ -73,7 +73,7 @@ export const aiService = {
     userDirectives?: string,
     promptSelection: AIPromptSelection = {},
   ) {
-    return apiRequest('/ai/analyze-batch-enhanced', {
+    return apiRequest<any>('/ai/analyze-batch-enhanced', {
       method: 'POST',
       body: JSON.stringify({
         imageUrls,

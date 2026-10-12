@@ -13,6 +13,7 @@ interface User {
   specialite: string | null;
   isActive: boolean;
   organizationId?: string | null;
+  preventionEnabled?: boolean;
 }
 
 export interface Organization {
@@ -23,6 +24,8 @@ export interface Organization {
   backgroundImageUrl?: string | null;
   primaryColor: string | null;
   secondaryColor: string | null;
+  /** Feature pilot flag supplied by the organization API. */
+  preventionEnabled?: boolean;
   cguContent?: string | null;
   privacyContent?: string | null;
   loginTitle?: string | null;

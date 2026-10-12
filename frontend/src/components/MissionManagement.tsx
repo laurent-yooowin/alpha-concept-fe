@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { missionsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, Search, Filter, Calendar, MapPin, User, Clock, Upload, X, CheckCircle, AlertCircle, Trash2, Edit, Eye, FileText, Camera } from 'lucide-react';
+import { Plus, Search, Filter, Calendar, MapPin, User, Clock, Upload, X, CheckCircle, AlertCircle, Trash2, Edit, FileText, Camera } from 'lucide-react';
 import Swal from 'sweetalert2';
 import MissionVisitsModal from './MissionVisitsModal';
 import MissionReportModal from './MissionReportModal';
@@ -49,7 +49,6 @@ export default function MissionManagement() {
   const [visitsModalMission, setVisitsModalMission] = useState < Mission | null > (null);
   const [reportModalMission, setReportModalMission] = useState < Mission | null > (null);
   const [updatingStatus, setUpdatingStatus] = useState < string | null > (null);
-  const BLOCKED_STATUSES = ['terminee', 'archivee', 'annulee', 'refusee'];
 
   const [formData, setFormData] = useState({
     title: '',

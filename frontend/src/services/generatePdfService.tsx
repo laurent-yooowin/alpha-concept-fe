@@ -1,5 +1,6 @@
 import { apiRequest } from "../lib/api";
 import { filesService } from "./filesService";
+import { currentReportPdfData } from "./currentReportPdf";
 
 export const generatePdfService = {
   getMissionTypeLabel(reportData: any) {
@@ -40,7 +41,7 @@ export const generatePdfService = {
     const addressParts = addressValue.split(',').map((part) => part.trim()).filter(Boolean);
     let citySource = explicitCity;
     if (!citySource && addressParts.length > 1) {
-      citySource = addressParts.at(-1) || '';
+      citySource = addressParts[addressParts.length - 1] || '';
     } else if (!citySource) {
       citySource = addressValue.match(/\b\d{5}\s+([^,]+)$/)?.[1]?.trim() || '';
     }
@@ -71,38 +72,6 @@ export const generatePdfService = {
     // 1️⃣ Convertir chaque image en base64
     let reportContent = '';
     const divs = [];
-
-    const getRiskColor = (riskLevel: string) => {
-      switch (riskLevel.toLowerCase()) {
-        case 'high':
-        case 'eleve':
-          return '#EF4444';
-        case 'medium':
-        case 'moyen':
-          return '#F59E0B';
-        case 'low':
-        case 'faible':
-          return '#10B981';
-        default:
-          return '#64748B';
-      }
-    };
-
-    const getRiskLabel = (riskLevel: string) => {
-      switch (riskLevel.toLowerCase()) {
-        case 'high':
-        case 'eleve':
-          return 'ÉLEVÉ';
-        case 'medium':
-        case 'moyen':
-          return 'MOYEN';
-        case 'low':
-        case 'faible':
-          return 'FAIBLE';
-        default:
-          return riskLevel.toUpperCase();
-      }
-    };
 
     if (reportData.photos && reportData.photos.length > 0) {
       // Group photos by groupId (fallback to individual)
@@ -138,9 +107,7 @@ export const generatePdfService = {
 
       // Build HTML for each group
       const groupEntries = Object.entries(photoGroups).sort((a, b) => a[1].index - b[1].index);
-      let globalPhotoIdx = 0;
-
-      for (const [groupId, groupData] of groupEntries) {
+      for (const [, groupData] of groupEntries) {
         const photos = groupData.photos;
         const groupIdx = groupData.index + 1;
         const isDirectiveOnlyPhoto = (photo: any) => (
@@ -720,7 +687,7 @@ export const generatePdfService = {
       ${reportData.footer ? `
       <div class="conclusion-section">
         <div class="section-header conclusion-title">✅ Conclusion</div>
-        <div class="content-section">${reportData.footer?.replaceAll('CONCLUSION:\n', '')}</div>
+        <div class="content-section">${reportData.footer?.replace(/CONCLUSION:\n/g, '')}</div>
       </div>
       ` : ''}
     
@@ -747,6 +714,13 @@ export const generatePdfService = {
     return apiRequest(`/reports/${reportId}/pdf`, {
       method: 'POST',
       body: JSON.stringify({ fileName, forceRegenerate }),
+    });
+  },
+
+  async resolveCurrentReportPDF(reportId: string, fileName: string) {
+    return apiRequest(`/reports/${reportId}/pdf/current`, {
+      method: 'POST',
+      body: JSON.stringify({ fileName }),
     });
   },
 
@@ -777,25 +751,14 @@ export const generatePdfService = {
   async downloadReportPDF(reportData: any, filename?: string): Promise<boolean> {
     try {
       const reportId = reportData?.reportId || reportData?.id;
-      if (!reportId) {
-        throw new Error('Identifiant du rapport manquant pour la génération PDF serveur');
-      }
-
       const safeName = (filename || reportData?.title || reportData?.mission || 'rapport')
         .toString()
         .replace(/\.pdf$/i, '')
         .replace(/[^a-zA-Z0-9-_]+/g, '_');
       const fileName = `${safeName}.pdf`;
-      const generated = await this.generateServerPDF(reportId, fileName);
-      if (!generated?.url) {
-        throw new Error('Le serveur n’a pas généré de PDF valide');
-      }
-
-      const response = await filesService.downloadFile(generated.url, 'reports', true);
-      const base64 = response?.data?.base64;
-      if (!base64) {
-        throw new Error('Le PDF généré est vide ou inaccessible');
-      }
+      if (!reportId) throw new Error('Identifiant du rapport manquant pour le téléchargement PDF');
+      const response = await currentReportPdfData(reportId, fileName, this.resolveCurrentReportPDF);
+      const { base64 } = response;
 
       const byteCharacters = atob(base64);
       const byteNumbers = new Uint8Array(byteCharacters.length);
@@ -803,12 +766,12 @@ export const generatePdfService = {
         byteNumbers[index] = byteCharacters.charCodeAt(index);
       }
       const blob = new Blob([byteNumbers], {
-        type: response.data?.contentType || 'application/pdf',
+        type: response.contentType,
       });
       const objectUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
-      anchor.download = response.data?.fileName || fileName;
+      anchor.download = response.fileName || fileName;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();

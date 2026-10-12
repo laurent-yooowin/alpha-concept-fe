@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, apiRequest } from './api';
 
 export interface PhotoAnalysis {
   observation: string;
@@ -33,6 +33,7 @@ export interface Visit {
 export interface CreateVisitData {
   missionId: string;
   visitDate: string;
+  /** @deprecated Photos must be persisted via analysisGroups commands. */
   photos?: Photo[];
   customPromptIds?: string[];
   notes?: string;
@@ -40,6 +41,7 @@ export interface CreateVisitData {
 
 export interface UpdateVisitData {
   visitDate?: string;
+  /** @deprecated Photos must be persisted via analysisGroups commands. */
   photos?: Photo[];
   notes?: string;
   customPromptIds?: string[];
@@ -71,4 +73,38 @@ export const visitService = {
   async generateReport(visitId: string, options?: { header?: string; footer?: string; notes?: string }) {
     return api.post(`/visits/${visitId}/generate-report`, options || {});
   },
+
+  analysisGroups: {
+    bulkEdit(visitId: string, groups: Array<{ groupId: string; observations?: string[]; recommendations?: string[]; references?: string[]; comment?: string }>) {
+      return apiRequestPatch(`/visits/${encodeURIComponent(visitId)}/analysis-groups`, { groups });
+    },
+    create(visitId: string, body: { requestId: string; imageUrls?: string[]; imageReceipts?: string[]; userDirectives?: string; comment?: string; customPromptIds?: string[] }) {
+      return api.post(`/visits/${encodeURIComponent(visitId)}/analysis-groups`, body);
+    },
+    update(visitId: string, groupId: string, body: Record<string, unknown>) {
+      return apiRequestPatch(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}`, body);
+    },
+    attachPhotos(visitId: string, groupId: string, body: { imageUrls: string[]; imageReceipts: string[]; isDetailPhoto?: boolean; isReadabilityPhoto?: boolean; detailContext?: string }) {
+      return api.post(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/photos`, body);
+    },
+    clarify(visitId: string, groupId: string, body: { requestId: string; detailImageUrls: string[]; detailImageReceipts: string[]; userDirectives?: string; customPromptIds?: string[] }) {
+      return api.post(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/clarify`, body);
+    },
+    reanalyze(visitId: string, groupId: string, body: { requestId: string; userDirectives?: string; customPromptIds?: string[] }) {
+      return api.post(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/reanalyze`, body);
+    },
+    reanalyzeAll(visitId: string, body: { requestId: string; userDirectives?: string; customPromptIds?: string[] }) {
+      return api.post(`/visits/${encodeURIComponent(visitId)}/analysis-groups/reanalyze-all`, body);
+    },
+    deletePhoto(visitId: string, groupId: string, photoId: string) {
+      return apiRequestPatch(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}/photos/${encodeURIComponent(photoId)}`, undefined, 'DELETE');
+    },
+    delete(visitId: string, groupId: string) {
+      return apiRequestPatch(`/visits/${encodeURIComponent(visitId)}/analysis-groups/${encodeURIComponent(groupId)}`, undefined, 'DELETE');
+    },
+  },
 };
+
+function apiRequestPatch(endpoint: string, body?: unknown, method: 'PATCH' | 'DELETE' = 'PATCH') {
+  return apiRequest(endpoint, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+}

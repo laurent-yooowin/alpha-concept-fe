@@ -5,7 +5,7 @@ import {
   preventionDeduplicationKey,
   PreventionReportEventPayload,
 } from '../outbox/prevention-outbox.types';
-import { preventionJobId, preventionRetryState } from './prevention-queue.service';
+import { preventionJobId, preventionRetryState, PreventionQueueService } from './prevention-queue.service';
 
 test('deduplication and BullMQ ids are deterministic and safe', () => {
   const key = preventionDeduplicationKey(
@@ -32,6 +32,17 @@ test('publisher retries after one, five and thirty minutes before failing', () =
   assert.equal(preventionRetryState(2, now).availableAt?.getTime(), now + 5 * 60_000);
   assert.equal(preventionRetryState(3, now).availableAt?.getTime(), now + 30 * 60_000);
   assert.equal(preventionRetryState(4, now).status, PreventionOutboxStatus.FAILED);
+});
+
+test('publisher does not claim events for an inactive organization with Prevention still flagged', async () => {
+  let selection = '';
+  const service: any = Object.create(PreventionQueueService.prototype);
+  service.config = { get: () => 25 };
+  service.dataSource = { transaction: async (callback: (manager: any) => Promise<unknown>) => callback({
+    query: async (sql: string) => { selection = sql; return []; },
+  }) };
+  assert.deepEqual(await service.claimPending({}), []);
+  assert.match(selection, /o\.isActive=1 AND o\.preventionEnabled=1/);
 });
 
 test('queue payload contract contains identifiers and version only', () => {

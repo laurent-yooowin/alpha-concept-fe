@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query } from '@nestjs/common';
 import { ReportService } from './report.service';
-import { CreateReportDto, GenerateReportPdfDto, SendReportPdfDto, UpdateReportDto } from './report.dto';
+import { CreateReportDto, CurrentReportPdfDto, GenerateReportPdfDto, SendReportPdfDto, UpdateReportDto } from './report.dto';
 import { ReportStatus } from './report.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -50,6 +50,16 @@ export class ReportController {
     @Body() body: GenerateReportPdfDto,
   ) {
     return this.reportService.generateAndStorePdf(id, user, body.fileName, body.forceRegenerate);
+  }
+
+  @Post(':id/pdf/current')
+  @RequirePermission('reports', 'read')
+  async currentPdf(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() body: CurrentReportPdfDto,
+  ) {
+    return this.reportService.resolveCurrentPdf(id, user, body.fileName);
   }
 
   @Post('by-visit/:visitId/pdf')

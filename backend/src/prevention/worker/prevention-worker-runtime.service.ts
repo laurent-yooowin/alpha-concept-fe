@@ -36,6 +36,8 @@ export class PreventionWorkerRuntimeService
 {
   private readonly logger = new Logger(PreventionWorkerRuntimeService.name);
   private closed = false;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private readonly heartbeatKey = 'prevention:observability:worker-heartbeat';
 
   constructor(
     private readonly dataSource: DataSource,
@@ -54,18 +56,49 @@ export class PreventionWorkerRuntimeService
       attempts,
       delayMs,
     );
+    await this.writeHeartbeat();
+    const heartbeatIntervalMs = this.boundedInteger(
+      'PREVENTION_WORKER_HEARTBEAT_INTERVAL_MS', 10_000, 5_000, 60_000,
+    );
+    this.heartbeatTimer = setInterval(() => {
+      void this.writeHeartbeat().catch(() => {
+        this.logger.warn({
+          message: 'Prevention worker heartbeat failed',
+          context: PreventionWorkerRuntimeService.name,
+          event: 'PREVENTION_WORKER_HEARTBEAT_FAILED',
+        } as any);
+      });
+    }, heartbeatIntervalMs);
+    this.heartbeatTimer.unref();
     this.logger.log('Prevention worker runtime ready');
   }
 
   async onApplicationShutdown(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
     await this.redis.quit().catch(() => this.redis.disconnect(false));
+  }
+
+  private async writeHeartbeat(): Promise<void> {
+    const ttlSeconds = this.boundedInteger(
+      'PREVENTION_WORKER_HEARTBEAT_TTL_SECONDS', 300, 30, 600,
+    );
+    await this.redis.set(this.heartbeatKey, String(Date.now()), 'EX', ttlSeconds);
   }
 
   private positiveInteger(name: string, fallback: number): number {
     const value = Number(this.config.get(name, fallback));
     if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer`);
+    return value;
+  }
+
+  private boundedInteger(name: string, fallback: number, min: number, max: number): number {
+    const value = Number(this.config.get(name, fallback));
+    if (!Number.isInteger(value) || value < min || value > max) {
+      throw new Error(`${name} must be an integer between ${min} and ${max}`);
+    }
     return value;
   }
 }

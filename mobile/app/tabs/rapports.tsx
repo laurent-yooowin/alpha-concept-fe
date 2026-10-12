@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -21,7 +21,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Search, Filter, Download, Send, FileText, Calendar, Building, CircleCheck as CheckCircle, Clock, TriangleAlert as AlertTriangle, Eye, Share, Sparkles, ArrowRight, ChevronDown, X, Edit, Mail, FileCheck, NotebookPen, Plus, Pencil, Save, RefreshCw } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getSuggestedReportFilename, reportService, ReportStatus } from '@/services/reportService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { downloadBase64File, getReportStatusInfo } from '@/utils/missionHelpers';
 import * as Linking from 'expo-linking';
 import { visitService } from '@/services/visitService';
@@ -32,14 +31,14 @@ import { mailingListService } from '../../services/mailingListService';
 import { uploadService } from '@/services/uploadService';
 import { Mission, missionService } from '../../services/missionService';
 import { useLocalSearchParams } from 'expo-router';
-import { userService } from '@/services/userService';
-import { organizationStorageKey } from '@/services/organizationContext';
 
 const { width } = Dimensions.get('window');
 
 export default function RapportsScreen() {
-  // const { user } = useAuth();
-  const [userProfile, setUserProfile] = useState < any > (null);
+  const { user } = useAuth();
+  const reportLoadVersion = useRef(0);
+  const recipientLoadVersion = useRef(0);
+  const displayedIdentity = useRef<string | null>(null);
   const params = useLocalSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('tous');
@@ -47,12 +46,11 @@ export default function RapportsScreen() {
   const [reports, setReports] = useState < any[] > ([]);
   const [selectedReport, setSelectedReport] = useState < any | null > (null);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [selectedReportPhotos, setSelectedReportPhotos] = useState([]);
-  const [isSaving, setIsSaving] = useState(false);
+  const [selectedReportPhotos, setSelectedReportPhotos] = useState<any[]>([]);
   const [loadingReport, setLoadingReport] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
   const [showPdfLoadingModal, setShowPdfLoadingModal] = useState(false);
   const [pdfLoadingProgress, setPdfLoadingProgress] = useState('Préparation du document...');
-  const [selection, setSelection] = useState({ start: 2, end: 2 });
   const [showRecipientsModal, setShowRecipientsModal] = useState(false);
   const [recipientsLoading, setRecipientsLoading] = useState(false);
   const [mailingEntries, setMailingEntries] = useState<any[]>([]);
@@ -75,6 +73,26 @@ export default function RapportsScreen() {
   // Recharger UNIQUEMENT si la chantier change
   useFocusEffect(
     useCallback(() => {
+      const identity = `${user?.organizationId || ''}:${user?.id || ''}`;
+      if (displayedIdentity.current !== identity) {
+        displayedIdentity.current = identity;
+        recipientLoadVersion.current += 1;
+        setReports([]);
+        setSelectedReport(null);
+        setSelectedReportPhotos([]);
+        setShowReportModal(false);
+        setShowReportImageZoom(false);
+        setReportZoomedImageUri(null);
+        setShowRecipientsModal(false);
+        setMailingEntries([]);
+        setSelectedRecipientIds([]);
+        setRecipientSearch('');
+        setNewRecipientEmail('');
+        setNewRecipientName('');
+        setPdfFileName('');
+        setRecipientsLoading(false);
+        setAddingRecipient(false);
+      }
       if (params.mission) {
         let missionData;
         try {
@@ -87,30 +105,18 @@ export default function RapportsScreen() {
       } else {
         loadReports();
       }
-    }, [params.mission]) // Ajoute params.chantier comme dépendance    
+      return () => { reportLoadVersion.current += 1; };
+    }, [params.mission, user?.organizationId, user?.id])
   );
 
 
-  const loadUserProfile = async () => {
-    try {
-      const response = await userService.getProfile();
-      if (response.data) {
-        setUserProfile(response.data);
-      }
-
-    } catch (error) {
-      console.log('Erreur lors du chargement du profil:', error);
-    }
-  };
-
   const loadReports = async (missionData?: Mission | null) => {
+    const loadVersion = ++reportLoadVersion.current;
     try {
       setLoadingReport(true);
-      // await loadUserProfile();
-      if (!userProfile) {
-        await loadUserProfile();
-      }
+      setReportsError(null);
       const response = await reportService.getReports();
+      if (loadVersion !== reportLoadVersion.current) return;
       let missionExists = false;
       let selectedReportMission = null;
 
@@ -120,7 +126,7 @@ export default function RapportsScreen() {
             const statusInfo = getReportStatusInfo(report.status);
             let anomalies = 0;
             if (report.visit) {
-              report.visit.photos.forEach((photo: any) => {
+              (report.visit.photos || []).forEach((photo: any) => {
                 if (photo.analysis && photo.analysis.riskLevel && (photo.analysis.riskLevel.toLowerCase() === 'eleve' || photo.analysis.riskLevel.toLowerCase() === 'high')) {
                   anomalies += 1;
                 }
@@ -136,7 +142,7 @@ export default function RapportsScreen() {
               status: report.status || 'brouillon',
               originalStatus: report.status || 'brouillon',
               type: report.mission?.type,
-              pages: Math.ceil(report.content.length / 500),
+              pages: Math.ceil((report.content || '').length / 500),
               photos: report.visit?.photoCount || 0,
               anomalies: anomalies,
               conformity: report.conformityPercentage,
@@ -151,52 +157,45 @@ export default function RapportsScreen() {
               reportFileUrl: report.reportFileUrl,
               validatedAt: report.validatedAt,
               sentToClientAt: report.sentToClientAt,
-              location: report.mission.address,
-              dateMission: report.mission.date,
-              timeMission: report.mission.time,
+              location: report.mission?.address,
+              dateMission: report.mission?.date,
+              timeMission: report.mission?.time,
               contact: {
-                firstName: report.mission.contactFirstName,
-                lasstName: report.mission.contactLastName,
-                email: report.mission.contactEmail,
-                phone: report.mission.contactPhone,
+                firstName: report.mission?.contactFirstName,
+                lasstName: report.mission?.contactLastName,
+                email: report.mission?.contactEmail,
+                phone: report.mission?.contactPhone,
               }
             };
-            if (missionData && report.mission.id == missionData.id && missionData.reportId == report.id) {
+            if (missionData && report.mission?.id == missionData.id && missionData.reportId == report.id) {
               missionExists = true;
-              setSelectedReport(reportRet);
               selectedReportMission = reportRet;
             }
             return reportRet;
           }));
 
-        // Load local reports as well
-        const localReports = await AsyncStorage.getItem(await organizationStorageKey('userReports'))
-          || await AsyncStorage.getItem('userReports');
-        const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
-
-        // setReports([...backendReports, ...parsedLocalReports]);
+        if (loadVersion !== reportLoadVersion.current) return;
         setReports([...backendReports]);
         if (missionExists && selectedReportMission) {
-          // console.log('selectedReportMission >>> : ', selectedReportMission);          
+          setSelectedReport(selectedReportMission);
           openReportDetail(selectedReportMission);
         } else {
           setLoadingReport(false);
         }
       } else {
-        // Load only local reports if backend fails
-        const localReports = await AsyncStorage.getItem(await organizationStorageKey('userReports'))
-          || await AsyncStorage.getItem('userReports');
-        const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
         setReports([]);
+        setSelectedReport(null);
+        setShowReportModal(false);
+        setReportsError(response.error || 'Impossible de charger les rapports depuis le serveur.');
         setLoadingReport(false);
       }
     } catch (error) {
+      if (loadVersion !== reportLoadVersion.current) return;
       console.log('Error loading reports:', error);
-      // Load local reports as fallback
-      const localReports = await AsyncStorage.getItem(await organizationStorageKey('userReports'))
-        || await AsyncStorage.getItem('userReports');
-      const parsedLocalReports = localReports ? JSON.parse(localReports) : [];
-      setReports(parsedLocalReports);
+      setReports([]);
+      setSelectedReport(null);
+      setShowReportModal(false);
+      setReportsError('Impossible de charger les rapports depuis le serveur.');
       setLoadingReport(false);
     }
   };
@@ -228,150 +227,20 @@ export default function RapportsScreen() {
     setTempAllGroupsData({});
   };
 
-  const handleChangeText = (value: string) => {
-    const cursor = selection.start;
-    // Détection insertion d’un retour à la ligne
-    if (value.length > editedContent.length && value[cursor - 1] === "\n") {
-      const before = value.slice(0, cursor);
-      const after = value.slice(cursor);
-
-      const newText = before + "• " + after;
-      const newCursor = before.length + 3; // position exacte après "• "
-
-      setEditedContent(newText);
-
-      // ⚠️ important : attendre le rendu
-      setTimeout(() => {
-        setSelection({ start: newCursor, end: newCursor });
-      }, 0);
-    } else {
-      setEditedContent(value);
-    }
-  };
-
-
-  const handleSaveModifications = async () => {
-    if (!selectedReport) return;
-
-    try {
-      setIsSaving(true);
-      const report = await reportService.updateReport(selectedReport.id, {
-        header: editedHeader,
-        content: editedContent,
-        footer: editedFooter,
-        status: 'brouillon',
-      });
-
-      setSelectedReport(prev => prev ? { ...prev, reportHeader: editedHeader, reportContent: editedContent, reportFooter: editedFooter } : null);
-
-      if (selectedReport.visitId) {
-        try {
-          const visitResponse = await visitService.getVisit(selectedReport.visitId);
-          if (visitResponse.data && visitResponse.data.photos) {
-            const updatedPhotos = visitResponse.data.photos.map((photo: any, index: number) => {
-              const photoSectionRegex = new RegExp(
-                `Photo ${index + 1}[\\s\\S]*?(?=Photo ${index + 2}|$)`,
-                'i'
-              );
-              const photoSection = editedContent.match(photoSectionRegex)?.[0] || '';
-
-              // console.log('photoSection >>> :', photoSection);
-
-              if (photoSection) {
-                const obsRegex = /Observations:\s*([\s\S]*?)(?=\n\s*Recommandations:|$)/i;
-                const recRegex = /Recommandations:\s*([\s\S]*?)(?=\n🏛️\s*Références|$)/i;
-                const comRegex = /💬\s*Commentaires du coordonnateur:\s*([\s\S]*)/i;
-                const refsRegex = /🏛️\s*Références:\s*([\s\S]*?)(?=\n💬\s*Commentaires du coordonnateur:|$)/i;
-
-                const observationsMatch = photoSection.match(obsRegex);
-                const recommendationsMatch = photoSection.match(recRegex);
-                const commentsMatch = photoSection.match(comRegex);
-                const refsMatch = photoSection.match(refsRegex);
-
-                const observations = observationsMatch?.[1]
-                  ?.split('•')
-                  .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-                  .filter(s => s.length > 0) || photo.aiAnalysis?.observations || [];
-
-                const recommendations = recommendationsMatch?.[1]
-                  ?.split('•')
-                  .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-                  .filter(s => s.length > 0) || photo.aiAnalysis?.recommendations || [];
-
-                const comments = commentsMatch?.[1]?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || photo.comment?.replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', '') || '';
-
-                const references = refsMatch?.[1]
-                  ?.split('•')
-                  .map(s => s.trim().replaceAll('━━━━━━━━━━━━━━━━━━━━━', '').replaceAll('\n\n\n', '').replaceAll('\n\n', ''))
-                  .filter(s => s.length > 0) || photo.aiAnalysis?.references || [];
-
-                return {
-                  ...photo,
-                  analysis: {
-                    ...photo.analysis,
-                    observation: observations,
-                    recommendation: recommendations,
-                    references: references,
-                  },
-                  comment: comments,
-                };
-              }
-
-              return photo;
-            });
-
-            const visitNotes = updatedPhotos
-              .map((p: any) => p.comment)
-              .filter((c: string) => c)
-              .join('\n\n');
-
-
-            await visitService.updateVisit(selectedReport.visitId, {
-              photos: updatedPhotos,
-              notes: visitNotes,
-            });
-          }
-        } catch (visitError) {
-          console.log('Note: Could not update related visit:', visitError);
-        }
-      }
-
-      Alert.alert('Succès', 'Le rapport a été modifié avec succès.');
-      setShowEditModal(false);
-      await loadReports(selectedReport.missionData);
-    } catch (error) {
-      console.error('Error updating report:', error);
-      Alert.alert('Erreur', 'Impossible de modifier le rapport.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleSaveAllGroups = async () => {
     if (!selectedReport || !selectedReport.visitId) return;
     try {
       setIsSavingAllGroups(true);
-      const visitResponse = await visitService.getVisit(selectedReport.visitId);
-      if (visitResponse.data && visitResponse.data.photos) {
-        const updatedPhotos = visitResponse.data.photos.map((photo: any) => {
-          const photoGroupId = photo.groupId || photo.id;
-          const groupData = tempAllGroupsData[photoGroupId];
-          if (groupData) {
-            return {
-              ...photo,
-              analysis: {
-                ...photo.analysis,
-                observation: groupData.observations,
-                recommendation: groupData.recommendations,
-                references: groupData.references,
-              },
-              comment: groupData.comment,
-            };
-          }
-          return photo;
-        });
-
-        await visitService.updateVisit(selectedReport.visitId, { photos: updatedPhotos });
+      const edits = Object.entries(tempAllGroupsData).map(([groupId, groupData]) => ({
+        groupId,
+        observations: groupData.observations,
+        recommendations: groupData.recommendations,
+        references: groupData.references,
+        comment: groupData.comment,
+      }));
+      if (edits.length === 0) return;
+      const groupResponse = await visitService.analysisGroups.bulkEdit(selectedReport.visitId, edits);
+      if (groupResponse.error) throw new Error(groupResponse.error);
 
         // Update local state
         const updatedReportPhotos = selectedReportPhotos.map((photo: any) => {
@@ -391,8 +260,6 @@ export default function RapportsScreen() {
           }
           return photo;
         });
-        setSelectedReportPhotos(updatedReportPhotos);
-
         // Build updated content from all groups
         const groups: { [key: string]: any[] } = {};
         updatedReportPhotos.forEach((photo: any) => {
@@ -418,16 +285,17 @@ export default function RapportsScreen() {
           newContent += '━━━━━━━━━━━━━━━━━━━━━\n';
         });
 
-        await reportService.updateReport(selectedReport.id, {
+        const reportResponse = await reportService.updateReport(selectedReport.id, {
           content: newContent,
           status: 'brouillon',
         });
+        if (!reportResponse.data) throw new Error(reportResponse.error || 'Rapport non mis à jour');
 
+        setSelectedReportPhotos(updatedReportPhotos);
         setSelectedReport((prev: any) => prev ? { ...prev, reportContent: newContent } : null);
         setIsEditingAllGroups(false);
         setTempAllGroupsData({});
         Alert.alert('Succès', 'Toutes les modifications ont été sauvegardées.');
-      }
     } catch (error) {
       console.error('Error saving all group edits:', error);
       Alert.alert('Erreur', 'Impossible de sauvegarder les modifications.');
@@ -515,11 +383,11 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
 
   const validateSentReport = async (clientEmail: string, reportFileUrl: string) => {
     try {
-      await reportService.updateReport(selectedReport.id, {
+      const response = await reportService.updateReport(selectedReport.id, {
         status: 'envoye_au_client' as ReportStatus,
         recipientEmail: clientEmail,
-        reportFileUrl: reportFileUrl,
       });
+      if (!response.data) throw new Error(response.error || 'Impossible de confirmer l’envoi du rapport.');
 
       setSelectedReport(prev => prev ? { ...prev, status: 'envoye_au_client', recipientEmail: clientEmail, reportFileUrl: reportFileUrl } : null);
       setReports(prev => prev ? prev.map(r => {
@@ -546,6 +414,8 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
 
   const openRecipientsModal = async () => {
     if (!selectedReport) return;
+    const recipientVersion = ++recipientLoadVersion.current;
+    const requestIdentity = displayedIdentity.current;
     if (selectedReport.status == 'annule' || selectedReport.status == 'envoye_au_client') {
       Alert.alert('Rapport déjà envoyé', 'Vous ne pouvez pas modifier ni envoyer le rapport.');
       return;
@@ -575,16 +445,18 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
 
     try {
       const response = await mailingListService.getByMission(missionId);
+      if (recipientVersion !== recipientLoadVersion.current || requestIdentity !== displayedIdentity.current) return;
       const entries = Array.isArray(response.data) ? response.data : [];
       setMailingEntries(entries);
       setSelectedRecipientIds(entries.map((entry: any) => entry.id));
     } catch (error) {
+      if (recipientVersion !== recipientLoadVersion.current || requestIdentity !== displayedIdentity.current) return;
       console.log('Erreur chargement liste de diffusion:', error);
       setMailingEntries([]);
       setSelectedRecipientIds([]);
       Alert.alert('Liste de diffusion', "Impossible de récupérer la liste de diffusion du chantier.");
     } finally {
-      setRecipientsLoading(false);
+      if (recipientVersion === recipientLoadVersion.current && requestIdentity === displayedIdentity.current) setRecipientsLoading(false);
     }
   };
 
@@ -597,6 +469,8 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
   };
 
   const handleAddRecipient = async () => {
+    const recipientVersion = recipientLoadVersion.current;
+    const requestIdentity = displayedIdentity.current;
     const email = newRecipientEmail.trim();
     if (!email) {
       Alert.alert('Email requis', 'Veuillez saisir une adresse email.');
@@ -616,6 +490,7 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
         name: newRecipientName.trim() || undefined,
         missionId,
       });
+      if (recipientVersion !== recipientLoadVersion.current || requestIdentity !== displayedIdentity.current) return;
       if (response.error || !response.data) {
         Alert.alert('Erreur', response.error || "Impossible d'ajouter cet email.");
         return;
@@ -627,10 +502,11 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
       setNewRecipientEmail('');
       setNewRecipientName('');
     } catch (error) {
+      if (recipientVersion !== recipientLoadVersion.current || requestIdentity !== displayedIdentity.current) return;
       console.log('Erreur ajout destinataire:', error);
       Alert.alert('Erreur', "Impossible d'ajouter cet email.");
     } finally {
-      setAddingRecipient(false);
+      if (recipientVersion === recipientLoadVersion.current && requestIdentity === displayedIdentity.current) setAddingRecipient(false);
     }
   };
 
@@ -738,8 +614,8 @@ Si vous clôturer le chantier les rapports non envoyé seron annulés.
       );
       const missionAddress = cleanMailValue(selectedReport?.location);
       const photoCount = selectedReport?.visit?.photos?.length || selectedReport?.photos || 0;
-      const coordinatorName = userProfile
-        ? `${cleanMailValue(userProfile.firstName, '')} ${cleanMailValue(userProfile.lastName, '')}`.trim()
+      const coordinatorName = user
+        ? `${cleanMailValue(user.firstName, '')} ${cleanMailValue(user.lastName, '')}`.trim()
         : '';
 
       const body = `Bonjour ${contactFirstName},
@@ -799,9 +675,7 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
             text: 'Non',
             style: 'cancel',
             onPress: async () => {
-              await reportService.updateReport(selectedReport.id, {
-                reportFileUrl: reportFileUrl,
-              });
+              // The backend PDF generation already persisted this artifact.
               await loadReports();
             }
           }
@@ -880,14 +754,18 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
   };
 
   const openReportDetail = async (report: any) => {
-    // console.log('report modal >>>> : ', report);
+    const requestVersion = reportLoadVersion.current;
+    const requestIdentity = displayedIdentity.current;
     setLoadingReport(true);
     let photos: any[] = [];
     if (report?.visitId) {
       try {
         const visitResponse = await visitService.getVisit(report.visitId);
         // console.log('visitResponse.data.photos >>> : ', visitResponse.data.photos);
-        if (visitResponse.data && visitResponse.data.photos) {
+        if (visitResponse.error || !visitResponse.data) {
+          throw new Error(visitResponse.error || 'Visite introuvable');
+        }
+        if (visitResponse.data.photos) {
           photos = await Promise.all(visitResponse.data.photos?.map(async (photo: any) => {
             const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
               'faible': 'low',
@@ -900,11 +778,11 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
 
             let fileUri = '';
             if (!photo.isDirectiveOnly && photo.s3Url) {
-              const fileName = photo.uri.split('/').pop();
+              const fileName = `${user?.organizationId || 'unknown'}-${photo.id || 'photo'}-${String(photo.uri || '').split('/').pop() || 'image'}`;
               fileUri = `${FileSystem.cacheDirectory}${fileName}`;
 
               const imgResp = await uploadService.downloadFile(photo.s3Url, '/visits', true);
-              if (imgResp && imgResp.data && imgResp.data.data) {
+              if (typeof imgResp?.data?.data?.base64 === 'string') {
                 await FileSystem.writeAsStringAsync(fileUri, imgResp.data.data.base64, {
                   encoding: FileSystem.EncodingType.Base64,
                 });
@@ -948,21 +826,27 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
                 recommendations: recommendations ? recommendations : [],
                 references: refs ? refs : [],
                 riskLevel: riskLevelMap[photo.analysis.riskLevel] || 'low',
-                photoConformity: photo.analysis?.photoConformity || true,
+                photoConformity: photo.analysis?.photoConformity ?? true,
                 photoConformityMessage: photo.analysis?.photoConformityMessage || "",
                 confidence: (photo.analysis.confidence || 0)
               } : undefined,
               comment: photo.comment || '',
-              validated: photo.validated || true
+              validated: photo.validated ?? true
             };
           }));
         }
       } catch (error) {
         console.log('Could not load visit photos:', error);
-      } finally {
-        setLoadingReport(false);
+        if (requestVersion === reportLoadVersion.current && requestIdentity === displayedIdentity.current) {
+          setLoadingReport(false);
+          setShowReportModal(false);
+          Alert.alert('Erreur', 'Impossible de charger la visite liée à ce rapport.');
+        }
+        return;
       }
     }
+    if (requestVersion !== reportLoadVersion.current || requestIdentity !== displayedIdentity.current) return;
+    setLoadingReport(false);
     setSelectedReportPhotos(photos);
     setSelectedReport(report);
     setShowReportModal(true);
@@ -1063,16 +947,17 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
               style={styles.emptyStateGradient}
             >
               <FileText size={48} color="#64748B" />
-              <Text style={styles.emptyStateTitle}>AUCUN RAPPORT</Text>
+              <Text style={styles.emptyStateTitle}>{reportsError ? 'RAPPORTS INDISPONIBLES' : 'AUCUN RAPPORT'}</Text>
               <Text style={styles.emptyStateText}>
-                {activeFilter === 'tous'
+                {reportsError || (activeFilter === 'tous'
                   ? 'Aucun rapport ne correspond à votre recherche'
                   : `Aucun rapport ${activeFilter === 'envoye_au_client' ? 'envoyé' :
                     activeFilter === 'brouillon' ? 'en brouillon' :
                       activeFilter === 'archive' ? 'archivé' : ''
                   }`
-                }
+                )}
               </Text>
+              {reportsError && <TouchableOpacity onPress={() => loadReports()} accessibilityRole="button"><Text style={styles.emptyStateText}>Réessayer</Text></TouchableOpacity>}
             </LinearGradient>
           </View>
         ) : (
