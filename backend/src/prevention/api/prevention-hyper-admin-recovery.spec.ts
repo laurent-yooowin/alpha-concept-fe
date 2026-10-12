@@ -298,6 +298,7 @@ test('full recovery reports obsolete group sources instead of publishing old ana
       if (sql.includes('recoveryRunId IS NULL')) {
         assert.match(sql, /JOIN visits v ON v\.organizationId=g\.organizationId AND v\.id=g\.visitId/);
         assert.match(sql, /JSON_TABLE\(v\.photos, '\$\[\*\]'/);
+        assert.match(sql, /CAST\(COALESCE\([\s\S]*AS BINARY\)\s*= CAST\(g\.sourceGroupId AS BINARY\)/);
         assert.match(sql, /JSON_TYPE\(entry\.analysis\)='OBJECT'/);
         return [{ total: 1 }];
       }
@@ -330,6 +331,7 @@ test('recovery publishes the budget only after groups complete', async () => {
         // Old jobs for removed visit groups remain durable but cannot contribute
         // findings, and must not block publication of the current READY set.
         assert.match(sql, /JSON_TABLE\(v\.photos, '\$\[\*\]'/);
+        assert.match(sql, /CAST\(COALESCE\([\s\S]*AS BINARY\)\s*= CAST\(g\.sourceGroupId AS BINARY\)/);
         assert.match(sql, /JSON_TYPE\(entry\.analysis\)='OBJECT'/);
         return [{ total: 0 }];
       }

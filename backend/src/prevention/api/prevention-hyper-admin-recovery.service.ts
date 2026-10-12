@@ -529,8 +529,9 @@ export class PreventionHyperAdminRecoveryService implements OnApplicationBootstr
                entryId VARCHAR(100) PATH '$.id',
                analysis JSON PATH '$.analysis'
              )) entry
-             WHERE COALESCE(NULLIF(entry.groupId,''),NULLIF(entry.entryId,''),
-                            CONCAT('entry-',entry.entryOrder-1))=g.sourceGroupId
+             WHERE CAST(COALESCE(NULLIF(entry.groupId,''),NULLIF(entry.entryId,''),
+                                 CONCAT('entry-',entry.entryOrder-1)) AS BINARY)
+                   = CAST(g.sourceGroupId AS BINARY)
                AND JSON_TYPE(entry.analysis)='OBJECT'
            )`,
         [data.organizationId, recoveryId],
