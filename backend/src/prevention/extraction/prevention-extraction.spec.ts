@@ -539,3 +539,39 @@ test('invalid source data becomes an unrecoverable BullMQ failure', async () => 
     UnrecoverableError,
   );
 });
+
+test('report indexing locks the organization before the report and its findings', async () => {
+  const queries: string[] = [];
+  const manager = {
+    query: async (sql: string) => {
+      queries.push(sql);
+      return [];
+    },
+  };
+  const dataSource = { transaction: async (work: (value: typeof manager) => Promise<unknown>) => work(manager) };
+  const extraction = new PreventionExtractionService(dataSource as any);
+
+  assert.equal(await extraction.indexReport('50000000-0000-4000-8000-000000000001', baseInput.reportId, '2026-08-21'), 'MISSING');
+  assert.match(queries[0], /^SELECT id FROM organizations WHERE id=\? FOR SHARE$/);
+  assert.match(queries[1], /FROM reports report[\s\S]*FOR UPDATE/);
+});
+
+test('report deletion locks the organization before reading and deleting findings', async () => {
+  const operations: string[] = [];
+  const manager = {
+    query: async (sql: string) => {
+      operations.push(sql);
+      return [];
+    },
+    getRepository: () => ({
+      delete: async () => { operations.push('DELETE_SNAPSHOT'); },
+    }),
+  };
+  const dataSource = { transaction: async (work: (value: typeof manager) => Promise<unknown>) => work(manager) };
+  const extraction = new PreventionExtractionService(dataSource as any);
+
+  assert.equal(await extraction.deleteReport('50000000-0000-4000-8000-000000000001', baseInput.reportId, '2026-08-21'), 'DELETED');
+  assert.match(operations[0], /^SELECT id FROM organizations WHERE id=\? FOR SHARE$/);
+  assert.match(operations[1], /FROM prevention_findings/);
+  assert.equal(operations[2], 'DELETE_SNAPSHOT');
+});

@@ -14,6 +14,8 @@ export function preventionFailureDiagnostic(error: unknown): Record<string, stri
     [/Prevention LLM returned no content/i, 'AI_EMPTY_RESPONSE'],
     [/Prevention LLM request failed/i, 'AI_UPSTREAM_REQUEST_FAILED'],
     [/OPENAI_API_KEY is not configured/i, 'AI_CONFIGURATION_MISSING'],
+    [/Deadlock found when trying to get lock|ER_LOCK_DEADLOCK/i, 'DATABASE_DEADLOCK'],
+    [/Lock wait timeout exceeded|ER_LOCK_WAIT_TIMEOUT/i, 'DATABASE_LOCK_TIMEOUT'],
     [/Prevention group photo download timed out/i, 'PHOTO_DOWNLOAD_TIMEOUT'],
     [/operation was aborted|aborterror|timed?\s*out/i, 'UPSTREAM_REQUEST_ABORTED'],
     [/prevention source changed/i, 'PREVENTION_SOURCE_CHANGED'],

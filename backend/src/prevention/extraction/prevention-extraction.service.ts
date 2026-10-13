@@ -31,6 +31,13 @@ export class PreventionExtractionService {
   ): Promise<PreventionExtractionResult> {
     this.assertReferenceDate(referenceDate);
     return this.dataSource.transaction(async (manager) => {
+      // Budget publication takes an exclusive organization lock before linking
+      // findings. Take the compatible shared lock before locking findings here,
+      // otherwise the category/partition FK checks can invert that order.
+      await manager.query(
+        'SELECT id FROM organizations WHERE id=? FOR SHARE',
+        [organizationId],
+      );
       const [report]: Array<{
         reportId: string;
         visitId: string;
@@ -292,6 +299,12 @@ export class PreventionExtractionService {
   ): Promise<PreventionExtractionResult> {
     this.assertReferenceDate(referenceDate);
     await this.dataSource.transaction(async (manager) => {
+      // Snapshot deletion can cascade to findings before partition FK checks.
+      // Keep the same organization-before-findings lock order as indexReport.
+      await manager.query(
+        'SELECT id FROM organizations WHERE id=? FOR SHARE',
+        [organizationId],
+      );
       const dirtyPartitions = await this.reportPartitions(manager, organizationId, reportId);
       await manager.getRepository(PreventionReportSnapshot).delete({ organizationId, reportId });
       await this.markPartitionsDirty(manager, organizationId, dirtyPartitions, referenceDate);

@@ -49,3 +49,11 @@ test('photo download timeout is classified before the generic upstream timeout',
   assert.equal(preventionFailureDiagnostic(new Error('Prevention group photo download timed out')).errorCode,
     'PHOTO_DOWNLOAD_TIMEOUT');
 });
+
+test('database deadlocks and lock timeouts have distinct safe diagnostics', () => {
+  const deadlock = preventionFailureDiagnostic(new Error('Deadlock found when trying to get lock; retry transaction'));
+  const timeout = preventionFailureDiagnostic(new Error('Lock wait timeout exceeded; try restarting transaction'));
+  assert.equal(deadlock.errorCode, 'DATABASE_DEADLOCK');
+  assert.equal(timeout.errorCode, 'DATABASE_LOCK_TIMEOUT');
+  assert.doesNotMatch(JSON.stringify(deadlock), /try transaction/i);
+});
