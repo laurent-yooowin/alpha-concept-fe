@@ -24,6 +24,14 @@ export type PreventionPhase = typeof PREVENTION_PHASES[number];
 export type PreventionProcessingStatus = 'PENDING' | 'PROCESSING' | 'RETRY' | 'READY' | 'FAILED';
 export type PreventionPhaseStatus = 'PROPOSED' | 'VALIDATED';
 
+export const PREVENTION_PROCESSING_LABELS: Record<PreventionProcessingStatus, string> = {
+  PENDING: 'En attente',
+  PROCESSING: 'En cours',
+  RETRY: 'Nouvelle tentative prévue',
+  READY: 'Prêt',
+  FAILED: 'Échec',
+};
+
 export interface PreventionGroupPhaseStatus {
   sourceGroupId: string;
   processingStatus: PreventionProcessingStatus;

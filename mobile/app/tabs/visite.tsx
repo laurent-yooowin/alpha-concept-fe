@@ -43,6 +43,7 @@ import {
   preventionPhaseService,
   PREVENTION_PHASES,
   PREVENTION_PHASE_LABELS,
+  PREVENTION_PROCESSING_LABELS,
   PreventionGroupPhaseStatus,
   PreventionPhase,
 } from '@/services/preventionPhaseService';
@@ -239,10 +240,15 @@ function VisiteScreenContent() {
   const [preventionPhaseSaving, setPreventionPhaseSaving] = useState(false);
   const [preventionPhaseError, setPreventionPhaseError] = useState<string | null>(null);
   const [preventionPhaseRefresh, setPreventionPhaseRefresh] = useState(0);
+  const [preventionPhaseExpanded, setPreventionPhaseExpanded] = useState(false);
+  const [showPhaseConfirmation, setShowPhaseConfirmation] = useState(false);
+  const [selectedPreventionPhase, setSelectedPreventionPhase] = useState<PreventionPhase | null>(null);
+  const phaseOfferRef = useRef('');
   const phaseScopeRef = useRef('');
   const phaseScope = `${user?.organizationId || ''}:${user?.id || ''}:${existingVisitId || ''}:${selectedGroupId || ''}`;
   phaseScopeRef.current = phaseScope;
   useEffect(() => { setPreventionPhaseSaving(false); }, [phaseScope]);
+  const canValidatePreventionPhase = ['ROLE_USER', 'ROLE_ADMIN', 'USER', 'ADMIN', 'user', 'admin'].includes(String(user?.role || ''));
 
   // Group report editing states
   const [editingGroupReport, setEditingGroupReport] = useState(false);
@@ -338,6 +344,9 @@ function VisiteScreenContent() {
       setPreventionPhaseStatus(null);
       setPreventionPhaseError(null);
       setPreventionPhaseLoading(false);
+      setShowPhaseConfirmation(false);
+      setPreventionPhaseExpanded(false);
+      phaseOfferRef.current = '';
       return;
     }
     const group = reportGroups.find(item => item.groupId === selectedGroupId);
@@ -353,7 +362,16 @@ function VisiteScreenContent() {
     setPreventionPhaseError(null);
     preventionPhaseService.getGroupStatus(existingVisitId, selectedGroupId).then(response => {
       if (cancelled) return;
-      if (response.data) setPreventionPhaseStatus(response.data);
+      if (response.data) {
+        setPreventionPhaseStatus(response.data);
+        if (canValidatePreventionPhase && response.data.processingStatus === 'READY' &&
+            response.data.phaseStatus !== 'VALIDATED' && response.data.proposedPhase &&
+            phaseOfferRef.current !== phaseScope) {
+          phaseOfferRef.current = phaseScope;
+          setSelectedPreventionPhase(response.data.proposedPhase);
+          setShowPhaseConfirmation(true);
+        }
+      }
       else if (response.status === 403 || response.status === 404) setPreventionPhaseError('Prévention indisponible pour ce groupe.');
       else setPreventionPhaseError(response.error || 'Statut Prévention indisponible.');
     }).catch(() => {
@@ -362,9 +380,8 @@ function VisiteScreenContent() {
       if (!cancelled) setPreventionPhaseLoading(false);
     });
     return () => { cancelled = true; };
-  }, [showGroupDetail, selectedGroupId, existingVisitId, reportGroups, phaseScope, preventionPhaseRefresh]);
+  }, [showGroupDetail, selectedGroupId, existingVisitId, reportGroups, phaseScope, preventionPhaseRefresh, canValidatePreventionPhase]);
 
-  const canValidatePreventionPhase = ['ROLE_USER', 'ROLE_ADMIN', 'USER', 'ADMIN', 'user', 'admin'].includes(String(user?.role || ''));
   const preventionPhaseLabel = (phase: PreventionPhase | null) => phase
     ? PREVENTION_PHASE_LABELS[phase]
     : 'En attente';
@@ -377,6 +394,8 @@ function VisiteScreenContent() {
       const response = await preventionPhaseService.updateGroupPhase(existingVisitId, selectedGroupId, phase);
       if (phaseScopeRef.current !== requestScope) return;
       if (response.data) {
+        setPreventionPhaseStatus(current => current ? { ...current, phaseStatus: 'VALIDATED', effectivePhase: phase } : current);
+        setShowPhaseConfirmation(false);
         const refreshed = await preventionPhaseService.getGroupStatus(existingVisitId, selectedGroupId);
         if (phaseScopeRef.current !== requestScope) return;
         if (refreshed.data) setPreventionPhaseStatus(refreshed.data);
@@ -1395,7 +1414,7 @@ function VisiteScreenContent() {
     setEditingGroupReport(false);
     setHasChanges(true);
     setReportSaved(false);
-    Alert.alert('Succès', 'Le rapport a été modifié avec succès.');
+    Alert.alert('Modifications enregistrées', 'Les détails du groupe ont été mis à jour.');
   };
 
   // Save group comments
@@ -1416,13 +1435,13 @@ function VisiteScreenContent() {
     const group = reportGroups.find(g => g.groupId === selectedGroupId);
     if (!group) return;
 
-    const directivesToApply = tempGroupDirectives;
-    const selectedPromptIds = groupCustomPromptIds.length > 0 || group.customPromptIds.length === 0
-      ? groupCustomPromptIds
-      : group.customPromptIds;
+    const directivesToApply = tempGroupDirectives.trim();
+    const selectedPromptIds = groupCustomPromptIds;
 
-    if (group.isDirectiveOnly && !directivesToApply.trim() && selectedPromptIds.length === 0) {
-      Alert.alert('Prompt ou directive requis', 'Ajoutez des directives ou sélectionnez au moins un prompt personnalisé pour réanalyser ce rapport sans photo.');
+    if (!directivesToApply && (group.isDirectiveOnly || selectedPromptIds.length === 0)) {
+      Alert.alert('Réanalyse indisponible', group.isDirectiveOnly
+        ? 'Saisissez des directives pour réanalyser ce groupe sans photo.'
+        : 'Saisissez des directives ou sélectionnez au moins un prompt personnalisé.');
       return;
     }
 
@@ -1439,7 +1458,9 @@ function VisiteScreenContent() {
       await loadExistingVisitData(mission.id, existingVisitId);
       setHasChanges(false);
       setReportSaved(false);
-      Alert.alert('Succès', 'La réanalyse a été envoyée au traitement SPS.');
+      setEditingGroupReport(false);
+      setEditingGroupDirectives(false);
+      Alert.alert('Réanalyse terminée', 'Le groupe a été réanalysé. Ses détails sont maintenant à jour.');
       return;
 
       let updatedPhotos = [...photos];
@@ -4603,6 +4624,8 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                   {selectedGroupId && (() => {
                     const group = reportGroups.find(g => g.groupId === selectedGroupId);
                     if (!group) return null;
+                    const canReanalyzeGroup = Boolean(tempGroupDirectives.trim()) ||
+                      (!group.isDirectiveOnly && groupCustomPromptIds.length > 0);
                     return (
                       <>
                         <View style={styles.photoDetailHeader}>
@@ -4666,44 +4689,59 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                           )}
                           {preventionPhaseStatus && (
                             <View style={{ marginBottom: 14, padding: 14, borderRadius: 12, backgroundColor: '#172554', borderWidth: 1, borderColor: '#1D4ED8' }}>
-                              <Text style={{ color: '#93C5FD', fontSize: 11, fontFamily: 'Inter-Bold', letterSpacing: 0.5 }}>PRÉVENTION — PHASE DU GROUPE</Text>
-                              <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 7 }}>
-                                Traitement : {preventionPhaseStatus.processingStatus}
-                              </Text>
-                              <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 3 }}>
-                                Proposée : {preventionPhaseLabel(preventionPhaseStatus.proposedPhase)}
-                              </Text>
-                              <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 3 }}>
-                                Effective : {preventionPhaseLabel(preventionPhaseStatus.effectivePhase)} ({preventionPhaseStatus.phaseStatus})
-                              </Text>
-                              <TouchableOpacity disabled={preventionPhaseLoading || preventionPhaseSaving} onPress={() => setPreventionPhaseRefresh(value => value + 1)} style={{ marginTop: 8 }}>
-                                <Text style={{ color: '#BFDBFE', fontSize: 12, fontFamily: 'Inter-Bold' }}>Actualiser le statut</Text>
-                              </TouchableOpacity>
-                              {preventionPhaseStatus.processingStatus === 'FAILED' && (
-                                <Text style={{ color: '#FCA5A5', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 6 }}>
-                                  Le traitement a échoué. Réessayez plus tard.
-                                </Text>
-                              )}
-                              {preventionPhaseStatus.processingStatus === 'READY' && canValidatePreventionPhase && (
-                                <View style={{ marginTop: 10 }}>
-                                  <Text style={{ color: '#BFDBFE', fontSize: 11, fontFamily: 'Inter-Regular', marginBottom: 7 }}>
-                                    {preventionPhaseStatus.phaseStatus === 'VALIDATED' ? 'Modifier la phase confirmée :' : 'Confirmer ou modifier la phase :'}
+                              <TouchableOpacity
+                                accessibilityRole="button"
+                                accessibilityLabel="Phase de chantier — Prévention"
+                                accessibilityState={{ expanded: preventionPhaseExpanded }}
+                                onPress={() => setPreventionPhaseExpanded(value => !value)}
+                                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                              >
+                                <View style={{ flex: 1 }}>
+                                  <Text style={{ color: '#93C5FD', fontSize: 11, fontFamily: 'Inter-Bold', letterSpacing: 0.5 }}>PRÉVENTION — PHASE DU GROUPE</Text>
+                                  <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Bold', marginTop: 6 }}>
+                                    {preventionPhaseStatus.processingStatus === 'READY'
+                                      ? preventionPhaseLabel(preventionPhaseStatus.phaseStatus === 'VALIDATED'
+                                        ? preventionPhaseStatus.effectivePhase : preventionPhaseStatus.proposedPhase)
+                                      : PREVENTION_PROCESSING_LABELS[preventionPhaseStatus.processingStatus]}
                                   </Text>
-                                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                    {PREVENTION_PHASES.map(phase => (
-                                      <TouchableOpacity
-                                        key={phase}
-                                        disabled={preventionPhaseSaving}
-                                        onPress={() => savePreventionPhase(phase)}
-                                        style={{ paddingHorizontal: 9, paddingVertical: 7, borderRadius: 8, backgroundColor: preventionPhaseStatus.effectivePhase === phase ? '#2563EB' : '#1E40AF', opacity: preventionPhaseSaving ? 0.6 : 1 }}
-                                      >
-                                        <Text style={{ color: '#FFFFFF', fontSize: 10, fontFamily: 'Inter-Bold' }}>{preventionPhaseLabel(phase)}</Text>
-                                      </TouchableOpacity>
-                                    ))}
-                                  </View>
+                                </View>
+                                {preventionPhaseExpanded ? <ChevronUp size={18} color="#BFDBFE" /> : <ChevronDown size={18} color="#BFDBFE" />}
+                              </TouchableOpacity>
+                              {preventionPhaseExpanded && (
+                                <View style={{ marginTop: 10 }}>
+                                  <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular' }}>
+                                    Traitement : {PREVENTION_PROCESSING_LABELS[preventionPhaseStatus.processingStatus]}
+                                  </Text>
+                                  {preventionPhaseStatus.processingStatus === 'READY' && (
+                                    <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Regular', marginTop: 3 }}>
+                                      {preventionPhaseStatus.phaseStatus === 'VALIDATED' ? 'Phase validée' : 'Phase proposée par l’IA'}
+                                    </Text>
+                                  )}
+                                  {preventionPhaseStatus.justification && (
+                                    <Text style={{ color: '#CBD5E1', fontSize: 12, marginTop: 6 }}>{preventionPhaseStatus.justification}</Text>
+                                  )}
+                                  <TouchableOpacity disabled={preventionPhaseLoading || preventionPhaseSaving} onPress={() => setPreventionPhaseRefresh(value => value + 1)} style={{ marginTop: 8 }}>
+                                    <Text style={{ color: '#BFDBFE', fontSize: 12, fontFamily: 'Inter-Bold' }}>Actualiser le statut</Text>
+                                  </TouchableOpacity>
+                                  {preventionPhaseStatus.processingStatus === 'FAILED' && (
+                                    <Text style={{ color: '#FCA5A5', fontSize: 12, marginTop: 6 }}>Le traitement a échoué. Réessayez plus tard.</Text>
+                                  )}
+                                  {preventionPhaseStatus.processingStatus === 'READY' && canValidatePreventionPhase && (
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        setSelectedPreventionPhase(preventionPhaseStatus.phaseStatus === 'VALIDATED'
+                                          ? preventionPhaseStatus.effectivePhase : preventionPhaseStatus.proposedPhase);
+                                        setShowPhaseConfirmation(true);
+                                      }}
+                                      style={{ marginTop: 10 }}
+                                    >
+                                      <Text style={{ color: '#BFDBFE', fontSize: 12, fontFamily: 'Inter-Bold' }}>
+                                        {preventionPhaseStatus.phaseStatus === 'VALIDATED' ? 'Modifier la phase confirmée' : 'Confirmer ou modifier la phase'}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  )}
                                 </View>
                               )}
-                              {preventionPhaseSaving && <ActivityIndicator style={{ marginTop: 8 }} size="small" color="#BFDBFE" />}
                             </View>
                           )}
                           {editingGroupReport ? (
@@ -4877,12 +4915,15 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                   <TouchableOpacity
                                     style={{ borderRadius: 12, overflow: 'hidden', marginTop: 10 }}
                                     onPress={regenerateGroupReport}
-                                    disabled={isRegeneratingGroup}
+                                    disabled={isRegeneratingGroup || !canReanalyzeGroup}
                                   >
-                                    <LinearGradient colors={isRegeneratingGroup ? ['#64748B', '#475569'] : ['#8B5CF6', '#7C3AED']} style={styles.saveCommentsGradient}>
+                                    <LinearGradient colors={isRegeneratingGroup || !canReanalyzeGroup ? ['#64748B', '#475569'] : ['#8B5CF6', '#7C3AED']} style={styles.saveCommentsGradient}>
                                       {isRegeneratingGroup ? <ActivityIndicator size={14} color="#FFFFFF" /> : <Text style={styles.saveEditableReportText}>Réanalyse prompts/directives</Text>}
                                     </LinearGradient>
                                   </TouchableOpacity>
+                                  {!canReanalyzeGroup && <Text style={{ color: '#CBD5E1', fontSize: 11, marginTop: 6 }}>
+                                    {group.isDirectiveOnly ? 'Saisissez des directives pour réanalyser.' : 'Ajoutez une directive ou un prompt personnalisé pour réanalyser.'}
+                                  </Text>}
                                 </>
                               ) : (
                                 <>
@@ -5041,24 +5082,6 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                       </LinearGradient>
                                     </TouchableOpacity>
 
-                                    {(reportStatus !== 'envoye_au_client' && (!mission || (mission as any).originalStatus !== 'terminee')) && (
-                                      <TouchableOpacity
-                                        style={styles.saveCommentsButton}
-                                        onPress={regenerateGroupReport}
-                                        disabled={isRegeneratingGroup}
-                                      >
-                                        <LinearGradient
-                                          colors={isRegeneratingGroup ? ['#64748B', '#475569'] : ['#8B5CF6', '#7C3AED']}
-                                          style={styles.saveCommentsGradient}
-                                        >
-                                          {isRegeneratingGroup ? (
-                                            <ActivityIndicator size={12} color="#FFFFFF" />
-                                          ) : (
-                                            <Text style={styles.saveCommentsText}>{`Réanalyse\nprompts/directives`}</Text>
-                                          )}
-                                        </LinearGradient>
-                                      </TouchableOpacity>
-                                    )}
                                   </View>
                                 )}
                               </View>
@@ -5270,6 +5293,42 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
             </View>
           </SafeAreaView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Optional Prevention confirmation, separate from the SPS group detail. */}
+      <Modal visible={showGroupDetail && showPhaseConfirmation} animationType="fade" transparent onRequestClose={() => setShowPhaseConfirmation(false)}>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15, 23, 42, 0.7)' }}>
+          <View style={{ borderRadius: 16, padding: 20, backgroundColor: '#FFFFFF' }}>
+            <Text style={{ color: '#1E293B', fontSize: 17, fontFamily: 'Inter-Bold' }}>Confirmer la phase du chantier ?</Text>
+            <Text style={{ color: '#475569', fontSize: 13, marginTop: 8 }}>
+              Proposition Prévention facultative. Vous pouvez la confirmer, la modifier ou revenir plus tard.
+            </Text>
+            <ScrollView style={{ maxHeight: 320, marginTop: 12 }}>
+              {PREVENTION_PHASES.map(phase => (
+                <TouchableOpacity
+                  key={phase}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: selectedPreventionPhase === phase }}
+                  onPress={() => setSelectedPreventionPhase(phase)}
+                  style={{ padding: 11, marginBottom: 6, borderRadius: 8, borderWidth: 1,
+                    borderColor: selectedPreventionPhase === phase ? '#2563EB' : '#CBD5E1',
+                    backgroundColor: selectedPreventionPhase === phase ? '#EFF6FF' : '#FFFFFF' }}
+                >
+                  <Text style={{ color: '#1E293B', fontSize: 13 }}>{PREVENTION_PHASE_LABELS[phase]}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            {preventionPhaseError && <Text style={{ color: '#B91C1C', fontSize: 12, marginTop: 8 }}>{preventionPhaseError}</Text>}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <TouchableOpacity disabled={preventionPhaseSaving} onPress={() => setShowPhaseConfirmation(false)} style={{ flex: 1, padding: 11, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#CBD5E1' }}>
+                <Text style={{ color: '#334155', fontFamily: 'Inter-Bold' }}>Plus tard</Text>
+              </TouchableOpacity>
+              <TouchableOpacity disabled={!selectedPreventionPhase || preventionPhaseSaving} onPress={() => selectedPreventionPhase && savePreventionPhase(selectedPreventionPhase)} style={{ flex: 1, padding: 11, alignItems: 'center', borderRadius: 8, backgroundColor: '#2563EB', opacity: !selectedPreventionPhase || preventionPhaseSaving ? 0.5 : 1 }}>
+                {preventionPhaseSaving ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={{ color: '#FFFFFF', fontFamily: 'Inter-Bold' }}>Confirmer</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Image Zoom Modal */}

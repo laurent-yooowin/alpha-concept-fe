@@ -34,6 +34,14 @@ import { useLocalSearchParams } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 
+const formatReportDetailDate = (value: unknown): string => {
+  if (!value) return '—';
+  const dateOnly = typeof value === 'string' ? value.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+  if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+  const date = new Date(value as string | number | Date);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('fr-FR');
+};
+
 export default function RapportsScreen() {
   const { user } = useAuth();
   const reportLoadVersion = useRef(0);
@@ -758,6 +766,7 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
     const requestIdentity = displayedIdentity.current;
     setLoadingReport(true);
     let photos: any[] = [];
+    let visitDetails = report?.visit;
     if (report?.visitId) {
       try {
         const visitResponse = await visitService.getVisit(report.visitId);
@@ -765,6 +774,7 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
         if (visitResponse.error || !visitResponse.data) {
           throw new Error(visitResponse.error || 'Visite introuvable');
         }
+        visitDetails = visitResponse.data;
         if (visitResponse.data.photos) {
           photos = await Promise.all(visitResponse.data.photos?.map(async (photo: any) => {
             const riskLevelMap: { [key: string]: 'low' | 'medium' | 'high' } = {
@@ -848,7 +858,7 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
     if (requestVersion !== reportLoadVersion.current || requestIdentity !== displayedIdentity.current) return;
     setLoadingReport(false);
     setSelectedReportPhotos(photos);
-    setSelectedReport(report);
+    setSelectedReport({ ...report, visit: visitDetails });
     setShowReportModal(true);
   };
 
@@ -1227,8 +1237,21 @@ ${coordinatorName ? `Coordonnateur: ${coordinatorName}` : ''}
                         </View>
                         <View style={styles.reportDetailInfoItem}>
                           <Calendar size={16} color="#64748B" />
-                          <Text style={styles.reportDetailInfoLabel}>Date</Text>
-                          <Text style={styles.reportDetailInfoValue}>{selectedReport.date}</Text>
+                          <Text style={styles.reportDetailInfoLabel}>Date du rapport</Text>
+                          <Text style={styles.reportDetailInfoValue}>{formatReportDetailDate(selectedReport.createdAt || selectedReport.date)}</Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.reportDetailInfoRow}>
+                        <View style={styles.reportDetailInfoItem}>
+                          <Calendar size={16} color="#64748B" />
+                          <Text style={styles.reportDetailInfoLabel}>Date du chantier</Text>
+                          <Text style={styles.reportDetailInfoValue}>{formatReportDetailDate(selectedReport.missionDate || selectedReport.dateMission || selectedReport.missionData?.date)}</Text>
+                        </View>
+                        <View style={styles.reportDetailInfoItem}>
+                          <Calendar size={16} color="#64748B" />
+                          <Text style={styles.reportDetailInfoLabel}>Date de la visite</Text>
+                          <Text style={styles.reportDetailInfoValue}>{formatReportDetailDate(selectedReport.visit?.visitDate)}</Text>
                         </View>
                       </View>
 

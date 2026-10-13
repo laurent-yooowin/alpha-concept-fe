@@ -3,6 +3,7 @@ import test from 'node:test';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PreventionApiService } from './prevention-api.service';
 import { PreventionRebuildQueueService } from "./prevention-rebuild-queue.service";
+import { loadPreventionBulkConfiguration } from '../scheduler/prevention-bulk.config';
 import { ConfigService } from "@nestjs/config";
 import { requireJwtSecret } from "../../auth/strategies/jwt.strategy";
 import { plainToInstance } from "class-transformer";
@@ -230,16 +231,22 @@ test("references return paginated tenant-scoped report sources", async () => {
 
 test("manual rebuild enforces the tenant cooldown with 429", async () => {
   const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
-  let call = 0;
   const queries: string[] = [];
   rebuild.cooldownSeconds = 3600;
-  rebuild.dataSource = { query: async (sql: string) => { queries.push(sql); call += 1; return call === 1 ? [] : [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "COMPLETED", ageSeconds: 60 }]; } };
+  rebuild.bulkConfiguration = loadPreventionBulkConfiguration(new ConfigService({}));
+  rebuild.dataSource = { query: async (sql: string) => {
+    queries.push(sql);
+    if (sql.includes('COUNT(DISTINCT r.id)')) return [{ reportCount: 0, findingCount: 0 }];
+    if (sql.includes('ageSeconds')) return [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "COMPLETED", ageSeconds: 60 }];
+    return [];
+  } };
   await assert.rejects(
     () => rebuild.enqueue("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
     (error: any) => error?.getStatus?.() === 429 && error?.getResponse?.().retryAfterSeconds === 3540,
   );
-  assert.match(queries[1], /CURRENT_TIMESTAMP\(\)/);
-  assert.doesNotMatch(queries[1], /UTC_TIMESTAMP/);
+  const cooldownQuery = queries.find((sql) => sql.includes('ageSeconds'));
+  assert.match(cooldownQuery ?? '', /CURRENT_TIMESTAMP\(\)/);
+  assert.doesNotMatch(cooldownQuery ?? '', /UTC_TIMESTAMP/);
 });
 
 test("manual rebuild checkpoint is immediately available in UTC", async () => {
@@ -247,11 +254,13 @@ test("manual rebuild checkpoint is immediately available in UTC", async () => {
   let queryCall = 0;
   const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
   rebuild.cooldownSeconds = 3600;
+  rebuild.bulkConfiguration = loadPreventionBulkConfiguration(new ConfigService({}));
   rebuild.activation = undefined;
   rebuild.dataSource = {
-    query: async () => {
+    query: async (sql: string) => {
       queryCall += 1;
-      if (queryCall <= 2) return [];
+      if (sql.includes('COUNT(DISTINCT r.id)')) return [{ reportCount: 0, findingCount: 0 }];
+      if (queryCall <= 3) return [];
       return [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "PROCESSING" }];
     },
     transaction: async (callback: (manager: any) => Promise<void>) => callback({
@@ -271,12 +280,15 @@ test("manual rebuild resumes an orphaned active run without creating another run
   let removed = 0;
   const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
   rebuild.activation = undefined;
+  rebuild.bulkConfiguration = loadPreventionBulkConfiguration(new ConfigService({}));
   rebuild.dataSource = {
-    query: async () => [{
-      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      status: "PROCESSING",
-      scheduledFor: "2026-09-23T09:33:28.925Z",
-    }],
+    query: async (sql: string) => sql.includes('COUNT(DISTINCT r.id)')
+      ? [{ reportCount: 0, findingCount: 0 }]
+      : [{
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        status: "PROCESSING",
+        scheduledFor: "2026-09-23T09:33:28.925Z",
+      }],
   };
   rebuild.queue = {
     getJob: async () => ({
@@ -320,8 +332,10 @@ test("prevention query DTO accepts the complete available period", () => {
   assert.equal(validateSync(dto).length, 0);
   const service = new PreventionApiService(query([]) as any, {} as any);
   const period = (service as any).period(dto);
-  const durationDays = Math.floor((Date.parse(period.to) - Date.parse(period.from)) / 86400000) + 1;
-  assert.ok(durationDays >= 3650 && durationDays <= 3660);
+  assert.equal(period.all, true);
+  assert.equal(period.from, null);
+  assert.equal(period.to, null);
+  assert.equal(period.granularity, 'month');
 });
 
 test('prevention query DTO accepts the approved four display severities', () => {
