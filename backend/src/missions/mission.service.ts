@@ -76,6 +76,8 @@ export class MissionService {
         const visits = await this.visitService.findByMission(mission.id, user);
         if (visits && visits.length > 0) {
           visits.sort((a, b) => b.visitDate.getTime() - a.visitDate.getTime());
+          const statusSummaries = await this.reportService.findStatusSummariesForVisits(visits, user);
+          const summaryByVisitId = new Map(statusSummaries.map((report) => [report.visitId, report]));
           await Promise.all(visits.map(async (visit) => {
             let report = await this.reportService.findByVisit(visit.id, user);
             if (report) {
@@ -87,6 +89,9 @@ export class MissionService {
               visit.photos = null;
               visit.notes = null;
               visit.report = report;
+            } else {
+              const summary = summaryByVisitId.get(visit.id);
+              if (summary) visit.report = summary;
             }
             return visit;
           }));
@@ -144,6 +149,8 @@ export class MissionService {
     const visits = await this.visitService.findByMission(mission.id, user);
     if (visits && visits.length > 0) {
       visits.sort((a, b) => b.visitDate.getTime() - a.visitDate.getTime());
+      const statusSummaries = await this.reportService.findStatusSummariesForVisits(visits, user);
+      const summaryByVisitId = new Map(statusSummaries.map((report) => [report.visitId, report]));
       await Promise.all(visits.map(async (visit) => {
         let report = await this.reportService.findByVisit(visit.id, user);
         // report.content = null;
@@ -155,6 +162,9 @@ export class MissionService {
         // visit.notes = null;
         if (report) {
           visit.report = report;
+        } else {
+          const summary = summaryByVisitId.get(visit.id);
+          if (summary) visit.report = summary;
         }
         return visit;
       }));

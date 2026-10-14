@@ -67,6 +67,44 @@ test('report lookup permits an authorized visit despite stale report tenant meta
   assert.equal(result, linkedReport);
 });
 
+test('report status summaries use the authorized visit even with stale report tenant metadata', async () => {
+  const service = Object.create(ReportService.prototype) as ReportService;
+  const calls: Array<{ method: string; args: any[] }> = [];
+  const query = {
+    innerJoin: (...args: any[]) => { calls.push({ method: 'innerJoin', args }); return query; },
+    where: (...args: any[]) => { calls.push({ method: 'where', args }); return query; },
+    select: (...args: any[]) => { calls.push({ method: 'select', args }); return query; },
+    getMany: async () => [{ id: 'report-a', visitId: 'visit-a', status: 'envoye_au_client', organizationId: null }],
+  };
+  (service as any).reportRepository = { createQueryBuilder: (alias: string) => {
+    assert.equal(alias, 'report');
+    return query;
+  } };
+  const reports = await service.findStatusSummariesForVisits([
+    { id: 'visit-a', organizationId: 'org-a', userId: 'user-a' },
+    { id: 'visit-other-user', organizationId: 'org-a', userId: 'user-b' },
+    { id: 'visit-other-tenant', organizationId: 'org-b', userId: 'user-a' },
+  ] as Visit[], { id: 'user-a', organizationId: 'org-a', role: UserRole.USER } as any);
+
+  assert.equal(reports[0].status, 'envoye_au_client');
+  assert.equal(calls[0].method, 'innerJoin');
+  assert.equal(calls[0].args[0], Visit);
+  assert.match(calls[0].args[2], /linkedVisit\.organizationId = :organizationId/);
+  assert.deepEqual(calls[0].args[3], { organizationId: 'org-a' });
+  assert.equal(calls[1].method, 'where');
+  assert.deepEqual(calls[1].args[1], { visitIds: ['visit-a'] });
+  assert.deepEqual(calls[2].args[0], ['report.id', 'report.visitId', 'report.status', 'report.createdAt']);
+});
+
+test('report status summaries do not query without an authorized visit', async () => {
+  const service = Object.create(ReportService.prototype) as ReportService;
+  (service as any).reportRepository = { createQueryBuilder: () => { throw new Error('Unexpected report read'); } };
+  const reports = await service.findStatusSummariesForVisits([
+    { id: 'visit-other-user', organizationId: 'org-a', userId: 'user-b' },
+  ] as Visit[], { id: 'user-a', organizationId: 'org-a', role: UserRole.USER } as any);
+  assert.deepEqual(reports, []);
+});
+
 test('report list retains the visit business date for Web report details', async () => {
   const service = Object.create(ReportService.prototype) as ReportService;
   (service as any).reportRepository = { find: async () => [{

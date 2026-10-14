@@ -71,3 +71,49 @@ test('changing mission PDF metadata invalidates only unlocked linked artifacts',
   assert.equal(calls.length, 1);
   assert.match(calls[0], /status NOT IN \('envoye_au_client','archive'\)/);
 });
+
+test('mission visit exposes admin-authored draft and sent report statuses to its coordinator', async () => {
+  for (const status of ['brouillon', 'envoye_au_client']) {
+    const service = Object.create(MissionService.prototype) as MissionService;
+    const coordinator = { id: 'user-a', organizationId, role: UserRole.USER } as any;
+    const visit = { id: 'visit-a', missionId, organizationId, userId: coordinator.id, visitDate: new Date('2026-10-05T12:32:35Z') };
+    const summary = { id: 'report-a', visitId: visit.id, status, createdAt: new Date('2026-10-05T13:00:00Z') };
+    (service as any).missionRepository = { findOne: async ({ where }: any) => {
+      assert.equal(where.organizationId, organizationId);
+      assert.equal(where.userId, coordinator.id);
+      return { id: missionId, organizationId, userId: coordinator.id };
+    } };
+    (service as any).assignmentRepository = { findOne: async () => null };
+    (service as any).visitService = { findByMission: async () => [visit] };
+    (service as any).reportService = {
+      findStatusSummariesForVisits: async () => [summary],
+      findByVisit: async () => null,
+    };
+
+    const mission = await service.findOne(missionId, coordinator);
+    assert.equal(mission.visits[0].report.id, summary.id);
+    assert.equal(mission.visits[0].report.status, status);
+  }
+});
+
+test('mission list exposes the same linked status to the coordinator', async () => {
+  const service = Object.create(MissionService.prototype) as MissionService;
+  const coordinator = { id: 'user-a', organizationId, role: UserRole.USER } as any;
+  const visit = { id: 'visit-a', missionId, organizationId, userId: coordinator.id, visitDate: new Date('2026-10-05T12:32:35Z') };
+  const summary = { id: 'report-a', visitId: visit.id, status: 'envoye_au_client', createdAt: new Date('2026-10-05T13:00:00Z') };
+  (service as any).missionRepository = { find: async ({ where }: any) => {
+    assert.equal(where.organizationId, organizationId);
+    assert.equal(where.userId, coordinator.id);
+    return [{ id: missionId, organizationId, userId: coordinator.id }];
+  } };
+  (service as any).assignmentRepository = { findOne: async () => null };
+  (service as any).visitService = { findByMission: async () => [visit] };
+  (service as any).reportService = {
+    findStatusSummariesForVisits: async () => [summary],
+    findByVisit: async () => null,
+  };
+
+  const missions = await service.findAll(coordinator);
+  assert.equal(missions[0].visits[0].report.id, summary.id);
+  assert.equal(missions[0].visits[0].report.status, 'envoye_au_client');
+});

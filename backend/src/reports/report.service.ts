@@ -415,6 +415,23 @@ export class ReportService {
     return report || null;
   }
 
+  /** Minimal status for reports linked to visits the caller may already read. */
+  async findStatusSummariesForVisits(visits: Visit[], user: User): Promise<Report[]> {
+    if (!user.organizationId) return [];
+    const isAdmin = user.role === UserRole.ADMIN || user.role === UserRole.HYPER_ADMIN;
+    const visitIds = visits
+      .filter((visit) => visit.organizationId === user.organizationId && (isAdmin || visit.userId === user.id))
+      .map((visit) => visit.id);
+    if (!visitIds.length) return [];
+    return this.reportRepository.createQueryBuilder('report')
+      .innerJoin(Visit, 'linkedVisit',
+        'linkedVisit.id = report.visitId AND linkedVisit.organizationId = :organizationId',
+        { organizationId: user.organizationId })
+      .where('report.visitId IN (:...visitIds)', { visitIds })
+      .select(['report.id', 'report.visitId', 'report.status', 'report.createdAt'])
+      .getMany();
+  }
+
   async findByMission(missionId: string, user: User): Promise<Report[]> {
     const where: any = orgScope(user, { missionId });
 
