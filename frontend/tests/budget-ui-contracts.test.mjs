@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   budgetItemRecalculationPayload,
+  budgetGoverningReportEstimates,
   budgetItemEstimateDisplay,
   budgetMaterializedTarget,
   budgetReportLabel,
@@ -93,8 +94,23 @@ test('a human-validated locked amount is not presented as the current AI estimat
   const source = readFileSync(new URL('../src/components/prevention/BudgetPage.tsx', import.meta.url), 'utf8');
   const table = source.slice(source.indexOf('function BudgetOverviewTable('), source.indexOf('function BudgetJustificationModal('));
   assert.match(table, /const estimateDisplay = budgetItemEstimateDisplay\(item\)/);
-  assert.match(table, /estimateDisplay\.showEstimateRange \? ` · estimation IA comprise entre/);
+  assert.match(table, /estimateDisplay\.showEstimateRange && aiEstimate \? ` · estimation IA comprise entre/);
   assert.match(table, /\{estimateDisplay\.amountLabel\}/);
+});
+
+test('a filtered budget line attributes its retained amount to the matching report estimates', () => {
+  const estimates = [
+    { reportId: 'r1', totalHt: '19500.00', rationale: 'Protections collectives du rapport déterminant.' },
+    { reportId: 'r2', totalHt: '2600.00', rationale: 'Autre intervention.' },
+    { reportId: 'r3', totalHt: '19500.0', rationale: 'Autre rapport ex æquo.' },
+  ];
+  assert.deepEqual(budgetGoverningReportEstimates('19500.00', estimates), [estimates[0], estimates[2]]);
+  assert.deepEqual(budgetGoverningReportEstimates('19501.00', estimates), []);
+  assert.deepEqual(budgetGoverningReportEstimates(null, estimates), []);
+  const source = readFileSync(new URL('../src/components/prevention/BudgetPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /\{aiEstimate \? <details open/);
+  assert.match(source, /!aiEstimate && item\.amountFromSelectedReports/);
+  assert.match(source, /budgetGoverningReportEstimates\(amount, sourceReportEstimates\)/);
 });
 
 test('materialized display rows write only through a versioned persisted origin', () => {

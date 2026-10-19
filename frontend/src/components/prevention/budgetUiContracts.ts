@@ -119,6 +119,20 @@ export function budgetPublicExplanation(value: string | null | undefined): strin
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, 'référence interne');
 }
 
+/** A filtered row takes the highest available report estimate. Do not reuse
+ * the broader scenario's AI narrative for that narrower report selection. */
+export function budgetGoverningReportEstimates(
+  amount: unknown,
+  estimates: Array<{ reportId?: string; reportTitle?: string; totalHt?: string; rationale?: string }> = [],
+) {
+  const cents = (value: unknown): bigint | null => {
+    const match = String(value ?? '').trim().match(/^(\d+)(?:\.(\d{1,2}))?$/);
+    return match ? BigInt(match[1]) * 100n + BigInt((match[2] || '').padEnd(2, '0')) : null;
+  };
+  const retained = cents(amount);
+  return retained === null ? [] : estimates.filter((estimate) => cents(estimate.totalHt) === retained);
+}
+
 export function canRecalculateBudgetItem(prompt: string, lockedManual: boolean, busy: boolean): boolean {
   return Boolean(prompt.trim()) && !lockedManual && !busy;
 }
