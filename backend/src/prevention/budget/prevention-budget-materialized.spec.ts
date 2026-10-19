@@ -1,7 +1,15 @@
 import 'reflect-metadata';
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { consolidateMaterializedBudgetRows, excludeSupersededUnpricedBudgetRows, sumAvailableMaterializedBudgetRows } from './prevention-budget-materialized';
+import { consolidateMaterializedBudgetRows, excludeSupersededUnpricedBudgetRows, materializedActionScopeKey, sumAvailableMaterializedBudgetRows } from './prevention-budget-materialized';
+
+test('targeted action scopes are distinct for each chantier', () => {
+  const global = materializedActionScopeKey('org-a', 'action-a');
+  const first = materializedActionScopeKey('org-a', 'action-a', 'mission-a');
+  const second = materializedActionScopeKey('org-a', 'action-a', 'mission-b');
+  assert.notEqual(first, global);
+  assert.notEqual(first, second);
+});
 
 test('materialized results merge overlapping scopes by client/action without summing estimates or reports', () => {
   const action = 'a'.repeat(64);
@@ -73,6 +81,19 @@ test('filtered results never reuse an estimate governed by an excluded report', 
   assert.equal(filtered.totalHt, '100.00');
   assert.equal(filtered.sourceReportEstimates.length, 1);
   assert.equal(filtered.aiEstimateDetails, null);
+});
+
+test('a calculated chantier scope takes precedence over an older wider action result', () => {
+  const rows = [
+    { id: 'global', scenarioId: 'all', itemKey: 'action', clientKey: 'client', actionResult: true,
+      status: 'ESTIME', totalHt: '900.00', aiEstimateDetails: { sourceReportEstimates: [{ reportId: 'R1', totalHt: '900.00' }] } },
+    { id: 'chantier', scenarioId: 'scoped', itemKey: 'action', clientKey: 'client', scopePreferred: true,
+      status: 'ESTIME', totalHt: '350.00', aiEstimateDetails: { sourceReportEstimates: [{ reportId: 'R1', totalHt: '350.00' }] } },
+  ];
+  const sources = rows.map((row) => ({ itemId: row.id, sourceKind: 'RECOMMENDATION', sourceKey: 'source-1', reportId: 'R1' }));
+  const [result] = consolidateMaterializedBudgetRows(rows, sources, true);
+  assert.equal(result.originItemId, 'chantier');
+  assert.equal(result.totalHt, '350.00');
 });
 
 test('a prompted action result replaces a higher historical estimate rather than being hidden by MAX', () => {

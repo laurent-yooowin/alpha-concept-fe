@@ -47,6 +47,7 @@ export class PreventionBudgetScopeDto {
   @IsOptional() @IsDateString() to?: string;
   @IsOptional() @Transform(trim) @IsUUID('4') categoryId?: string;
   @IsOptional() @Transform(trim) @IsIn(['faible', 'moyen', 'eleve', 'critique']) severity?: string;
+  @IsOptional() @Transform(trim) @IsUUID('4') missionId?: string;
   @IsOptional() @Transform(({ value }) => typeof value === 'string' ? value.split(',').filter(Boolean) : value)
   @IsArray() @ArrayMaxSize(50) @Matches(/^(?:[0-9a-f]{64}|unassigned)$/, { each: true }) clientKeys?: string[];
   @IsOptional() @Transform(trim) @IsString() @MaxLength(2000) adminPrompt?: string;
@@ -67,6 +68,7 @@ export class PreventionBudgetPreviewDto {
   @IsOptional() @IsDateString() to?: string;
   @IsOptional() @Transform(trim) @IsUUID('4') categoryId?: string;
   @IsOptional() @Transform(trim) @IsIn(['faible', 'moyen', 'eleve', 'critique']) severity?: string;
+  @IsOptional() @Transform(trim) @IsUUID('4') missionId?: string;
   @IsOptional() @Transform(({ value }) => typeof value === 'string' ? value.split(',').filter(Boolean) : value)
   @IsArray() @ArrayMaxSize(50) @Matches(/^(?:[0-9a-f]{64}|unassigned)$/, { each: true }) clientKeys?: string[];
 }

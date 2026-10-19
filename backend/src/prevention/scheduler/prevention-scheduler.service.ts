@@ -375,8 +375,8 @@ export class PreventionSchedulerService implements OnApplicationBootstrap, OnApp
       [checkpointId, runId, payload.organizationId],
     );
     const checkpoint = await this.dataSource.transaction(async (manager) => {
-      const [row]: Array<{ reportCursor: string | null; status: string; scanComplete: number }> = await manager.query(
-        `SELECT reportCursor,status,scanComplete FROM prevention_scheduler_checkpoints
+      const [row]: Array<{ reportCursor: string | null; status: string; scanComplete: number; scopeMissionIds: unknown }> = await manager.query(
+        `SELECT reportCursor,status,scanComplete,scopeMissionIds FROM prevention_scheduler_checkpoints
          WHERE id=? AND organizationId=? FOR UPDATE`, [checkpointId, payload.organizationId]);
       if (!row || row.status === 'COMPLETED' || row.scanComplete) return null;
       const claim: any = await manager.query(
@@ -407,8 +407,16 @@ export class PreventionSchedulerService implements OnApplicationBootstrap, OnApp
     }
     let checkpointAdvanced = false;
     try {
+    const rawScope = checkpoint.scopeMissionIds;
+    const parsedScope: unknown = rawScope === null || rawScope === undefined ? null
+      : typeof rawScope === 'string' ? JSON.parse(rawScope) : rawScope;
+    if (parsedScope !== null && (!Array.isArray(parsedScope) || parsedScope.length > 10000 ||
+        parsedScope.some((id) => typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)))) {
+      throw new Error('Invalid durable prevention rebuild scope');
+    }
+    const scopedMissionIds = parsedScope as string[] | null;
     if (bulkLease) await this.bulkAdmission!.assertLease(bulkLease);
-    if (!checkpoint.reportCursor &&
+    if (scopedMissionIds === null && !checkpoint.reportCursor &&
         (payload.parentJobType === PREVENTION_CONSOLIDATION_JOB ||
          payload.parentJobType === PREVENTION_WEEKLY_AUDIT_JOB ||
          payload.parentJobType === PREVENTION_MONTHLY_AUDIT_JOB)) {
@@ -427,9 +435,11 @@ export class PreventionSchedulerService implements OnApplicationBootstrap, OnApp
       `SELECT r.id,r.updatedAt FROM reports r
        INNER JOIN visits v ON v.organizationId=r.organizationId AND v.id=r.visitId
        LEFT JOIN prevention_report_snapshots s ON s.organizationId=r.organizationId AND s.reportId=r.id
-       WHERE r.organizationId=? AND r.id>? ${fullRebuild ? '' : 'AND (s.id IS NULL OR s.sourceUpdatedAt<r.updatedAt OR s.indexedAt<v.updatedAt)'}
+       WHERE r.organizationId=? AND r.id>?
+         ${scopedMissionIds === null ? '' : scopedMissionIds.length ? 'AND v.missionId IN (?)' : 'AND 1=0'}
+         ${fullRebuild ? '' : 'AND (s.id IS NULL OR s.sourceUpdatedAt<r.updatedAt OR s.indexedAt<v.updatedAt)'}
        ORDER BY r.id LIMIT ?`,
-      [payload.organizationId, checkpoint.reportCursor ?? '', this.settings.reportBatchSize + 1],
+      [payload.organizationId, checkpoint.reportCursor ?? '', ...(scopedMissionIds?.length ? [scopedMissionIds] : []), this.settings.reportBatchSize + 1],
     );
     const page = reports.slice(0, this.settings.reportBatchSize);
     const cursor = page.at(-1)?.id ?? checkpoint.reportCursor;

@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, HttpException, HttpStatus, Inje
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { Queue } from 'bullmq';
-import { createHash } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { createPreventionRedisOptions } from '../redis/prevention-redis.config';
 import { PREVENTION_BULK_QUEUE_NAME } from '../queue/prevention-queue.constants';
 import { PREVENTION_MANUAL_REBUILD_JOB } from '../scheduler/prevention-scheduler.types';
@@ -10,6 +10,8 @@ import { PreventionActivationService } from '../prevention-activation.service';
 import { PreventionBulkAdmissionService } from '../scheduler/prevention-bulk-admission.service';
 import { executionModeForVolume, loadPreventionBulkConfiguration, nextPreventionBulkWindowStart, preventionBulkWindowKey, PreventionBulkConfiguration } from '../scheduler/prevention-bulk.config';
 import { PreventionBulkExecutionMode } from '../scheduler/prevention-bulk-admission.types';
+import { budgetClientIdentity, parseBudgetClientKeys } from '../budget/prevention-budget-client';
+import { PreventionRebuildScopeDto } from './prevention-rebuild.dto';
 
 export const MANUAL_JOB_TYPE = 'MANUAL_REBUILD';
 const ACTIVE_STATUSES = ['PENDING', 'PROCESSING', 'SCHEDULED'];
@@ -23,6 +25,9 @@ export interface PreventionRebuildPreview {
   executionMode: PreventionBulkExecutionMode;
   scheduledFor: string | null;
   previewToken: string;
+  scopeDigest?: string | null;
+  scopeMissionIds?: string[] | null;
+  sourceVersion?: string;
 }
 
 export interface PreventionRebuildAdmission extends PreventionRebuildPreview {
@@ -35,6 +40,7 @@ export class PreventionRebuildQueueService implements OnApplicationShutdown {
   private readonly queue: Queue;
   private readonly cooldownSeconds: number;
   private readonly bulkConfiguration: PreventionBulkConfiguration;
+  private readonly previewSecret: string;
 
   constructor(
     private readonly dataSource: DataSource,
@@ -48,18 +54,59 @@ export class PreventionRebuildQueueService implements OnApplicationShutdown {
     const configuredCooldown = Number(config.get('PREVENTION_REBUILD_COOLDOWN_SECONDS', 3600));
     this.cooldownSeconds = Number.isInteger(configuredCooldown) && configuredCooldown >= 300 && configuredCooldown <= 86400 ? configuredCooldown : 3600;
     this.bulkConfiguration = loadPreventionBulkConfiguration(config);
+    this.previewSecret = String(config.get('JWT_SECRET') ?? '');
+    if (this.previewSecret.length < 32) throw new Error('JWT_SECRET is required to sign Prevention rebuild previews');
   }
 
-  async preview(organizationId: string): Promise<PreventionRebuildPreview> {
+  private signPreview(payload: Record<string, unknown>): string {
+    const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = createHmac('sha256', this.previewSecret).update(`prevention-rebuild-preview-v1|${encoded}`).digest('hex');
+    return `${encoded}.${signature}`;
+  }
+
+  private verifyPreview(token: string): Record<string, unknown> {
+    const [encoded, signature, extra] = token.split('.');
+    if (!encoded || !signature || extra || !/^[0-9a-f]{64}$/.test(signature)) throw new ConflictException('La prévisualisation de reconstruction est invalide');
+    const expected = createHmac('sha256', this.previewSecret).update(`prevention-rebuild-preview-v1|${encoded}`).digest();
+    const supplied = Buffer.from(signature, 'hex');
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new ConflictException('La prévisualisation de reconstruction est invalide');
+    try {
+      const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)) return payload;
+    } catch { /* invalid payload */ }
+    throw new ConflictException('La prévisualisation de reconstruction est invalide');
+  }
+
+  private async resolveScope(organizationId: string, scope: PreventionRebuildScopeDto): Promise<{ digest: string | null; missionIds: string[] | null }> {
+    let clientKeys: string[];
+    try { clientKeys = parseBudgetClientKeys(scope.clientKeys); }
+    catch { throw new BadRequestException('Sélection de clients invalide'); }
+    if (!clientKeys.length && !scope.missionId) return { digest: null, missionIds: null };
+    const rows: Array<{ id: string; client: string | null }> = await this.dataSource.query(
+      'SELECT id,client FROM missions WHERE organizationId=? ORDER BY id LIMIT 10001', [organizationId]);
+    if (rows.length > 10000) throw new BadRequestException('Liste des chantiers trop volumineuse');
+    const known = new Set(rows.map((row) => budgetClientIdentity(row.client).key));
+    if (clientKeys.some((key) => !known.has(key))) throw new BadRequestException('Client introuvable dans l’organisation');
+    if (scope.missionId && !rows.some((row) => row.id === scope.missionId)) throw new BadRequestException('Chantier introuvable dans l’organisation');
+    const missionIds = rows.filter((row) => (!scope.missionId || row.id === scope.missionId) &&
+      (!clientKeys.length || clientKeys.includes(budgetClientIdentity(row.client).key))).map((row) => row.id);
+    return { digest: createHash('sha256').update(JSON.stringify([scope.missionId ?? null, clientKeys, missionIds])).digest('hex'), missionIds };
+  }
+
+  async preview(organizationId: string, scope: PreventionRebuildScopeDto = {}): Promise<PreventionRebuildPreview> {
     if (this.activation) await this.activation.assertEnabled(organizationId);
     if (!UUID_PATTERN.test(organizationId)) throw new ConflictException('Organisation invalide');
+    const selected = await this.resolveScope(organizationId, scope);
+    const scopedSql = selected.missionIds === null ? '' : selected.missionIds.length ? ' AND v.missionId IN (?)' : ' AND 1=0';
+    const findingSql = selected.missionIds === null ? '' : selected.missionIds.length ? ' AND f.missionId IN (?)' : ' AND 1=0';
+    const reportArgs = selected.missionIds?.length ? [selected.missionIds] : [];
     const rows: Array<{ reportCount: number | string; findingCount: number | string }> = await this.dataSource.query(
       `SELECT
          (SELECT COUNT(DISTINCT r.id) FROM reports r
           INNER JOIN visits v ON v.id=r.visitId AND v.organizationId=?
-          WHERE r.organizationId=?) reportCount,
-         (SELECT COUNT(*) FROM prevention_findings f WHERE f.organizationId=?) findingCount`,
-      [organizationId, organizationId, organizationId],
+          WHERE r.organizationId=?${scopedSql}) reportCount,
+         (SELECT COUNT(*) FROM prevention_findings f WHERE f.organizationId=?${findingSql}) findingCount`,
+      [organizationId, organizationId, ...reportArgs, organizationId, ...reportArgs],
     );
     const measured = rows?.[0] ?? { reportCount: 0, findingCount: 0 };
     const reportCount = Number(measured.reportCount ?? 0);
@@ -67,26 +114,38 @@ export class PreventionRebuildQueueService implements OnApplicationShutdown {
     if (!Number.isSafeInteger(reportCount) || reportCount < 0 || !Number.isSafeInteger(findingCount) || findingCount < 0) {
       throw new Error('Invalid Prevention reconstruction volume');
     }
+    const sources: Array<{ id: string; reportUpdatedAt: Date; visitUpdatedAt: Date; photosHash: string }> = await this.dataSource.query(
+      `SELECT r.id,r.updatedAt reportUpdatedAt,v.updatedAt visitUpdatedAt,
+              SHA2(COALESCE(CAST(v.photos AS CHAR),''),256) photosHash
+       FROM reports r JOIN visits v ON v.id=r.visitId AND v.organizationId=r.organizationId
+       WHERE r.organizationId=?${scopedSql} ORDER BY r.id LIMIT 10001`,
+      [organizationId, ...reportArgs],
+    );
+    if (sources.length > 10000) throw new BadRequestException('Trop de rapports pour une reconstruction');
+    const sourceVersion = createHash('sha256').update(JSON.stringify(sources)).digest('hex');
     const executionMode = executionModeForVolume(reportCount, findingCount, this.bulkConfiguration);
     const scheduledFor = executionMode === 'SCHEDULED'
       ? nextPreventionBulkWindowStart(new Date(), this.bulkConfiguration).toISOString()
       : null;
-    const digest = createHash('sha256').update(`${organizationId}|${reportCount}|${findingCount}|${executionMode}|${scheduledFor ?? ''}`).digest('hex');
-    const previewToken = Buffer.from(JSON.stringify({ organizationId, reportCount, findingCount, executionMode, scheduledFor, windowKey: scheduledFor ? preventionBulkWindowKey(new Date(scheduledFor), this.bulkConfiguration) : null, digest, issuedAt: Date.now() })).toString('base64url');
-    return { reportCount, findingCount, immediateLimit: this.bulkConfiguration.immediateRebuildCeiling, executionMode, scheduledFor, previewToken };
+    const previewToken = this.signPreview({ organizationId, reportCount, findingCount, executionMode, scheduledFor,
+      scopeDigest: selected.digest, sourceVersion,
+      windowKey: scheduledFor ? preventionBulkWindowKey(new Date(scheduledFor), this.bulkConfiguration) : null, issuedAt: Date.now() });
+    const result: PreventionRebuildPreview = { reportCount, findingCount, immediateLimit: this.bulkConfiguration.immediateRebuildCeiling, executionMode, scheduledFor, previewToken, scopeDigest: selected.digest };
+    Object.defineProperty(result, 'scopeMissionIds', { value: selected.missionIds, enumerable: false });
+    Object.defineProperty(result, 'sourceVersion', { value: sourceVersion, enumerable: false });
+    return result;
   }
 
-  async admit(organizationId: string, previewToken?: string): Promise<PreventionRebuildAdmission> {
+  async admit(organizationId: string, previewToken?: string, scope: PreventionRebuildScopeDto = {}): Promise<PreventionRebuildAdmission> {
     if (!previewToken) throw new BadRequestException('Une prévisualisation est requise avant la confirmation');
     if (previewToken.length > 2048) throw new ConflictException('La prévisualisation de reconstruction est invalide');
-    const measured = await this.preview(organizationId);
+    const measured = await this.preview(organizationId, scope);
     {
-      let supplied: any;
-      try { supplied = JSON.parse(Buffer.from(previewToken, 'base64url').toString('utf8')); } catch { throw new ConflictException('La prévisualisation de reconstruction est invalide'); }
+      const supplied = this.verifyPreview(previewToken);
       const issuedAt = Number(supplied.issuedAt);
-      const expected = createHash('sha256').update(`${organizationId}|${supplied.reportCount}|${supplied.findingCount}|${supplied.executionMode}|${supplied.scheduledFor ?? ''}`).digest('hex');
-      if (supplied.organizationId !== organizationId || supplied.digest !== expected || supplied.reportCount !== measured.reportCount ||
-          supplied.findingCount !== measured.findingCount || supplied.executionMode !== measured.executionMode ||
+      if (supplied.organizationId !== organizationId || supplied.reportCount !== measured.reportCount ||
+          supplied.findingCount !== measured.findingCount || supplied.executionMode !== measured.executionMode || supplied.scopeDigest !== measured.scopeDigest ||
+          supplied.sourceVersion !== measured.sourceVersion ||
           (measured.scheduledFor && supplied.windowKey !== preventionBulkWindowKey(new Date(measured.scheduledFor), this.bulkConfiguration)) ||
           (!measured.scheduledFor && supplied.windowKey !== null) || !Number.isSafeInteger(issuedAt) ||
           issuedAt > Date.now() + 5_000 || Date.now() - issuedAt > 15 * 60_000) {
@@ -128,13 +187,14 @@ export class PreventionRebuildQueueService implements OnApplicationShutdown {
     // the manual job payload and checkpoint; the API only returns this opaque id.
     // Use a recent active checkpoint to deduplicate per tenant.
     const [tenantExisting] = await this.dataSource.query(
-      `SELECT r.id,r.status,r.scheduledFor FROM prevention_scheduler_runs r
+      `SELECT r.id,r.status,r.scheduledFor,c.scopeDigest FROM prevention_scheduler_runs r
        JOIN prevention_scheduler_checkpoints c ON c.runId=r.id
        WHERE r.jobType=? AND c.organizationId=? AND r.status IN (${ACTIVE_STATUSES.map(() => '?').join(',')})
        ORDER BY r.createdAt DESC LIMIT 1`,
       [MANUAL_JOB_TYPE, organizationId, ...ACTIVE_STATUSES],
     );
     if (tenantExisting && ACTIVE_STATUSES.includes(String(tenantExisting.status))) {
+      if ((tenantExisting.scopeDigest ?? null) !== (measured.scopeDigest ?? null)) throw new ConflictException('Une reconstruction d’un autre périmètre est déjà en cours');
       await this.enqueueRun(
         organizationId,
         tenantExisting.id,
@@ -157,14 +217,18 @@ export class PreventionRebuildQueueService implements OnApplicationShutdown {
         [runId, MANUAL_JOB_TYPE, scheduledFor, status, measured.reportCount, measured.findingCount, measured.immediateLimit, measured.executionMode, 'ADMIN_RECONSTRUCTION'],
       );
       await manager.query(
-        "INSERT IGNORE INTO prevention_scheduler_checkpoints (id,runId,organizationId,status,processedReports,scanComplete,availableAt) VALUES (?,?,?,'PENDING',0,0,UTC_TIMESTAMP(6))",
-        [deterministicId(runId + "|" + organizationId), runId, organizationId],
+        "INSERT IGNORE INTO prevention_scheduler_checkpoints (id,runId,organizationId,status,processedReports,scanComplete,availableAt,scopeDigest,scopeMissionIds) VALUES (?,?,?,'PENDING',0,0,UTC_TIMESTAMP(6),?,?)",
+        [deterministicId(runId + "|" + organizationId), runId, organizationId, measured.scopeDigest ?? null,
+          measured.scopeMissionIds === null || measured.scopeMissionIds === undefined ? null : JSON.stringify(measured.scopeMissionIds)],
       );
     });
     const [current] = await this.dataSource.query(
-      "SELECT r.id,r.status FROM prevention_scheduler_runs r JOIN prevention_scheduler_checkpoints c ON c.runId=r.id WHERE r.id=? AND c.organizationId=? AND r.jobType=? LIMIT 1",
+      "SELECT r.id,r.status,c.scopeDigest FROM prevention_scheduler_runs r JOIN prevention_scheduler_checkpoints c ON c.runId=r.id WHERE r.id=? AND c.organizationId=? AND r.jobType=? LIMIT 1",
       [runId, organizationId, MANUAL_JOB_TYPE],
     );
+    if (current && (current.scopeDigest ?? null) !== (measured.scopeDigest ?? null)) {
+      throw new ConflictException('Une reconstruction d’un autre périmètre est déjà en cours');
+    }
     if (!current || !['PROCESSING', 'SCHEDULED'].includes(current.status)) return current ?? { id: runId, status: "FAILED" };
     try {
       await this.enqueueRun(organizationId, runId, scheduledFor, measured.executionMode);

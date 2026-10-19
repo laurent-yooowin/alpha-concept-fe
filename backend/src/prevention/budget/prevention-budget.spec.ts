@@ -127,17 +127,24 @@ test('global worker publishes one atomic ALL scenario with MAX lines and preserv
     unitCostHt: '77.00', status: 'VALIDE', lockedManual: 1, priceSource: 'human', scenarioCreatedAt: '2026-09-01' };
   const disappearedActionLock = { ...actionLock, id: 'disappeared-action-item', itemKey: 'client-c|action-z',
     clientKey: 'client-c', clientLabel: 'C', scenarioKey: materializedActionScopeKey(org, 'client-c|action-z'), totalHt: '44.00', unitCostHt: '44.00' };
+  const scopedMissionId = '30000000-0000-4000-8000-000000000001';
+  const otherMissionId = '30000000-0000-4000-8000-000000000002';
+  const scopedLock = { ...actionLock, id: 'scoped-human-item', actionMissionId: scopedMissionId,
+    scenarioKey: materializedActionScopeKey(org, 'client-a|action-x', scopedMissionId) };
+  const otherMissionLock = { ...scopedLock, id: 'other-mission-item', actionMissionId: otherMissionId,
+    scenarioKey: materializedActionScopeKey(org, 'client-a|action-x', otherMissionId), totalHt: '999.00' };
+  let runFilters = { clientKeys: [] as string[], categoryId: null, severity: null, missionId: null as string | null, contingencyRatePercent: '0.00' };
   const service: any = Object.create(PreventionBudgetService.prototype);
   service.dataSource = {
     query: async (sql: string) => sql.includes('catalogVersion')
       ? [{ reportCount: 1, reportUpdatedAt: '2026-01-01', findingCount: 2, findingCreatedAt: '2026-01-02', catalogVersion: 1 }]
       : [],
     transaction: async (callback: (manager: any) => Promise<any>) => callback({ query: async (sql: string, args?: unknown[]) => {
-      if (sql.includes('SELECT * FROM prevention_budget_global_runs')) return [{ id: runId, status: 'PROCESSING', scenarioKey: 'global-key', sourceVersion: await loadPreventionBudgetSourceVersion(service.dataSource, org), filters: JSON.stringify({ clientKeys: [], categoryId: null, severity: null, contingencyRatePercent: '0.00' }), adminPrompt: null }];
+      if (sql.includes('SELECT * FROM prevention_budget_global_runs')) return [{ id: runId, status: 'PROCESSING', scenarioKey: 'global-key', sourceVersion: await loadPreventionBudgetSourceVersion(service.dataSource, org), filters: JSON.stringify(runFilters), adminPrompt: null }];
       if (sql.includes("status<>'CALCULATED'")) return [];
       if (sql.includes('SELECT i.*,y.year')) return annualRows;
       if (sql.includes('SELECT s.*,i.itemKey')) return sourceRows;
-      if (sql.includes('SELECT i.*,s.scenarioKey')) return [actionLock, disappearedActionLock];
+      if (sql.includes('SELECT i.*,s.scenarioKey')) return runFilters.missionId ? [scopedLock, otherMissionLock] : [actionLock, disappearedActionLock];
       if (sql.includes('SELECT src.*,i.itemKey')) return [{ itemKey: 'client-a|action-x', sourceKind: 'REPORT', sourceKey: 'r-action-human', reportId: 'r4', findingId: null }];
       if (sql.includes("periodMode='ALL'")) return [];
       if (sql.includes('COALESCE(MAX(version)')) return [{ version: 0 }];
@@ -152,6 +159,13 @@ test('global worker publishes one atomic ALL scenario with MAX lines and preserv
     ['client-a|action-x', '77.00', 'VALIDE'], ['client-b|action-y', '10.00', 'VALIDE'], ['client-c|action-z', '44.00', 'VALIDE'],
   ]);
   assert.equal(insertedSources.length, 4);
+  runFilters = { ...runFilters, missionId: scopedMissionId };
+  insertedItems.length = 0;
+  insertedSources.length = 0;
+  await service.finalizeGlobalRun(org, runId);
+  assert.deepEqual(insertedItems.map((args) => [args[3], args[14], args[15]]), [
+    ['client-a|action-x', '77.00', 'VALIDE'], ['client-b|action-y', '10.00', 'VALIDE'],
+  ]);
 });
 
 test('global worker fails closed when the source fingerprint changes', async () => {

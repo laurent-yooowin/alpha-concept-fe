@@ -15,6 +15,7 @@ type BudgetItem = {
   originScenarioId?: string;
   originItemId?: string;
   originVersion?: number;
+  originMissionId?: string | null;
   conflictingHumanAmounts?: boolean;
   title?: string;
   categoryKey?: string;
@@ -86,7 +87,7 @@ type BudgetScopePreview = {
   scheduledFor?: string | null;
   admission?: { status?: string; scheduledFor?: string | null } | string;
 };
-type BudgetExecutionSelection = Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity'> & { clientKeys: string[] };
+type BudgetExecutionSelection = Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity' | 'missionId'> & { clientKeys: string[] };
 type BudgetConfirmation = { preview: BudgetScopePreview | null; mode: 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY'; globalArmed: boolean; selection: BudgetExecutionSelection };
 type MissionOption = { id: string; title?: string; name?: string; type?: string };
 type CategoryOption = { id: string; label: string };
@@ -130,8 +131,8 @@ function Message({ children, error = false, onClose }: { children: string; error
   return <div role={error ? 'alert' : 'status'} className={`flex items-start gap-2 rounded-xl border p-4 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-800'}`}><AlertCircle size={17} className="shrink-0" /><span className="min-w-0 flex-1">{children}</span><button type="button" onClick={onClose} aria-label="Fermer l’alerte" className="-mr-1 -mt-1 rounded p-1 hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-current"><X size={16} /></button></div>;
 }
 
-export default function BudgetPage({ missions: _missions, base, filters, clientKeys, clients }: { missions: MissionOption[]; base: string; filters: PreventionQuery; clientKeys: string[]; clients: ClientOption[] }) {
-  const scopeKey = budgetSelectionKey({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, clientKeys });
+export default function BudgetPage({ missions, base, filters, clientKeys, clients }: { missions: MissionOption[]; base: string; filters: PreventionQuery; clientKeys: string[]; clients: ClientOption[] }) {
+  const scopeKey = budgetSelectionKey({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, missionId: filters.missionId, clientKeys });
   const currentScope = useRef({ key: scopeKey, generation: 0 });
   if (currentScope.current.key !== scopeKey) currentScope.current = { key: scopeKey, generation: currentScope.current.generation + 1 };
   const scopeGeneration = currentScope.current.generation;
@@ -156,7 +157,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const budgetJobStorageKey = `prevention.budget.job.${scopeKey}`;
-  const filteredView = filters.preset !== 'ALL' || Boolean(filters.categoryId || filters.severity || clientKeys.length);
+  const filteredView = filters.preset !== 'ALL' || Boolean(filters.categoryId || filters.severity || filters.missionId || clientKeys.length);
 
   useEffect(() => {
     if (!filteredView) { setGlobalTotal(null); return; }
@@ -223,14 +224,14 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
   }, [clientKeys, scopeGeneration]);
 
   const loadMaterialized = useCallback(async (expectedGeneration = scopeGeneration) => {
-    const query = budgetScopeSelectionQuery({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, clientKeys });
+    const query = budgetScopeSelectionQuery({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, missionId: filters.missionId, clientKeys });
     const response = await preventionAPI.budgetMaterialized(query) as { items?: BudgetItem[]; tooLarge?: boolean; totalReports?: number; availableTotalHt?: string | null };
     if (currentScope.current.generation !== expectedGeneration) return;
     setMaterializedItems(response.items || []);
     setMaterializedTotalHt(response.availableTotalHt ?? null);
     setMaterializedTooLarge(Boolean(response.tooLarge));
     setTotalReports(Number(response.totalReports ?? 0));
-  }, [filters.preset, filters.from, filters.to, filters.categoryId, filters.severity, clientKeys, scopeGeneration]);
+  }, [filters.preset, filters.from, filters.to, filters.categoryId, filters.severity, filters.missionId, clientKeys, scopeGeneration]);
 
   useEffect(() => { void load(); return () => { if (timer.current) clearTimeout(timer.current); refreshTimers.current.forEach(clearTimeout); }; }, [load]);
   useEffect(() => {
@@ -240,7 +241,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
     setMaterializedTotalHt(null);
     setMaterializedTooLarge(false);
     setScopeLoading(true);
-    const query = budgetScopeSelectionQuery({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, clientKeys });
+    const query = budgetScopeSelectionQuery({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, missionId: filters.missionId, clientKeys });
     void preventionAPI.budgetScope(query).then(async (response) => {
       if (!active) return;
       const result = response as { scenario?: Budget | null; totalReports?: number };
@@ -250,7 +251,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
     }).catch((reason) => { if (active) setError(errorMessage(reason)); })
       .finally(() => { if (active) setScopeLoading(false); });
     return () => { active = false; };
-  }, [filters.preset, filters.from, filters.to, filters.categoryId, filters.severity, clientKeys, loadMaterialized, scopeGeneration]);
+  }, [filters.preset, filters.from, filters.to, filters.categoryId, filters.severity, filters.missionId, clientKeys, loadMaterialized, scopeGeneration]);
   useEffect(() => {
     if (!selectedId) return;
     let active = true;
@@ -293,7 +294,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
   }, [loadBudgetDetail]);
 
   const refreshVisibleScope = useCallback(async (requestGeneration: number) => {
-    const query = budgetScopeSelectionQuery({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, clientKeys });
+    const query = budgetScopeSelectionQuery({ preset: filters.preset || 'ALL', from: filters.from, to: filters.to, categoryId: filters.categoryId, severity: filters.severity, missionId: filters.missionId, clientKeys });
     const response = await preventionAPI.budgetScope(query) as { scenario?: Budget | null; totalReports?: number };
     if (currentScope.current.generation !== requestGeneration) return;
     setTotalReports(Number(response.totalReports ?? 0));
@@ -305,7 +306,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
       await loadMaterialized(requestGeneration);
     }
     setGlobalTotalRefresh((value) => value + 1);
-  }, [filters.preset, filters.from, filters.to, filters.categoryId, filters.severity, clientKeys, loadBudgetDetail, loadMaterialized]);
+  }, [filters.preset, filters.from, filters.to, filters.categoryId, filters.severity, filters.missionId, clientKeys, loadBudgetDetail, loadMaterialized]);
 
   const refreshAfterJob = useCallback((requestGeneration: number) => {
     // The bounded job can finish before its asynchronous ALL reconciliation.
@@ -376,7 +377,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
   }, [budgetJobStorageKey, completeJob, loadMaterialized, refreshAfterJob, scopeGeneration, selectedId]);
 
   const requestScopePreview = async (mode: BudgetConfirmation['mode'], selection: BudgetExecutionSelection): Promise<BudgetScopePreview> => {
-    const response = await preventionAPI.budgetPreview({ mode, ...budgetExecutionPeriod(mode, selection), categoryId: selection.categoryId, severity: selection.severity, clientKeys: selection.clientKeys });
+    const response = await preventionAPI.budgetPreview({ mode, ...budgetExecutionPeriod(mode, selection), categoryId: selection.categoryId, severity: selection.severity, missionId: selection.missionId, clientKeys: selection.clientKeys });
     return (response && typeof response === 'object' ? response : {}) as BudgetScopePreview;
   };
 
@@ -431,6 +432,10 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
 
   const recalculateItem = async (item: BudgetItem, adminPrompt: string) => {
     if (!selected) return;
+    if (filters.missionId && item.materializedOnly && item.originMissionId !== filters.missionId) {
+      setError('Calculez d’abord le budget de ce chantier avant de réestimer ce poste ; son estimation actuelle provient d’un périmètre plus large.');
+      return;
+    }
     const requestGeneration = currentScope.current.generation;
     setSaving(`recalculate:${item.id}`); setError(null); setNotice(null);
     try {
@@ -449,6 +454,10 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
 
   const saveItem = async (item: BudgetItem, form: HTMLFormElement) => {
     if (!selected) return;
+    if (filters.missionId && item.materializedOnly && item.originMissionId !== filters.missionId) {
+      setError('Calculez d’abord le budget de ce chantier avant de modifier ce poste ; sa version actuelle appartient à un périmètre plus large.');
+      return;
+    }
     const requestGeneration = currentScope.current.generation;
     const data = new FormData(form);
     const unitCostRaw = String(data.get('unitCostHt') || '').trim();
@@ -499,7 +508,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
   const previewCeiling = preview?.threshold?.ceilings?.immediateReports ?? preview?.immediateCeiling;
   return <div className="space-y-5">
     {error && <Message error onClose={() => setError(null)}>{error}</Message>}{notice && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><CheckCircle2 size={17} className="shrink-0" /><span className="min-w-0 flex-1">{notice}</span><button type="button" onClick={() => setNotice(null)} aria-label="Fermer l’alerte" className="-mr-1 -mt-1 rounded p-1 hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-current"><X size={16} /></button></div>}
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="flex items-center gap-2 text-[17px] font-extrabold text-[#1e3a5f]"><WalletCards className="text-[#e87722]" size={18} />Budget estimatif sécurité</h2><p className="mt-1 text-xs font-semibold text-[#1e3a5f]">Période {materializedView ? 'consultée' : selected ? 'calculée' : 'demandée'} : {filters.preset === 'ALL' ? 'Toute la période' : `${periodDate(periodStart)} → ${periodDate(periodEnd)}`} · {categoryFilterLabel} · {severityFilterLabel}</p><p className="mt-2 text-xs text-[#8a97b0]">{reportCount} rapport(s) concernés parmi {totalReports} rapport(s) de l’organisation · {findingCount} recommandation(s) · {estimatedCount} estimation(s) IA · {unpricedCount} poste(s) à chiffrer. La barre représente la couverture des rapports, pas le montant.</p></div><button type="button" disabled={saving !== null || scopeLoading} onClick={() => void recalculate()} className="inline-flex items-center gap-2 rounded-md bg-[#e87722] px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#d96b1d] disabled:cursor-not-allowed disabled:opacity-60"><RefreshCw size={14} className={saving === 'recalculate' || saving === 'preview' ? 'animate-spin' : ''} />{saving === 'preview' ? 'Mesure du périmètre…' : saving === 'recalculate' ? 'Calcul en cours…' : selected && !materializedView ? 'Recalculer cette sélection' : 'Calculer une sélection'}</button></header>
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="flex items-center gap-2 text-[17px] font-extrabold text-[#1e3a5f]"><WalletCards className="text-[#e87722]" size={18} />Budget estimatif sécurité</h2><p className="mt-1 text-xs font-semibold text-[#1e3a5f]">Période {materializedView ? 'consultée' : selected ? 'calculée' : 'demandée'} : {filters.preset === 'ALL' ? 'Toute la période' : `${periodDate(periodStart)} → ${periodDate(periodEnd)}`} · {categoryFilterLabel} · {severityFilterLabel} · {filters.missionId ? `Chantier : ${missions.find((mission) => mission.id === filters.missionId)?.title || 'sélectionné'}` : 'Tous les chantiers'} · {clientKeys.length ? `${clientKeys.length} client(s)` : 'Tous les clients'}</p><p className="mt-2 text-xs text-[#8a97b0]">{reportCount} rapport(s) concernés parmi {totalReports} rapport(s) du périmètre · {findingCount} recommandation(s) · {estimatedCount} estimation(s) IA · {unpricedCount} poste(s) à chiffrer. La barre représente la couverture des rapports, pas le montant.</p></div><button type="button" disabled={saving !== null || scopeLoading} onClick={() => void recalculate()} className="inline-flex items-center gap-2 rounded-md bg-[#e87722] px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-[#d96b1d] disabled:cursor-not-allowed disabled:opacity-60"><RefreshCw size={14} className={saving === 'recalculate' || saving === 'preview' ? 'animate-spin' : ''} />{saving === 'preview' ? 'Mesure du périmètre…' : saving === 'recalculate' ? 'Calcul en cours…' : selected && !materializedView ? 'Recalculer cette sélection' : 'Calculer une sélection'}</button></header>
     {job && dismissedJobId !== job.id && !['COMPLETED', 'PUBLISHED', 'FAILED', 'QUARANTINED'].includes(String(job.status || '').toUpperCase()) && <div role="status" className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800"><span className="min-w-0 flex-1">Calcul {String(job.status || 'en cours').toLowerCase()} pour les filtres sélectionnés…{job.progress?.processedItems != null ? ` ${job.progress.processedItems}${job.progress.totalItems != null ? `/${job.progress.totalItems}` : ''} poste(s).` : ''}</span><button type="button" onClick={() => setDismissedJobId(job.id)} aria-label="Fermer l’alerte" className="-mr-1 -mt-1 rounded p-1 hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-current"><X size={16} /></button></div>}
     {scopeLoading ? <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">Chargement du périmètre budgétaire…</div> : !selected ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">{materializedTooLarge ? 'Trop de résultats enregistrés pour une lecture unique. Réduisez les filtres de consultation.' : 'Aucun résultat budgétaire enregistré pour ces filtres. Vous pouvez lancer un calcul distinct.'}</div> : <>
       <BudgetOverviewTable key={selected.id} items={selected.items || []} total={displayedTotalHt} globalTotal={globalTotal} partial={materializedView} filtered={filteredView} totalReports={totalReports} onJustify={(item) => setJustificationItemId(item.id)} />
@@ -507,7 +516,7 @@ export default function BudgetPage({ missions: _missions, base, filters, clientK
       <div hidden />
     </>}
     {confirmation && <BudgetCalculationModal
-      confirmation={confirmation} categories={categories} clients={clients}
+      confirmation={confirmation} categories={categories} clients={clients} missions={missions}
       previewReports={previewReports} previewRecommendations={previewRecommendations}
       previewEstimations={previewEstimations} previewCeiling={previewCeiling} admissionLabel={admissionLabel}
       onChange={(next) => setConfirmation(next)}
@@ -538,8 +547,8 @@ function categoryBadge(category: string) {
   return 'bg-orange-50 text-orange-700';
 }
 
-function BudgetCalculationModal({ confirmation, categories, clients, previewReports, previewRecommendations, previewEstimations, previewCeiling, admissionLabel, onChange, onMeasure, onCancel, onConfirm, measuring }: {
-  confirmation: BudgetConfirmation; categories: CategoryOption[]; clients: ClientOption[];
+function BudgetCalculationModal({ confirmation, categories, clients, missions, previewReports, previewRecommendations, previewEstimations, previewCeiling, admissionLabel, onChange, onMeasure, onCancel, onConfirm, measuring }: {
+  confirmation: BudgetConfirmation; categories: CategoryOption[]; clients: ClientOption[]; missions: MissionOption[];
   previewReports?: number; previewRecommendations?: number; previewEstimations?: number; previewCeiling?: number; admissionLabel: string;
   onChange: (next: BudgetConfirmation) => void; onMeasure: () => void; onCancel: () => void; onConfirm: () => void; measuring: boolean;
 }) {
@@ -574,6 +583,7 @@ function BudgetCalculationModal({ confirmation, categories, clients, previewRepo
         <label className={filterLabelClass}>Catégorie<select value={selection.categoryId || ''} onChange={(event) => changeSelection({ categoryId: event.target.value || undefined })} className={filterControlClass}><option value="">Toutes</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label>
         <label className={filterLabelClass}>Gravité<select value={selection.severity || ''} onChange={(event) => changeSelection({ severity: event.target.value ? event.target.value as PreventionQuery['severity'] : undefined })} className={filterControlClass}><option value="">Toutes</option><option value="critique">Critique</option><option value="eleve">Élevé</option><option value="moyen">Moyen</option><option value="faible">Faible</option></select></label>
         <div className={`${filterLabelClass} sm:col-span-2`}><span>Client</span><ClientMultiSelect appearance="form" clients={clients} selectedKeys={selection.clientKeys} onChange={(keys) => changeSelection({ clientKeys: keys })} /></div>
+        <label className={filterLabelClass}>Chantier<select value={selection.missionId || ''} onChange={(event) => changeSelection({ missionId: event.target.value || undefined })} className={filterControlClass}><option value="">Tous les chantiers</option>{missions.map((mission) => <option key={mission.id} value={mission.id}>{mission.title || mission.name || mission.id}</option>)}</select></label>
       </div>
       {preview ? <><dl className="mt-4 grid grid-cols-3 gap-2 text-xs">{[['Rapports', previewReports], ['Recommandations', previewRecommendations], ['Estimations', previewEstimations]].map(([label, value]) => <div key={String(label)} className="rounded-lg bg-slate-50 p-3"><dt className="text-slate-500">{label}</dt><dd className="mt-1 text-lg font-bold text-[#1e3a5f]">{value ?? '—'}</dd></div>)}</dl><p className="mt-3 text-xs text-slate-600">Plafond immédiat : <strong>{previewCeiling ?? '—'}</strong> · <strong>{admissionLabel}</strong></p>{preview.years?.length ? <p className="mt-1 text-xs text-slate-500">Années présentes : {preview.years.map((year) => year.year).filter(Boolean).join(', ')}</p> : null}</> : <p className="mt-4 text-xs text-amber-700">Périmètre modifié : mesurez-le à nouveau avant de confirmer.</p>}
       {mode === 'GLOBAL_YEARLY' && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Le calcul global peut durer plusieurs nuits. Une seconde confirmation est requise.</div>}

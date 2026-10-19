@@ -5,9 +5,11 @@ import { PreventionQueryDto } from './prevention-api.dto';
 import { PreventionRebuildQueueService } from './prevention-rebuild-queue.service';
 import { PreventionActivationService } from '../prevention-activation.service';
 import { PREVENTION_PHASE_LABELS } from '../prevention-phase';
-import { PreventionRebuildConfirmDto } from './prevention-rebuild.dto';
+import { PreventionRebuildConfirmDto, PreventionRebuildScopeDto } from './prevention-rebuild.dto';
+import { budgetClientIdentity, parseBudgetClientKeys } from '../budget/prevention-budget-client';
 
 type Period = { from: string | null; to: string | null; granularity: 'day' | 'week' | 'month'; all: boolean };
+type ScopedQuery = PreventionQueryDto & { clientMissionIds?: string[] };
 
 const MAX_REGULATORY_ROWS = 5000;
 const MAX_REGULATORY_ITEMS = 100;
@@ -67,6 +69,29 @@ export class PreventionApiService {
     const organizationId = this.org(user);
     if (this.activation) await this.activation.assertEnabled(organizationId);
     return organizationId;
+  }
+
+  private async scopedQuery(q: PreventionQueryDto, organizationId: string): Promise<ScopedQuery> {
+    let keys: string[];
+    try { keys = parseBudgetClientKeys(q.clientKeys); }
+    catch { throw new BadRequestException('Sélection de clients invalide'); }
+    if (!keys.length) return q;
+    const rows: Array<{ id: string; client: string | null }> = await this.db.query(
+      'SELECT id,client FROM missions WHERE organizationId=? ORDER BY id LIMIT 10001', [organizationId]);
+    if (rows.length > 10000) throw new BadRequestException('Liste des chantiers trop volumineuse');
+    const known = new Set(rows.map((row) => budgetClientIdentity(row.client).key));
+    if (keys.some((key) => !known.has(key))) throw new BadRequestException('Client introuvable dans l’organisation');
+    return {
+      ...q,
+      clientMissionIds: rows.filter((row) => keys.includes(budgetClientIdentity(row.client).key)).map((row) => row.id),
+    };
+  }
+
+  private clientPredicate(q: ScopedQuery, missionColumn: string, _organizationColumn: string, args: unknown[]): string | null {
+    if (!q.clientKeys?.length) return null;
+    if (!q.clientMissionIds?.length) return '1=0';
+    args.push(q.clientMissionIds);
+    return `${missionColumn} IN (?)`;
   }
 
   private period(q: PreventionQueryDto, defaultPreset: PreventionQueryDto["preset"] = "LAST_30_DAYS"): Period {
@@ -150,7 +175,7 @@ export class PreventionApiService {
   }
 
   private findingFilters(
-    q: PreventionQueryDto,
+    q: ScopedQuery,
     period: Period,
     organizationId: string,
     args: unknown[] = [organizationId],
@@ -161,6 +186,8 @@ export class PreventionApiService {
     if (dateClause) where.push(dateClause);
     if (q.missionType) { where.push(`${alias}.missionType=?`); args.push(q.missionType); }
     if (q.missionId || q.chantierId) { where.push(`${alias}.missionId=?`); args.push(q.missionId ?? q.chantierId); }
+    const client = this.clientPredicate(q, `${alias}.missionId`, `${alias}.organizationId`, args);
+    if (client) where.push(client);
     if (q.categoryId) { where.push(`${alias}.categoryId=?`); args.push(q.categoryId); }
     if (q.riskLevel) { where.push(`${alias}.riskLevel=?`); args.push(q.riskLevel); }
     const severity = this.severityFilter(q.severity, alias, args);
@@ -169,7 +196,7 @@ export class PreventionApiService {
     return where;
   }
 
-  private async dashboardDimensions(q: PreventionQueryDto, period: Period, organizationId: string) {
+  private async dashboardDimensions(q: ScopedQuery, period: Period, organizationId: string) {
     const categoryArgs: unknown[] = this.periodArgs(period, organizationId);
     const categoryWhere = this.findingFilters(q, period, organizationId, categoryArgs);
     categoryWhere.push("f.findingType='OBSERVATION'");
@@ -187,6 +214,8 @@ export class PreventionApiService {
     if (phaseDateClause) phaseWhere.push(phaseDateClause);
     if (q.missionType) { phaseWhere.push('s.missionType=?'); phaseArgs.push(q.missionType); }
     if (q.missionId || q.chantierId) { phaseWhere.push('s.missionId=?'); phaseArgs.push(q.missionId ?? q.chantierId); }
+    const phaseClient = this.clientPredicate(q, 's.missionId', 's.organizationId', phaseArgs);
+    if (phaseClient) phaseWhere.push(phaseClient);
     if (q.status) { phaseWhere.push('r.status=?'); phaseArgs.push(q.status); }
     if (q.categoryId || q.riskLevel || q.severity) {
       const groupFindingWhere = [
@@ -453,8 +482,9 @@ export class PreventionApiService {
 
   async dashboard(user: User, q: PreventionQueryDto) {
     const organizationId = await this.enabledOrg(user); const period = this.period(q);
+    q = await this.scopedQuery(q, organizationId);
     const dimensions = await this.dashboardDimensions(q, period, organizationId);
-    const detailedFilter = Boolean(q.missionId || q.chantierId || q.status || q.categoryId || q.riskLevel || q.severity);
+    const detailedFilter = Boolean(q.missionId || q.chantierId || q.clientKeys?.length || q.status || q.categoryId || q.riskLevel || q.severity);
     if (detailedFilter) {
       const args: unknown[] = this.periodArgs(period, organizationId);
       const where = this.findingFilters(q, period, organizationId, args);
@@ -476,6 +506,7 @@ export class PreventionApiService {
 
   private async listFindings(user: User, q: PreventionQueryDto, type: 'OBSERVATION' | 'RECOMMENDATION') {
     const organizationId = await this.enabledOrg(user); const period = this.period(q);
+    q = await this.scopedQuery(q, organizationId);
     const args: unknown[] = this.periodArgs(period, organizationId);
     const where: string[] = ['f.organizationId=?'];
     const dateClause = this.periodClause(period, 'f.businessDate', args);
@@ -484,6 +515,8 @@ export class PreventionApiService {
     args.push(type);
     if (q.missionType) { where.push('f.missionType=?'); args.push(q.missionType); }
     if (q.missionId || q.chantierId) { where.push('f.missionId=?'); args.push(q.missionId ?? q.chantierId); }
+    const client = this.clientPredicate(q, 'f.missionId', 'f.organizationId', args);
+    if (client) where.push(client);
     if (q.categoryId) { where.push('f.categoryId=?'); args.push(q.categoryId); }
     if (q.riskLevel) { where.push('f.riskLevel=?'); args.push(q.riskLevel); }
     const severityFilter = this.severityFilter(q.severity, 'f', args);
@@ -574,7 +607,8 @@ export class PreventionApiService {
 
   async trends(user: User, q: PreventionQueryDto) {
     const organizationId = await this.enabledOrg(user); const period = this.period(q, "LAST_12_MONTHS");
-    const detailedFilter = Boolean(q.missionId || q.chantierId || q.status || q.categoryId || q.riskLevel || q.severity);
+    q = await this.scopedQuery(q, organizationId);
+    const detailedFilter = Boolean(q.missionId || q.chantierId || q.clientKeys?.length || q.status || q.categoryId || q.riskLevel || q.severity);
     const args: unknown[] = this.periodArgs(period, organizationId);
     const alias = detailedFilter ? "f" : "s";
     const where = [alias + ".organizationId=?"];
@@ -582,6 +616,7 @@ export class PreventionApiService {
     if (dateClause) where.push(dateClause);
     if (q.missionType) { where.push(alias + ".missionType=?"); args.push(q.missionType); }
     if (detailedFilter && (q.missionId || q.chantierId)) { where.push("f.missionId=?"); args.push(q.missionId ?? q.chantierId); }
+    if (detailedFilter) { const client = this.clientPredicate(q, 'f.missionId', 'f.organizationId', args); if (client) where.push(client); }
     if (q.categoryId) { where.push(alias + ".categoryId=?"); args.push(q.categoryId); }
     if (q.riskLevel) { where.push(alias + ".riskLevel=?"); args.push(q.riskLevel); }
     if (detailedFilter) {
@@ -618,6 +653,7 @@ export class PreventionApiService {
 
   async references(user: User, q: PreventionQueryDto) {
     const organizationId = await this.enabledOrg(user); const period = this.period(q);
+    q = await this.scopedQuery(q, organizationId);
     const args: unknown[] = this.periodArgs(period, organizationId);
     const where = ["f.organizationId=?"];
     const dateClause = this.periodClause(period, "f.businessDate", args);
@@ -628,6 +664,8 @@ export class PreventionApiService {
     const severityFilter = this.severityFilter(q.severity, 'f', args);
     if (severityFilter) where.push(severityFilter);
     if (q.missionId || q.chantierId) { where.push("f.missionId=?"); args.push(q.missionId ?? q.chantierId); }
+    const client = this.clientPredicate(q, 'f.missionId', 'f.organizationId', args);
+    if (client) where.push(client);
     if (q.status) { where.push("r.status=?"); args.push(q.status); }
     const joins = " FROM prevention_findings f JOIN reports r ON r.organizationId=f.organizationId AND r.id=f.reportId JOIN missions m ON m.organizationId=f.organizationId AND m.id=f.missionId LEFT JOIN prevention_categories c ON c.organizationId=f.organizationId AND c.id=f.categoryId WHERE " + where.join(" AND ");
     const [count] = await this.db.query("SELECT COUNT(DISTINCT f.reportId) count" + joins, args);
@@ -679,11 +717,11 @@ export class PreventionApiService {
     return { period, page, limit, total: Number(count?.count ?? 0), items: rows.map((row: any) => ({ ...row, findingCount: Number(row.findingCount), reportRoute: "/reports/" + row.reportId })), regulatoryItems };
   }
 
-  async rebuildPreview(user: User) { return this.rebuilds.preview(await this.enabledOrg(user)); }
+  async rebuildPreview(user: User, scope: PreventionRebuildScopeDto = {}) { return this.rebuilds.preview(await this.enabledOrg(user), scope); }
 
   async rebuild(user: User, dto: PreventionRebuildConfirmDto) {
     if (!dto?.previewToken) throw new BadRequestException('Confirmez la prévisualisation de reconstruction');
-    return this.rebuilds.admit(await this.enabledOrg(user), dto.previewToken);
+    return this.rebuilds.admit(await this.enabledOrg(user), dto.previewToken, dto);
   }
 
   async job(user: User, id: string) {

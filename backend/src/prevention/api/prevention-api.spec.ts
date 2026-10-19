@@ -10,6 +10,7 @@ import { plainToInstance } from "class-transformer";
 import { validateSync } from "class-validator";
 import { PreventionQueryDto } from "./prevention-api.dto";
 import { UserRole } from '../../user/user.entity';
+import { budgetClientIdentity } from '../budget/prevention-budget-client';
 
 const query = (values: any[]) => ({ query: async () => values });
 const admin = { role: UserRole.ADMIN, organizationId: 'org-a' } as any;
@@ -32,6 +33,31 @@ test('findings query is tenant scoped and returns only derived fields', async ()
   assert.match(calls[0].sql, /f\.organizationId=\?/);
   assert.match(calls.at(-1).sql, /DATE_FORMAT\(f\.businessDate,'%Y-%m-%d'\) businessDate/);
   assert.ok(!Object.keys(result.items[0]).some((key) => /prompt|directive|sourceGroup|snapshot/i.test(key)));
+});
+
+test('client and chantier filters intersect without accepting a foreign client key', async () => {
+  const calls: Array<{ sql: string; args: unknown[] }> = [];
+  const db = { query: async (sql: string, args: unknown[]) => {
+    calls.push({ sql, args });
+    if (sql.includes('SELECT id,client FROM missions')) return [
+      { id: '10000000-0000-4000-8000-000000000001', client: 'ÉDF' },
+      { id: '10000000-0000-4000-8000-000000000002', client: 'édF' },
+      { id: '10000000-0000-4000-8000-000000000003', client: 'Autre' },
+    ];
+    return sql.startsWith('SELECT COUNT') ? [{ count: 0 }] : [];
+  } };
+  const service = new PreventionApiService(db as any, {} as any);
+  const key = budgetClientIdentity('édF').key;
+  await service.findings(admin, { preset: 'ALL', missionId: '10000000-0000-4000-8000-000000000001', clientKeys: [key] } as any);
+  const filtered = calls.find((call) => call.sql.startsWith('SELECT COUNT'))!;
+  assert.match(filtered.sql, /f\.missionId=\?/);
+  assert.match(filtered.sql, /f\.missionId IN \(\?\)/);
+  assert.ok(filtered.args.includes('10000000-0000-4000-8000-000000000001'));
+  assert.deepEqual(filtered.args.find((arg) => Array.isArray(arg)), [
+    '10000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000002',
+  ]);
+  await assert.rejects(() => service.findings(admin, { preset: 'ALL', clientKeys: ['a'.repeat(64)] } as any), /Client introuvable/);
 });
 
 test('critical severity is derived from elevated risk and a priority score of at least 80', async () => {
@@ -231,6 +257,7 @@ test("references return paginated tenant-scoped report sources", async () => {
 
 test("manual rebuild enforces the tenant cooldown with 429", async () => {
   const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
+  rebuild.previewSecret = 'test-prevention-rebuild-preview-secret';
   const queries: string[] = [];
   rebuild.cooldownSeconds = 3600;
   rebuild.bulkConfiguration = loadPreventionBulkConfiguration(new ConfigService({}));
@@ -249,18 +276,69 @@ test("manual rebuild enforces the tenant cooldown with 429", async () => {
   assert.doesNotMatch(cooldownQuery ?? '', /UTC_TIMESTAMP/);
 });
 
+test('manual rebuild preview snapshots the selected client and chantier and rejects a changed confirmation', async () => {
+  const organizationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const missionA = '10000000-0000-4000-8000-000000000001';
+  const missionB = '10000000-0000-4000-8000-000000000002';
+  const key = budgetClientIdentity('ÉDF').key;
+  const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
+  rebuild.previewSecret = 'test-prevention-rebuild-preview-secret';
+  rebuild.bulkConfiguration = loadPreventionBulkConfiguration(new ConfigService({}));
+  let sourceRevision = '2026-10-01T00:00:00Z';
+  const calls: Array<{ sql: string; args: unknown[] }> = [];
+  rebuild.dataSource = { query: async (sql: string, args: unknown[]) => {
+    calls.push({ sql, args });
+    if (sql.includes('SELECT id,client FROM missions')) return [{ id: missionA, client: 'ÉDF' }, { id: missionB, client: 'Autre' }];
+    if (sql.includes('SELECT r.id,r.updatedAt reportUpdatedAt')) return [{ id: 'report-a', reportUpdatedAt: sourceRevision, visitUpdatedAt: sourceRevision, photosHash: 'hash' }];
+    return [{ reportCount: 1, findingCount: 3 }];
+  } };
+  const preview = await rebuild.preview(organizationId, { missionId: missionA, clientKeys: [key] });
+  assert.deepEqual(preview.scopeMissionIds, [missionA]);
+  const volumeQuery = calls.find((call) => call.sql.includes('COUNT(DISTINCT r.id)'))!;
+  assert.match(volumeQuery.sql, /v\.missionId IN \(\?\)/);
+  assert.deepEqual(volumeQuery.args[2], [missionA]);
+  await assert.rejects(() => rebuild.admit(organizationId, preview.previewToken, { missionId: missionB }),
+    (error: any) => error?.getStatus?.() === 409);
+  const [encoded, signature] = preview.previewToken.split('.');
+  const tampered = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  tampered.issuedAt += 1000;
+  await assert.rejects(() => rebuild.admit(organizationId,
+    `${Buffer.from(JSON.stringify(tampered)).toString('base64url')}.${signature}`,
+    { missionId: missionA, clientKeys: [key] }), (error: any) => error?.getStatus?.() === 409);
+  sourceRevision = '2026-10-02T00:00:00Z';
+  await assert.rejects(() => rebuild.admit(organizationId, preview.previewToken, { missionId: missionA, clientKeys: [key] }),
+    (error: any) => error?.getStatus?.() === 409);
+});
+
+test('concurrent manual reconstruction cannot confirm a different persisted scope', async () => {
+  const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
+  rebuild.cooldownSeconds = 3600;
+  let enqueued = false;
+  rebuild.dataSource = {
+    query: async (sql: string) => sql.includes('SELECT r.id,r.status,c.scopeDigest')
+      ? [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', status: 'PROCESSING', scopeDigest: 'other-scope' }]
+      : [],
+    transaction: async (callback: (manager: any) => Promise<void>) => callback({ query: async () => ({ affectedRows: 0 }) }),
+  };
+  rebuild.queue = { add: async () => { enqueued = true; } };
+  await assert.rejects(() => rebuild.enqueueMeasured('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', {
+    reportCount: 1, findingCount: 1, immediateLimit: 5000, executionMode: 'IMMEDIATE', scheduledFor: null,
+    scopeDigest: 'requested-scope', scopeMissionIds: [], previewToken: 'unused',
+  }), (error: any) => error?.getStatus?.() === 409);
+  assert.equal(enqueued, false);
+});
+
 test("manual rebuild checkpoint is immediately available in UTC", async () => {
   const transactionQueries: string[] = [];
-  let queryCall = 0;
   const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
+  rebuild.previewSecret = 'test-prevention-rebuild-preview-secret';
   rebuild.cooldownSeconds = 3600;
   rebuild.bulkConfiguration = loadPreventionBulkConfiguration(new ConfigService({}));
   rebuild.activation = undefined;
   rebuild.dataSource = {
     query: async (sql: string) => {
-      queryCall += 1;
       if (sql.includes('COUNT(DISTINCT r.id)')) return [{ reportCount: 0, findingCount: 0 }];
-      if (queryCall <= 3) return [];
+      if (sql.includes('SELECT r.id,r.updatedAt reportUpdatedAt') || sql.includes('r.status IN') || sql.includes('ageSeconds')) return [];
       return [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", status: "PROCESSING" }];
     },
     transaction: async (callback: (manager: any) => Promise<void>) => callback({
@@ -272,19 +350,20 @@ test("manual rebuild checkpoint is immediately available in UTC", async () => {
   await rebuild.enqueue("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
 
   const checkpointInsert = transactionQueries.find((sql) => sql.includes("prevention_scheduler_checkpoints"));
-  assert.match(checkpointInsert ?? "", /availableAt\).*UTC_TIMESTAMP\(6\)/);
+  assert.match(checkpointInsert ?? "", /availableAt,scopeDigest,scopeMissionIds\).*UTC_TIMESTAMP\(6\)/);
 });
 
 test("manual rebuild resumes an orphaned active run without creating another run", async () => {
   const queued: any[] = [];
   let removed = 0;
   const rebuild: any = Object.create(PreventionRebuildQueueService.prototype);
+  rebuild.previewSecret = 'test-prevention-rebuild-preview-secret';
   rebuild.activation = undefined;
   rebuild.bulkConfiguration = loadPreventionBulkConfiguration(new ConfigService({}));
   rebuild.dataSource = {
     query: async (sql: string) => sql.includes('COUNT(DISTINCT r.id)')
       ? [{ reportCount: 0, findingCount: 0 }]
-      : [{
+      : sql.includes('SELECT r.id,r.updatedAt reportUpdatedAt') ? [] : [{
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         status: "PROCESSING",
         scheduledFor: "2026-09-23T09:33:28.925Z",

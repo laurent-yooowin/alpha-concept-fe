@@ -121,8 +121,9 @@ export function preventionBudgetScopeKey(
   categoryId: string | null,
   severity: string | null,
   clientKeys: string[],
+  missionId: string | null = null,
 ): string {
-  return canonicalPreventionBudgetScopeKey(organizationId, periodMode, period, categoryId, severity, clientKeys);
+  return canonicalPreventionBudgetScopeKey(organizationId, periodMode, period, categoryId, severity, clientKeys, missionId);
 }
 
 export function preventionBudgetAnnualScenarioKey(runId: string, globalScopeKey: string, year: number): string {
@@ -277,8 +278,8 @@ export class PreventionBudgetApiService {
   async clients(user: User): Promise<{ items: Array<{ key: string; label: string }> }> {
     const organizationId = await this.enabledOrg(user);
     const rows: Array<{ client: string | null }> = await this.db.query(
-      'SELECT DISTINCT client FROM missions WHERE organizationId=? ORDER BY client LIMIT 1001', [organizationId]);
-    if (rows.length > 1000) throw new BadRequestException('Liste des clients trop volumineuse');
+      'SELECT client FROM missions WHERE organizationId=? ORDER BY id LIMIT 10001', [organizationId]);
+    if (rows.length > 10000) throw new BadRequestException('Liste des chantiers trop volumineuse');
     const clients = new Map<string, { key: string; label: string }>();
     for (const row of rows) {
       const client = budgetClientIdentity(row.client);
@@ -293,7 +294,7 @@ export class PreventionBudgetApiService {
   }
 
   private async previewFilters(user: User, dto: PreventionBudgetPreviewDto): Promise<{
-    organizationId: string; clientKeys: string[]; categoryId: string | null; severity: string | null;
+    organizationId: string; clientKeys: string[]; categoryId: string | null; severity: string | null; missionId: string | null;
   }> {
     const organizationId = await this.enabledOrg(user);
     let clientKeys: string[];
@@ -306,7 +307,11 @@ export class PreventionBudgetApiService {
       const [category] = await this.db.query('SELECT id FROM prevention_categories WHERE organizationId=? AND id=? LIMIT 1', [organizationId, dto.categoryId]);
       if (!category) throw new BadRequestException('Catégorie introuvable dans l’organisation');
     }
-    return { organizationId, clientKeys, categoryId: dto.categoryId ?? null, severity: dto.severity ?? null };
+    if (dto.missionId) {
+      const [mission] = await this.db.query('SELECT id FROM missions WHERE organizationId=? AND id=? LIMIT 1', [organizationId, dto.missionId]);
+      if (!mission) throw new BadRequestException('Chantier introuvable dans l’organisation');
+    }
+    return { organizationId, clientKeys, categoryId: dto.categoryId ?? null, severity: dto.severity ?? null, missionId: dto.missionId ?? null };
   }
 
   private previewClientPredicate(clientKeys: string[], clients: Array<{ key: string; label: string }>): { sql: string; args: unknown[] } {
@@ -360,27 +365,27 @@ export class PreventionBudgetApiService {
          COUNT(DISTINCT CONCAT(COALESCE(NULLIF(TRIM(m.client),''),'__UNASSIGNED__'),'|',COALESCE(f.actionType,f.normalizedKey,'UNKNOWN'),'|',COALESCE(f.categoryId,'UNCATEGORIZED'))) estimationWorkloadCount
        FROM prevention_findings f LEFT JOIN missions m ON m.id=f.missionId AND m.organizationId=f.organizationId
        WHERE f.organizationId=? AND f.findingType='RECOMMENDATION' AND f.businessDate IS NOT NULL
-         ${datePredicate.sql} ${filters.categoryId ? 'AND f.categoryId=?' : ''} ${severity.sql} ${clientPredicate.sql} ${groupBy}`,
-      [filters.organizationId, ...datePredicate.args, ...(filters.categoryId ? [filters.categoryId] : []), ...severity.args, ...clientPredicate.args],
+         ${datePredicate.sql} ${filters.categoryId ? 'AND f.categoryId=?' : ''} ${severity.sql} ${filters.missionId ? 'AND f.missionId=?' : ''} ${clientPredicate.sql} ${groupBy}`,
+      [filters.organizationId, ...datePredicate.args, ...(filters.categoryId ? [filters.categoryId] : []), ...severity.args, ...(filters.missionId ? [filters.missionId] : []), ...clientPredicate.args],
     );
     const years = rows.map((row) => ({ year: Number(row.year), reportCount: Number(row.reportCount ?? 0), recommendationCount: Number(row.recommendationCount ?? 0), estimationWorkloadCount: Number(row.estimationWorkloadCount ?? 0) }))
       .sort((a, b) => a.year - b.year);
     if (!years.length && dto.mode === PreventionBudgetExecutionModeDto.CURRENT_YEAR) years.push({ year: currentParisYear(), reportCount: 0, recommendationCount: 0, estimationWorkloadCount: 0 });
     const totals = years.reduce((sum, row) => ({ reportCount: sum.reportCount + row.reportCount, recommendationCount: sum.recommendationCount + row.recommendationCount, estimationWorkloadCount: sum.estimationWorkloadCount + row.estimationWorkloadCount }), { reportCount: 0, recommendationCount: 0, estimationWorkloadCount: 0 });
     const threshold = this.previewDecision(dto.mode, totals);
-    const scenarioKey = preventionBudgetScopeKey(filters.organizationId, period.periodMode, period, filters.categoryId, filters.severity, filters.clientKeys);
+    const scenarioKey = preventionBudgetScopeKey(filters.organizationId, period.periodMode, period, filters.categoryId, filters.severity, filters.clientKeys, filters.missionId);
     const sourceVersion = await loadPreventionBudgetSourceVersion(this.db, filters.organizationId);
     const bulkSettings = this.bulkAdmission?.settings ?? loadPreventionBulkConfiguration(this.config ?? new ConfigService());
     const scheduledFor = threshold.decision === 'NIGHT_ONLY'
       ? nextPreventionBulkWindowStart(new Date(), bulkSettings).toISOString() : null;
     const windowKey = scheduledFor ? preventionBulkWindowKey(new Date(scheduledFor), bulkSettings) : null;
     const confirmationDigest = digest(JSON.stringify({ organizationId: filters.organizationId, mode: dto.mode,
-      period, filters: { clientKeys: filters.clientKeys, categoryId: filters.categoryId, severity: filters.severity },
+      period, filters: { clientKeys: filters.clientKeys, categoryId: filters.categoryId, severity: filters.severity, missionId: filters.missionId },
       years, totals, threshold, scenarioKey, sourceVersion, windowKey }));
     return {
       organizationId: filters.organizationId,
       mode: dto.mode, periodMode: period.periodMode, period: { start: period.start, end: period.end },
-      filters: { clientKeys: filters.clientKeys, categoryId: filters.categoryId, severity: filters.severity }, years, totals,
+      filters: { clientKeys: filters.clientKeys, categoryId: filters.categoryId, severity: filters.severity, missionId: filters.missionId }, years, totals,
       threshold, scenarioKey, sourceVersion, scheduledFor, windowKey, confirmationDigest,
       confirmationToken: this.signPreview(confirmationDigest, filters.organizationId),
     };
@@ -409,6 +414,7 @@ export class PreventionBudgetApiService {
       const result = await this.scope(user, {
         preset, from: dto.from, to: dto.to, clientKeys: preview.filters.clientKeys,
         categoryId: preview.filters.categoryId ?? undefined, severity: preview.filters.severity ?? undefined,
+        missionId: preview.filters.missionId ?? undefined,
         adminPrompt: dto.adminPrompt,
       }, true, { runId, executionMode, delayMs });
       return { mode: dto.mode, admission: { status: 'QUEUED', executionMode, reason: preview.threshold.reason, scheduledFor: preview.scheduledFor }, preview, result, job: result.job };
@@ -441,8 +447,8 @@ export class PreventionBudgetApiService {
         const yearSource = digest(`${sourceVersion}|YEAR|${year}`);
         await manager.query(`INSERT IGNORE INTO prevention_budget_scenarios
           (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,missionId,categoryId,severity,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent)
-          VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?, ?,NULL,'DRAFT',?)`, [scenarioId, organizationId, scenarioKey, 1, yearSource, `${year}-01-01`, `${year}-12-31`, 'BOUNDED',
-          preview.filters.categoryId, preview.filters.severity, JSON.stringify(preview.filters.clientKeys), dto.adminPrompt?.trim() || null,
+          VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, ?,NULL,'DRAFT',?)`, [scenarioId, organizationId, scenarioKey, 1, yearSource, `${year}-01-01`, `${year}-12-31`, 'BOUNDED',
+          preview.filters.missionId, preview.filters.categoryId, preview.filters.severity, JSON.stringify(preview.filters.clientKeys), dto.adminPrompt?.trim() || null,
           '0.00']);
         await manager.query(`INSERT IGNORE INTO prevention_budget_global_years (id,runId,organizationId,year,status,scenarioId)
           VALUES (?,?,?,?, 'PENDING',?)`, [deterministicUuid(`prevention-budget-global-year-v1|${runId}|${year}`), runId, organizationId, year, scenarioId]);
@@ -495,11 +501,21 @@ export class PreventionBudgetApiService {
       const [category] = await this.db.query('SELECT id FROM prevention_categories WHERE organizationId=? AND id=?', [organizationId, dto.categoryId]);
       if (!category) throw new BadRequestException('Catégorie introuvable dans l’organisation');
     }
-    const scenarioKey = preventionBudgetScopeKey(organizationId, period.periodMode, period, dto.categoryId ?? null, dto.severity ?? null, clientKeys);
+    if (dto.missionId) {
+      const [mission] = await this.db.query('SELECT id FROM missions WHERE organizationId=? AND id=? LIMIT 1', [organizationId, dto.missionId]);
+      if (!mission) throw new BadRequestException('Chantier introuvable dans l’organisation');
+    }
+    const scenarioKey = preventionBudgetScopeKey(organizationId, period.periodMode, period, dto.categoryId ?? null, dto.severity ?? null, clientKeys, dto.missionId ?? null);
+    const scopeClients = clientKeys.length
+      ? this.previewClientPredicate(clientKeys, (await this.clients(user)).items)
+      : { sql: '', args: [] as unknown[] };
     const [total] = await this.db.query(
       `SELECT COUNT(DISTINCT r.id) totalReports FROM reports r
-       JOIN visits v ON v.id=r.visitId WHERE v.organizationId=?`,
-      [organizationId],
+       JOIN visits v ON v.id=r.visitId AND v.organizationId=r.organizationId
+       JOIN missions m ON m.id=v.missionId AND m.organizationId=v.organizationId
+       WHERE r.organizationId=? ${dto.missionId ? 'AND v.missionId=?' : ''}
+       ${scopeClients.sql}`,
+      [organizationId, ...(dto.missionId ? [dto.missionId] : []), ...scopeClients.args],
     );
     let [scenario] = await this.db.query(
       `SELECT * FROM prevention_budget_scenarios WHERE organizationId=? AND scenarioKey=?
@@ -510,7 +526,7 @@ export class PreventionBudgetApiService {
     // A client selection is a read-only view until the administrator explicitly
     // launches a calculation. Reuse the materialized all-client scope so the
     // filter is immediately useful and never creates/enqueues work on GET.
-    if (!scenario && clientKeys.length && !startCalculation) {
+    if (!scenario && clientKeys.length && !dto.missionId && !startCalculation) {
       const allScenarioKey = preventionBudgetScopeKey(organizationId, period.periodMode, period, dto.categoryId ?? null, dto.severity ?? null, []);
       [scenario] = await this.db.query(
         'SELECT * FROM prevention_budget_scenarios WHERE organizationId=? AND scenarioKey=? AND periodMode=? AND status<>\'DRAFT\' ORDER BY version DESC LIMIT 1',
@@ -527,8 +543,8 @@ export class PreventionBudgetApiService {
         await this.db.query(
           `INSERT IGNORE INTO prevention_budget_scenarios
             (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,missionId,categoryId,severity,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent,periodMode)
-           VALUES (?,?,?,1,?,?,?,NULL,?,?,?,?,?,'DRAFT',0,?)`,
-          [id, organizationId, scenarioKey, sourceVersion, period.start, period.end, dto.categoryId ?? null, dto.severity ?? null,
+           VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,'DRAFT',0,?)`,
+          [id, organizationId, scenarioKey, sourceVersion, period.start, period.end, dto.missionId ?? null, dto.categoryId ?? null, dto.severity ?? null,
             JSON.stringify(clientKeys), dto.adminPrompt?.trim() || null, dto.adminPrompt?.trim() ? user.id : null, period.periodMode],
         );
         [scenario] = await this.db.query(
@@ -569,21 +585,36 @@ export class PreventionBudgetApiService {
       const [category] = await this.db.query('SELECT id FROM prevention_categories WHERE organizationId=? AND id=? LIMIT 1', [organizationId, dto.categoryId]);
       if (!category) throw new BadRequestException('Catégorie introuvable dans l’organisation');
     }
+    if (dto.missionId) {
+      const [mission] = await this.db.query('SELECT id FROM missions WHERE organizationId=? AND id=? LIMIT 1', [organizationId, dto.missionId]);
+      if (!mission) throw new BadRequestException('Chantier introuvable dans l’organisation');
+    }
+    const selectedClients = clientKeys.length
+      ? this.previewClientPredicate(clientKeys, (await this.clients(user)).items)
+      : { sql: '', args: [] as unknown[] };
     const rows: Array<any> = await this.db.query(
-      `SELECT i.*,s.scenarioKey,s.version originVersion,s.createdAt scenarioCreatedAt FROM prevention_budget_items i
+      `SELECT i.*,s.scenarioKey,s.missionId originMissionId,s.version originVersion,s.createdAt scenarioCreatedAt FROM prevention_budget_items i
        JOIN prevention_budget_scenarios s ON s.organizationId=i.organizationId AND s.id=i.scenarioId
        WHERE i.organizationId=? AND s.status IN ('CALCULATED','VALIDATED')
          AND NOT EXISTS (SELECT 1 FROM prevention_budget_scenarios newer
            WHERE newer.organizationId=s.organizationId AND newer.scenarioKey=s.scenarioKey
              AND newer.version>s.version AND newer.status<>'DRAFT')
          ${clientKeys.length ? 'AND i.clientKey IN (?)' : ''}
+         ${dto.missionId ? `AND EXISTS (SELECT 1 FROM prevention_budget_item_sources scopeSource
+           JOIN prevention_findings scopeFinding ON scopeFinding.organizationId=scopeSource.organizationId
+             AND scopeFinding.id=scopeSource.findingId
+           WHERE scopeSource.organizationId=i.organizationId AND scopeSource.itemId=i.id
+             AND scopeFinding.missionId=?)` : ''}
        ORDER BY s.createdAt DESC,i.id ASC LIMIT 10001`,
-      [organizationId, ...(clientKeys.length ? [clientKeys] : [])],
+      [organizationId, ...(clientKeys.length ? [clientKeys] : []), ...(dto.missionId ? [dto.missionId] : [])],
     );
     if (rows.length > 10000) return { items: [], partial: true, tooLarge: true, totalReports: 0, availableTotalHt: null };
     const [total] = await this.db.query(
       `SELECT COUNT(DISTINCT r.id) totalReports FROM reports r
-       JOIN visits v ON v.id=r.visitId AND v.organizationId=r.organizationId WHERE r.organizationId=?`, [organizationId],
+       JOIN visits v ON v.id=r.visitId AND v.organizationId=r.organizationId
+       JOIN missions m ON m.id=v.missionId AND m.organizationId=v.organizationId
+       WHERE r.organizationId=? ${dto.missionId ? 'AND v.missionId=?' : ''} ${selectedClients.sql}`,
+      [organizationId, ...(dto.missionId ? [dto.missionId] : []), ...selectedClients.args],
     );
     if (!rows.length) return { items: [], partial: true, tooLarge: false, totalReports: Number(total?.totalReports ?? 0), availableTotalHt: '0.00' };
     const periodSql = period.periodMode === 'ALL' ? '' : 'AND f.businessDate BETWEEN ? AND ?';
@@ -599,19 +630,22 @@ export class PreventionBudgetApiService {
          ${periodSql}
          ${dto.categoryId ? 'AND f.categoryId=?' : ''}
          ${severity.sql}
+         ${dto.missionId ? 'AND f.missionId=?' : ''}
        ORDER BY src.itemId,src.id LIMIT 50001`,
       [organizationId, rows.map((row) => row.id),
         ...(period.periodMode === 'ALL' ? [] : [period.start, period.end]),
-        ...(dto.categoryId ? [dto.categoryId] : []), ...severity.args],
+        ...(dto.categoryId ? [dto.categoryId] : []), ...severity.args, ...(dto.missionId ? [dto.missionId] : [])],
     );
     if (sourceRows.length > 50000) return { items: [], partial: true, tooLarge: true, totalReports: Number(total?.totalReports ?? 0), availableTotalHt: null };
     const visibleIds = new Set(sourceRows.map((source) => String(source.itemId)));
-    const visibleRows = rows.filter((row) => visibleIds.has(String(row.id)));
+    const visibleRows = rows.filter((row) => visibleIds.has(String(row.id)) &&
+      (!dto.missionId || !(Number(row.lockedManual) === 1 || ['VALIDE', 'ENGAGE', 'REALISE'].includes(String(row.status))) || row.originMissionId === dto.missionId));
     const materializedRows = visibleRows.map((row) => ({ ...row,
-        actionResult: row.scenarioKey === materializedActionScopeKey(organizationId, row.itemKey),
+        scopePreferred: Boolean(dto.missionId && row.originMissionId === dto.missionId),
+        actionResult: row.scenarioKey === materializedActionScopeKey(organizationId, row.itemKey, row.originMissionId ?? null),
       }));
     const items = excludeSupersededUnpricedBudgetRows(consolidateMaterializedBudgetRows(materializedRows, sourceRows,
-      period.periodMode !== 'ALL' || Boolean(dto.categoryId || dto.severity)), materializedRows, sourceRows);
+      period.periodMode !== 'ALL' || Boolean(dto.categoryId || dto.severity || dto.missionId)), materializedRows, sourceRows);
     return {
       items, partial: true, tooLarge: false, totalReports: Number(total?.totalReports ?? 0),
       availableTotalHt: sumAvailableMaterializedBudgetRows(items),
@@ -706,7 +740,7 @@ export class PreventionBudgetApiService {
       const [organization] = await manager.query('SELECT id FROM organizations WHERE id=? FOR UPDATE', [organizationId]);
       if (!organization) throw new NotFoundException('Organisation introuvable');
       const [origin] = await manager.query(
-        `SELECT i.*,s.scenarioKey,s.version originVersion,s.status scenarioStatus
+        `SELECT i.*,s.scenarioKey,s.missionId originMissionId,s.version originVersion,s.status scenarioStatus
          FROM prevention_budget_items i JOIN prevention_budget_scenarios s
            ON s.organizationId=i.organizationId AND s.id=i.scenarioId
          WHERE i.organizationId=? AND i.scenarioId=? AND i.id=? LIMIT 1`,
@@ -727,7 +761,8 @@ export class PreventionBudgetApiService {
       if (latestOrigin.id !== origin.scenarioId || Number(latestOrigin.version) !== Number(origin.originVersion)) {
         throw new ConflictException('La version du poste a changé ; rechargez les résultats');
       }
-      const actionKey = materializedActionScopeKey(organizationId, origin.itemKey);
+      const originMissionId = origin.originMissionId ?? null;
+      const actionKey = materializedActionScopeKey(organizationId, origin.itemKey, originMissionId);
       const [existing] = await manager.query(
         `SELECT s.id,s.version,i.id itemId FROM prevention_budget_scenarios s
          JOIN prevention_budget_items i ON i.organizationId=s.organizationId AND i.scenarioId=s.id AND i.itemKey=?
@@ -749,8 +784,9 @@ export class PreventionBudgetApiService {
          FROM prevention_findings f
          LEFT JOIN missions m ON m.id=f.missionId AND m.organizationId=f.organizationId
          LEFT JOIN prevention_categories c ON c.id=f.categoryId AND c.organizationId=f.organizationId
-         WHERE f.organizationId=? AND f.findingType='RECOMMENDATION' AND f.actionType=? ORDER BY f.id LIMIT 5001`,
-        [organizationId, source.actionType],
+         WHERE f.organizationId=? AND f.findingType='RECOMMENDATION' AND f.actionType=?
+           ${originMissionId ? 'AND f.missionId=?' : ''} ORDER BY f.id LIMIT 5001`,
+        [organizationId, source.actionType, ...(originMissionId ? [originMissionId] : [])],
       );
       if (candidates.length > 5000) throw new ConflictException('Trop de recommandations pour un traitement ciblé ; réduisez le périmètre du calcul');
       const related = candidates.filter((finding: any) => budgetClientActionKey(
@@ -762,12 +798,12 @@ export class PreventionBudgetApiService {
       await manager.query(
         `INSERT INTO prevention_budget_scenarios
          (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,status,executionStatus,
-          contingencyRatePercent,retainedBudgetHt,estimatedBudgetHt,validatedBudgetHt,contingencyAmountHt,totalBudgetHt,clientKeys)
-         VALUES (?,?,?,1,'action-bootstrap-v1',NULL,NULL,'ALL','CALCULATED','COMPLETED',0,?,?,?,0,?,?)`,
+          contingencyRatePercent,retainedBudgetHt,estimatedBudgetHt,validatedBudgetHt,contingencyAmountHt,totalBudgetHt,clientKeys,missionId)
+         VALUES (?,?,?,1,'action-bootstrap-v1',NULL,NULL,'ALL','CALCULATED','COMPLETED',0,?,?,?,0,?,?,?)`,
         [newScenarioId, organizationId, actionKey, amount,
           origin.status === 'ESTIME' ? amount : '0.00',
           LOCKED.has(origin.status) ? amount : '0.00', amount,
-          JSON.stringify([origin.clientKey])],
+          JSON.stringify([origin.clientKey]), originMissionId],
       );
       await manager.query(
         `INSERT INTO prevention_budget_items

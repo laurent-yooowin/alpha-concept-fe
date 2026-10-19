@@ -70,6 +70,8 @@ test('an asynchronous budget result belongs only to the filter selection that st
   assert.equal(budgetSelectionKey(base), budgetSelectionKey({ ...base, clientKeys: ['a', 'b'] }));
   assert.notEqual(budgetSelectionKey(base), budgetSelectionKey({ ...base, clientKeys: ['a'] }));
   assert.notEqual(budgetSelectionKey(base), budgetSelectionKey({ ...base, severity: 'moyen' }));
+  assert.notEqual(budgetSelectionKey(base), budgetSelectionKey({ ...base, missionId: 'chantier-a' }));
+  assert.equal(budgetCommandPayload('CURRENT_YEAR', { ...base, missionId: 'chantier-a' }, 'token').missionId, 'chantier-a');
 });
 
 test('targeted line recalculation sends only the expected version and optional line prompt', () => {
@@ -291,7 +293,7 @@ test('budget command carries the opaque preview confirmation token', () => {
   const payload = budgetCommandPayload('GLOBAL_YEARLY', { preset: 'ALL', categoryId: 'height', clientKeys: ['client-a'] }, 'opaque-preview-token');
   assert.deepEqual(payload, {
     mode: 'GLOBAL_YEARLY', confirmationToken: 'opaque-preview-token', preset: 'ALL',
-    categoryId: 'height', severity: undefined, clientKeys: ['client-a'],
+    categoryId: 'height', severity: undefined, missionId: undefined, clientKeys: ['client-a'],
   });
 });
 

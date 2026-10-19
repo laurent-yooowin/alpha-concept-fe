@@ -1,6 +1,6 @@
 import type { PreventionQuery } from '../../lib/api';
 
-export type BudgetClientSelection = Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity'> & {
+export type BudgetClientSelection = Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity' | 'missionId'> & {
   clientKeys?: string[];
 };
 
@@ -45,7 +45,7 @@ export function budgetModeAfterPeriodChange(preset: string, currentMode: BudgetE
 export function budgetExecutionSnapshot(selection: BudgetClientSelection) {
   return {
     preset: selection.preset || 'ALL', from: selection.from, to: selection.to,
-    categoryId: selection.categoryId, severity: selection.severity,
+    categoryId: selection.categoryId, severity: selection.severity, missionId: selection.missionId,
     clientKeys: [...(selection.clientKeys || [])],
   };
 }
@@ -72,7 +72,7 @@ export function budgetGlobalSelectionQuery() {
 export function budgetSelectionKey(selection: BudgetClientSelection): string {
   return JSON.stringify([
     selection.preset || '', selection.from || '', selection.to || '',
-    selection.categoryId || '', selection.severity || '',
+    selection.categoryId || '', selection.severity || '', selection.missionId || '',
     [...(selection.clientKeys || [])].sort(),
   ]);
 }
@@ -153,7 +153,7 @@ export function budgetRefreshScenarioId(job: { scenarioId?: string; targetScenar
 }
 
 export function budgetCommandPayload(mode: BudgetExecutionMode, selection: BudgetClientSelection, confirmationToken: string) {
-  return { mode, confirmationToken, ...budgetExecutionPeriod(mode, selection), categoryId: selection.categoryId, severity: selection.severity, clientKeys: selection.clientKeys };
+  return { mode, confirmationToken, ...budgetExecutionPeriod(mode, selection), categoryId: selection.categoryId, severity: selection.severity, missionId: selection.missionId, clientKeys: selection.clientKeys };
 }
 
 export function budgetConfirmationAfterConflict(current: { mode: BudgetExecutionMode; globalArmed: boolean } | null, preview: unknown) {

@@ -5,6 +5,7 @@ type MaterializedBudgetRow = {
   id: string; organizationId?: string; scenarioId: string; itemKey: string; clientKey?: string | null;
   clientLabel?: string | null; title?: string | null;
   scenarioKey?: string; actionResult?: boolean;
+  scopePreferred?: boolean;
   status: string; totalHt: string; lockedManual?: number | boolean;
   createdAt?: Date | string; scenarioCreatedAt?: Date | string; aiEstimateDetails?: unknown;
   [key: string]: unknown;
@@ -20,8 +21,10 @@ type MaterializedBudgetSource = {
 
 const HUMAN_STATUSES = new Set(['VALIDE', 'ENGAGE', 'REALISE']);
 
-export function materializedActionScopeKey(organizationId: string, itemKey: string): string {
-  return createHash('sha256').update(`budget-target-action-all-v1|${organizationId}|${itemKey}`).digest('hex');
+export function materializedActionScopeKey(organizationId: string, itemKey: string, missionId: string | null = null): string {
+  return createHash('sha256').update(missionId
+    ? `budget-target-action-mission-v1|${organizationId}|${missionId}|${itemKey}`
+    : `budget-target-action-all-v1|${organizationId}|${itemKey}`).digest('hex');
 }
 
 function cents(value: unknown): bigint {
@@ -61,6 +64,7 @@ export function consolidateMaterializedBudgetRows(rows: MaterializedBudgetRow[],
   }
   return [...groups.entries()].map(([groupKey, members]) => {
     const ordered = [...members].sort((a, b) => {
+      if (Boolean(a.scopePreferred) !== Boolean(b.scopePreferred)) return a.scopePreferred ? -1 : 1;
       if (isHuman(a) !== isHuman(b)) return isHuman(a) ? -1 : 1;
       if (Boolean(a.actionResult) !== Boolean(b.actionResult)) return a.actionResult ? -1 : 1;
       if (isHuman(a) && isHuman(b)) {
@@ -73,8 +77,10 @@ export function consolidateMaterializedBudgetRows(rows: MaterializedBudgetRow[],
     const governing = ordered[0];
     const mergedSources = new Map<string, MaterializedBudgetSource>();
     const reportEstimates = new Map<string, Record<string, unknown>>();
-    const hasActionResult = members.some((member) => member.actionResult);
+    const hasPreferredScope = members.some((member) => member.scopePreferred);
+    const hasActionResult = members.some((member) => member.actionResult && (!hasPreferredScope || member.scopePreferred));
     for (const member of members) {
+      if (hasPreferredScope && !member.scopePreferred) continue;
       for (const source of sourcesByItem.get(member.id) ?? []) {
         mergedSources.set(`${source.sourceKind}|${source.sourceKey}|${source.reportId ?? ''}`, source);
       }

@@ -9,7 +9,7 @@ import { User, UserRole } from '../../user/user.entity';
 import { PreventionApiService } from './prevention-api.service';
 import { PreventionQueryDto, PreventionReferenceQueryDto } from './prevention-api.dto';
 import { PreventionBudgetApiService } from './prevention-budget-api.service';
-import { PreventionRebuildConfirmDto } from './prevention-rebuild.dto';
+import { PreventionRebuildConfirmDto, PreventionRebuildScopeDto } from './prevention-rebuild.dto';
 import {
   PreventionBudgetCreateDto, PreventionBudgetItemPatchDto, PreventionBudgetListQueryDto,
   PreventionBudgetClientFilterDto, PreventionBudgetItemRecalculateDto, PreventionBudgetPatchDto, PreventionBudgetRecalculateDto, PreventionBudgetScopeDto, PreventionCostCatalogCreateDto,
@@ -31,7 +31,7 @@ export class PreventionApiController {
   @Get('references') references(@CurrentUser() user: User, @Query() query: PreventionReferenceQueryDto) { return this.service.references(user, query); }
 
   @Get('rebuild/preview') @RequirePermission('reports', 'write')
-  rebuildPreview(@CurrentUser() user: User) { return this.service.rebuildPreview(user); }
+  rebuildPreview(@CurrentUser() user: User, @Query() scope: PreventionRebuildScopeDto) { return this.service.rebuildPreview(user, scope); }
 
   @Post('rebuild') @HttpCode(HttpStatus.ACCEPTED) @RequirePermission('reports', 'write')
   rebuild(@CurrentUser() user: User, @Body() dto: PreventionRebuildConfirmDto) { return this.service.rebuild(user, dto); }

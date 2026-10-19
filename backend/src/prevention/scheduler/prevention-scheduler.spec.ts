@@ -229,6 +229,46 @@ test('organization scan advances its cursor atomically with durable tasks', asyn
   assert.equal(queued.filter(([name]) => name === 'prevention.scheduler.organization-scan').length, 1);
 });
 
+test('manual reconstruction resumes with only the checkpoint chantier snapshot', async () => {
+  const organizationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const runId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const missionId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const reportQueries: Array<{ sql: string; args: unknown[] }> = [];
+  const reports = Array.from({ length: 101 }, (_, index) => ({
+    id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    updatedAt: '2026-09-01T10:00:00.000Z',
+  }));
+  const dataSource = {
+    query: async (sql: string, args: unknown[] = []) => {
+      if (sql.includes('JOIN prevention_scheduler_checkpoints c ON c.runId=r.id AND c.organizationId=?')) return [{ id: runId }];
+      if (sql.includes('SELECT r.id,r.updatedAt')) { reportQueries.push({ sql, args }); return reports; }
+      return { affectedRows: 1 };
+    },
+    transaction: async (callback: (manager: any) => Promise<unknown>) => callback({
+      query: async (sql: string) => {
+        if (sql.includes('SELECT reportCursor,status,scanComplete,lockedBy')) return [
+          { reportCursor: null, status: 'PROCESSING', scanComplete: 0, lockedBy: (service as any).instanceId },
+        ];
+        if (sql.includes('SELECT reportCursor,status,scanComplete')) return [
+          { reportCursor: null, status: 'PENDING', scanComplete: 0, scopeMissionIds: JSON.stringify([missionId]) },
+        ];
+        return { affectedRows: 1 };
+      },
+    }),
+  };
+  const service = new PreventionSchedulerService(dataSource as any,
+    new ConfigService({ ...env, PREVENTION_SCHEDULER_ENABLED: 'false', PREVENTION_SCHEDULER_REPORT_BATCH_SIZE: '100' }));
+  (service as any).queue = { getJob: async () => null, add: async () => undefined };
+  const result = await (service as any).processOrganizationScan({
+    parentJobType: 'prevention.scheduler.consolidation', organizationId, reportCursor: null, runId,
+    scheduledFor: '2026-09-15T10:00:00.000Z',
+  });
+  assert.equal(result, 'CONTINUED');
+  assert.equal(reportQueries.length, 1);
+  assert.match(reportQueries[0].sql, /v\.missionId IN \(\?\)/);
+  assert.deepEqual(reportQueries[0].args, [organizationId, '', [missionId], 101]);
+});
+
 test('organization scan skips a stale continuation after the scan is complete', async () => {
   let queueAdds = 0;
   const service = new PreventionSchedulerService({

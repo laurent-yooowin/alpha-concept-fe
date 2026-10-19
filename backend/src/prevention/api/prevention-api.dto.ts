@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsUUID, Matches, Max, Min } from 'class-validator';
 
 import { ReportStatus } from '../../reports/report.entity';
 
@@ -14,6 +14,8 @@ export class PreventionQueryDto {
   @IsOptional() @Transform(trim) @IsIn(['CSPS', 'AEU', 'DIVERS']) missionType?: string;
   @IsOptional() @Transform(trim) @IsUUID('4') missionId?: string;
   @IsOptional() @Transform(trim) @IsUUID('4') chantierId?: string;
+  @IsOptional() @Transform(({ value }) => typeof value === 'string' ? value.split(',').filter(Boolean) : value)
+  @IsArray() @ArrayMaxSize(50) @Matches(/^(?:[0-9a-f]{64}|unassigned)$/, { each: true }) clientKeys?: string[];
   @IsOptional() @Transform(trim) @IsUUID('4') categoryId?: string;
   @IsOptional() @Transform(trim) @IsIn(['faible', 'moyen', 'eleve']) riskLevel?: string;
   @IsOptional() @Transform(trim) @IsIn(['faible', 'moyen', 'eleve', 'critique']) severity?: string;
