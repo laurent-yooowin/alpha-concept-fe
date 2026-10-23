@@ -55,7 +55,7 @@ export default function Layout() {
     { path: `${base}/reports`, name: 'Rapports', icon: FileText, show: true },
     { path: `${base}/users`, name: 'Utilisateurs', icon: Users, show: isAdmin },
     { path: `${base}/custom-prompts`, name: 'Prompts IA', icon: Wand2, show: isAdmin },
-    { path: `${base}/prevention/dashboard`, name: 'Prévention', icon: ShieldCheck, show: isAdmin && preventionEnabled },
+    { path: `${base}/prevention/dashboard`, name: 'Synthèse', icon: ShieldCheck, show: isAdmin && preventionEnabled },
     { path: `${base}/mailing-list`, name: 'Liste de diffusion', icon: Mail, show: true },
     { path: `${base}/logs`, name: 'Logs d\'activité', icon: Activity, show: false },
     { path: `${base}/cgu-terms`, name: 'CGU', icon: FileText, show: true },

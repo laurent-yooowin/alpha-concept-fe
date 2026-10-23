@@ -4,14 +4,14 @@ import { visitService } from '../services/visitService';
 import { visitsAPI } from '../lib/api';
 import { filesService } from '../services/filesService';
 import { uploadService } from '../services/uploadService';
-import { PREVENTION_PHASES, PreventionPhase } from '../services/aiService';
+import { PreventionPhase } from '../services/aiService';
 import MissionReportModal from './MissionReportModal';
 import Swal from 'sweetalert2';
 import CustomPromptSelector from './CustomPromptSelector';
 import ReanalysisConfigModal from './ReanalysisConfigModal';
 import AppliedCustomPromptsReadOnly from './AppliedCustomPromptsReadOnly';
 import { groupPromptIdsFromEntries } from './appliedCustomPrompts';
-import { GroupPreventionStatus, offerGroupPhaseConfirmation } from './prevention/offerGroupPhaseConfirmation';
+import { GroupPreventionStatus, groupPreventionPhaseLabel, offerGroupPhaseConfirmation } from './prevention/offerGroupPhaseConfirmation';
 
 interface Visit {
   id: string;
@@ -728,7 +728,7 @@ export default function MissionVisitsModal({ mission, onClose }: MissionVisitsMo
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <span className="rounded-md border border-blue-300 bg-white px-3 py-2 text-sm">
-                  {PREVENTION_PHASES.find((phase) => phase.value === tempGroupPhase)?.label || 'Phase en attente de traitement Prévention'}
+                  {selectedGroupId ? groupPreventionPhaseLabel(expandedGroupPhases[selectedGroupId]) : 'Phase en attente de traitement Prévention'}
                 </span>
                 <span className="text-xs text-slate-600">Confiance : {tempGroupPhaseConfidence}%</span>
               </div>
@@ -1078,7 +1078,7 @@ export default function MissionVisitsModal({ mission, onClose }: MissionVisitsMo
                             {expandedGroupPhases[groupId] && (
                               <div className="mb-3 mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-s">
                                 <span className="font-semibold text-[#1e3a5f]">🧱 Phase de chantier — Prévention : </span>
-                                {PREVENTION_PHASES.find((phase) => phase.value === expandedGroupPhases[groupId].effectivePhase)?.label || 'En attente'}
+                                {groupPreventionPhaseLabel(expandedGroupPhases[groupId])}
                                 <span className="ml-2 text-slate-600">({expandedGroupPhases[groupId].phaseStatus === 'VALIDATED' ? 'validée' : 'proposée par l’IA'})</span>
                               </div>
                             )}

@@ -17,7 +17,7 @@ export class PreventionGroupProcessingJob {
   @Column({ type: 'enum', enum: ['PENDING', 'PROCESSING', 'RETRY', 'READY', 'FAILED'], default: 'PENDING' }) processingStatus: PreventionGroupProcessingStatus;
   @Column({ type: 'enum', enum: ['PROPOSED', 'VALIDATED'], default: 'PROPOSED' }) phaseStatus: 'PROPOSED' | 'VALIDATED';
   @Column({ type: 'enum', enum: ['GROS_OEUVRE', 'STRUCTURE_CLOS_COUVERT', 'SECOND_OEUVRE', 'INSTALLATIONS_FINITIONS', 'INSTALLATION_ELECTRIQUE', 'FINITIONS_INTERIEURES', 'FINITIONS_EXTERIEURES'], nullable: true }) proposedPhase: string | null;
-  @Column({ type: 'enum', enum: ['GROS_OEUVRE', 'STRUCTURE_CLOS_COUVERT', 'SECOND_OEUVRE', 'INSTALLATIONS_FINITIONS', 'INSTALLATION_ELECTRIQUE', 'FINITIONS_INTERIEURES', 'FINITIONS_EXTERIEURES'], nullable: true }) effectivePhase: string | null;
+  @Column({ type: 'varchar', length: 43, nullable: true }) effectivePhase: string | null;
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true }) confidence: string | null;
   @Column({ type: 'varchar', length: 1000, nullable: true }) justification: string | null;
   @Column({ type: 'json', nullable: true }) riskAssessments: unknown;

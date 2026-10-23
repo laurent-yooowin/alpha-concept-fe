@@ -20,6 +20,7 @@ function context(controller: any, method: string, user: object): any {
 test('read-only visit user can inspect status but cannot validate a phase', async () => {
   const user = { role: UserRole.USER, permissions: { visits: 'read' } };
   assert.equal(await guard.canActivate(context(PreventionPhaseValidationController, 'status', user)), true);
+  assert.equal(await guard.canActivate(context(PreventionPhaseValidationController, 'catalog', user)), true);
   await assert.rejects(
     guard.canActivate(context(PreventionPhaseValidationController, 'validate', user)),
     ForbiddenException,

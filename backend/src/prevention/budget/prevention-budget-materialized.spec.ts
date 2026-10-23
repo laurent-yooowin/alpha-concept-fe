@@ -11,6 +11,22 @@ test('targeted action scopes are distinct for each chantier', () => {
   assert.notEqual(first, second);
 });
 
+test('exact materialized action scopes include multi filters and preserve legacy single scopes', () => {
+  const legacy = materializedActionScopeKey('org-a', 'action-a', 'mission-a');
+  const singleArray = materializedActionScopeKey('org-a', 'action-a', null, { missionIds: ['mission-a'] });
+  const multi = materializedActionScopeKey('org-a', 'action-a', null, {
+    missionIds: ['mission-b', 'mission-a'], categoryIds: ['cat-2', 'cat-1'], severities: ['critique', 'moyen'],
+    periodMode: 'BOUNDED', periodStart: '2026-01-01', periodEnd: '2026-12-31',
+  });
+  const reordered = materializedActionScopeKey('org-a', 'action-a', null, {
+    missionIds: ['mission-a', 'mission-b'], categoryIds: ['cat-1', 'cat-2'], severities: ['moyen', 'critique'],
+    periodMode: 'BOUNDED', periodStart: '2026-01-01', periodEnd: '2026-12-31',
+  });
+  assert.equal(singleArray, legacy);
+  assert.equal(multi, reordered);
+  assert.notEqual(multi, legacy);
+});
+
 test('materialized results merge overlapping scopes by client/action without summing estimates or reports', () => {
   const action = 'a'.repeat(64);
   const rows = [

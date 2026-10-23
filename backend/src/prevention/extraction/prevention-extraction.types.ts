@@ -5,6 +5,7 @@ import {
 } from '../entities/prevention.enums';
 import {
   PreventionConstructionPhase,
+  PreventionEffectivePhase,
   PreventionPhaseSource,
   PreventionPhaseStatus,
 } from '../prevention-phase';
@@ -14,7 +15,7 @@ export interface CanonicalPreventionAnalysisGroup {
   sourceGroupId: string;
   sourceKind: PreventionPhaseSource;
   proposedPhase: PreventionConstructionPhase;
-  effectivePhase: PreventionConstructionPhase;
+  effectivePhase: PreventionEffectivePhase;
   status: PreventionPhaseStatus;
   confidence: number;
   justification: string;

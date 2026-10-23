@@ -50,10 +50,10 @@ test('client and chantier filters intersect without accepting a foreign client k
   const key = budgetClientIdentity('édF').key;
   await service.findings(admin, { preset: 'ALL', missionId: '10000000-0000-4000-8000-000000000001', clientKeys: [key] } as any);
   const filtered = calls.find((call) => call.sql.startsWith('SELECT COUNT'))!;
-  assert.match(filtered.sql, /f\.missionId=\?/);
   assert.match(filtered.sql, /f\.missionId IN \(\?\)/);
-  assert.ok(filtered.args.includes('10000000-0000-4000-8000-000000000001'));
-  assert.deepEqual(filtered.args.find((arg) => Array.isArray(arg)), [
+  assert.match(filtered.sql, /f\.missionId IN \(\?\)/);
+  assert.ok(filtered.args.some((arg) => Array.isArray(arg) && arg.includes('10000000-0000-4000-8000-000000000001')));
+  assert.deepEqual(filtered.args.find((arg) => Array.isArray(arg) && arg.length === 2), [
     '10000000-0000-4000-8000-000000000001',
     '10000000-0000-4000-8000-000000000002',
   ]);
@@ -137,6 +137,7 @@ test("dashboard and trends use tenant-scoped distinct counts and bounded buckets
   const calls: any[] = [];
   const db = { query: async (sql: string, args: unknown[]) => {
     calls.push({ sql, args });
+    if (sql.startsWith('SELECT id,client FROM missions')) return [{ id: '10000000-0000-4000-8000-000000000001', client: null }];
     if (sql.startsWith("SELECT COUNT(*) findings")) return [{ findings: 2, reports: 1, visits: 1, missions: 1 }];
     return [];
   } };
@@ -147,12 +148,12 @@ test("dashboard and trends use tenant-scoped distinct counts and bounded buckets
   await service.trends(admin, dto);
   assert.ok(calls.every((call) => call.args[0] === "org-a"));
   assert.match(calls.at(-1).sql, /DATE_(?:FORMAT|SUB)\(f\.businessDate/);
-  assert.match(calls.at(-1).sql, /f\.missionId=\?/);
+  assert.match(calls.at(-1).sql, /f\.missionId IN \(\?\)/);
 });
 
 test('day and week trend buckets are returned as date-only strings', async () => {
   const calls: string[] = [];
-  const db = { query: async (sql: string) => { calls.push(sql); return []; } };
+  const db = { query: async (sql: string) => { calls.push(sql); return sql.startsWith('SELECT id,client FROM missions') ? [{ id: '10000000-0000-4000-8000-000000000001', client: null }] : []; } };
   const service = new PreventionApiService(db as any, {} as any);
   const missionId = '10000000-0000-4000-8000-000000000001';
   await service.trends(admin, { from: '2026-01-01', to: '2026-01-02', missionId } as any);
@@ -174,7 +175,10 @@ test('dashboard exposes RTE category and unique recommendation priority dimensio
     if (sql.includes('averageConformity')) return [{ measuredReports: '2', averageConformity: '72.5' }];
     if (sql.includes('riskRank')) return [{ id: 'risk-a', content: 'Garde-corps absent', riskLevel: 'eleve', score: '88', occurrenceCount: '3', reportCount: '2', reportId: 'report-a', reportTitle: 'Rapport A' }];
     if (sql.includes("NULLIF(TRIM(m.client),''")) return [{ client: 'Entreprise A', categoryId: 'cat-a', categoryCode: 'EPI', categoryLabel: 'EPI & Équipements', observationCount: '4' }];
-    if (sql.includes('prevention_analysis_groups g')) return [{ effectivePhase: 'INSTALLATION_ELECTRIQUE', reportCount: '2' }];
+    if (sql.includes('prevention_analysis_groups g')) return [
+      { effectivePhase: 'INSTALLATION_ELECTRIQUE', reportCount: '2' },
+      { effectivePhase: 'CUSTOM_00000000-0000-4000-8000-000000000001', customPhaseLabel: 'Préparation de site', reportCount: '1' },
+    ];
     if (sql.includes('MAX(c.label) categoryLabel')) return [{ categoryKey: 'cat-a', categoryId: 'cat-a', categoryLabel: 'EPI', findingCount: '4' }];
     if (sql.includes('ROW_NUMBER() OVER')) return [{ id: 'finding-a', content: 'Porter le casque', categoryLabel: 'EPI', riskLevel: 'eleve', score: '91', occurrenceCount: '3', reportCount: '2', reportId: 'report-a', reportTitle: 'Rapport A' }];
     if (sql.includes('SUM(s.findingCount)')) return [{ findings: '4' }];
@@ -196,6 +200,7 @@ test('dashboard exposes RTE category and unique recommendation priority dimensio
   assert.deepEqual(result.missionCategoryMatrix[0], { missionId: 'mission-a', missionTitle: 'Chantier A', categoryId: 'cat-a', categoryCode: 'EPI', categoryLabel: 'EPI & Équipements', observationCount: 4 });
   assert.deepEqual(result.clientCategoryMatrix[0], { client: 'Entreprise A', categoryId: 'cat-a', categoryCode: 'EPI', categoryLabel: 'EPI & Équipements', observationCount: 4 });
   assert.deepEqual(result.phaseBreakdown[0], { phase: 'INSTALLATION_ELECTRIQUE', label: 'Installation électrique', reportCount: 2 });
+  assert.deepEqual(result.phaseBreakdown[1], { phase: 'CUSTOM_00000000-0000-4000-8000-000000000001', label: 'Préparation de site', reportCount: 1 });
   assert.deepEqual(result.riskBreakdown, [{ riskLevel: 'critique', count: 1 }, { riskLevel: 'moyen', count: 2 }]);
   assert.equal(result.topRisks[0].content, 'Garde-corps absent');
   assert.equal(result.topRisks[0].score, 88);
@@ -424,4 +429,18 @@ test('prevention query DTO accepts the approved four display severities', () => 
   }
   assert.ok(validateSync(plainToInstance(PreventionQueryDto, { severity: 'inconnue' }))
     .some((error) => error.property === 'severity'));
+});
+
+test('prevention query DTO accepts bounded multi-select dimensions and preserves scalar compatibility', () => {
+  const dto = plainToInstance(PreventionQueryDto, {
+    missionIds: '10000000-0000-4000-8000-000000000001,10000000-0000-4000-8000-000000000002',
+    categoryIds: ['20000000-0000-4000-8000-000000000001'],
+    severities: 'faible,critique',
+  });
+  assert.equal(validateSync(dto).length, 0);
+  assert.deepEqual(dto.missionIds, [
+    '10000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000002',
+  ]);
+  assert.deepEqual(dto.severities, ['faible', 'critique']);
 });

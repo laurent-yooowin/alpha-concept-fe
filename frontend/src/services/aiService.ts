@@ -16,7 +16,7 @@ export const PREVENTION_PHASES = [
   { value: 'FINITIONS_EXTERIEURES', label: 'Finitions extérieures' },
 ] as const;
 
-export type PreventionPhase = typeof PREVENTION_PHASES[number]['value'];
+export type PreventionPhase = string;
 export type PreventionPhaseStatus = 'PROPOSED' | 'VALIDATED';
 export type PreventionPhaseSource = 'PHOTO' | 'DIRECTIVE' | 'MIXED';
 

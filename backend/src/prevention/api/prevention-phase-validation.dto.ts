@@ -1,9 +1,16 @@
 import { Transform } from 'class-transformer';
-import { IsIn } from 'class-validator';
-import { PREVENTION_CONSTRUCTION_PHASES, PreventionConstructionPhase } from '../prevention-phase';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class PreventionPhaseValidationDto {
   @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
-  @IsIn(PREVENTION_CONSTRUCTION_PHASES)
-  phase: PreventionConstructionPhase;
+  @IsOptional()
+  @IsString()
+  @MaxLength(43)
+  phase?: string;
+
+  @Transform(({ value }) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value)
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  customPhaseLabel?: string;
 }

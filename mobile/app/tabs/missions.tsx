@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
@@ -25,6 +25,7 @@ import { getMissionStatusInfo } from '@/utils/missionHelpers';
 import { visitService } from '@/services/visitService';
 import { reportService } from '@/services/reportService';
 import { missionService } from '@/services/missionService';
+import { filterMissions } from '@/services/missionSearch';
 import { userService } from '@/services/userService';
 import { reportsAPI } from '../../../frontend/src/lib/api';
 
@@ -52,7 +53,6 @@ export default function MissionsScreen() {
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const [showEditEndDatePicker, setShowEditEndDatePicker] = useState(false);
   const [showEditTimePicker, setShowEditTimePicker] = useState(false);
-  const [filteredMissions, setFilteredMissions] = useState < any[] > ([]);
   const [newMission, setNewMission] = useState({
     title: '',
     client: '',
@@ -76,6 +76,10 @@ export default function MissionsScreen() {
 
   // État pour le modal de détails de visite
   const [missions, setMissions] = useState < any[] > ([]);
+  const filteredMissions = useMemo(
+    () => filterMissions(missions, activeFilter, searchQuery),
+    [missions, activeFilter, searchQuery],
+  );
   const [missionVisits, setMissionVisits] = useState({ visits: [], mission: {} });
   const [showVisitsModal, setShowVisitsModal] = useState(false);
   const [showReportsModal, setShowReportsModal] = useState(false);
@@ -262,7 +266,6 @@ export default function MissionsScreen() {
         });
 
         setMissions(backendMissions);
-        filtermissions(backendMissions, 'toutes');
       } else {
         setMissions([]);
       }
@@ -329,39 +332,6 @@ export default function MissionsScreen() {
     ...filter,
     count: dynamicCounts[filter.id as keyof typeof dynamicCounts] || 0
   }));
-
-  const filtermissions = (missionsParam, filterId) => {
-    const data = missionsParam && missionsParam.length > 0 ? missionsParam : missions;
-    const filterItem = filterId ? filterId : activeFilter;
-    const filtred = data.filter(mission => {
-      const matchesSearch = mission.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        mission.client.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        mission.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        mission.refClient.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        mission.refBusiness.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesAllFilter = filterItem === 'toutes';
-      // || mission.status === activeFilter;
-      let matchesFilter = false;
-      switch (filterItem) {
-        case "aujourdhui":
-          matchesFilter = mission.date && new Date(mission.date).toLocaleDateString() == new Date().toLocaleDateString() || mission.status == "aujourdhui";
-          break;
-        case "en_retard":
-          matchesFilter = mission.date && new Date(mission.date).toLocaleDateString() > new Date().toLocaleDateString() || mission.status == "en_retard";
-          break;
-        case "planifiees":
-          matchesFilter = mission.status == "planifiees";
-          break;
-
-        default:
-          break;
-      }
-
-      return matchesSearch && matchesFilter || matchesAllFilter;
-    });
-    setFilteredMissions(prev => filtred);
-  }
 
   const handleClickVisits = (mission: any) => {
     if (mission?.originalStatus === 'terminee' || !mission) return;
@@ -460,8 +430,6 @@ export default function MissionsScreen() {
   const handleFilterSelect = (filterId: string) => {
     setActiveFilter(filterId);
     setShowFilterMenu(false);
-    // console.log("filterId >>> : ", filterId);
-    filtermissions(missions, filterId);
   };
 
   // Fonction pour ouvrir la fiche de chantier

@@ -24,6 +24,10 @@
 .rte-filter-title { align-self: center; color: var(--rte-muted); font-size: 10px; font-weight: 800; letter-spacing: .55px; text-transform: uppercase; }
 .rte-filter-field { color: var(--rte-muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .rte-filter-field select, .rte-filter-field input { display: block; max-width: 190px; margin-top: 2px; padding: 6px 9px; border: 1px solid #d0d9e8; border-radius: 6px; background: white; color: var(--rte-navy); font-size: 12px; font-weight: 500; text-transform: none; }
+.rte-filter-field input[type="search"] { max-width: none; }
+.rte-filter-reset { align-self: end; display: inline-flex; align-items: center; justify-content: center; gap: 5px; margin-left: auto; padding: 7px 10px; border: 1px solid #d0d9e8; border-radius: 6px; background: white; color: var(--rte-navy); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.rte-filter-reset:hover { background: #f8fafc; }
+.rte-filter-reset:focus-visible { outline: 2px solid var(--rte-navy); outline-offset: 2px; }
 .rte-filter-spacer { flex: 1; }
 .rte-filter-info { align-self: center; color: #718096; font-size: 11px; }
 .rte-filter-info strong { color: var(--rte-navy); }

@@ -9,6 +9,7 @@ const DECIMAL_4 = /^\d{1,14}(?:\.\d{1,4})?$/;
 const DECIMAL_2 = /^\d{1,16}(?:\.\d{1,2})?$/;
 const ZERO_RATE = /^0(?:\.0{1,2})?$/;
 const decimalString = ({ value }: { value: unknown }) => value === null || value === undefined || value === '' ? value : String(value).trim();
+const csv = ({ value }: { value: unknown }) => typeof value === 'string' ? value.split(',').map((item) => item.trim()).filter(Boolean) : value;
 
 export enum PreventionBudgetLineStatusDto {
   A_CHIFFRER = 'A_CHIFFRER', ESTIME = 'ESTIME', VALIDE = 'VALIDE', ENGAGE = 'ENGAGE', REALISE = 'REALISE',
@@ -36,9 +37,12 @@ export class PreventionBudgetCreateDto {
   @IsDateString() periodEnd: string;
   @Transform(decimalString) @Matches(ZERO_RATE) contingencyRatePercent: string;
   @IsOptional() @Transform(trim) @IsUUID('4') missionId?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) missionIds?: string[];
   @IsOptional() @Transform(trim) @IsUUID('4') chantierId?: string;
   @IsOptional() @Transform(trim) @IsUUID('4') categoryId?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) categoryIds?: string[];
   @IsOptional() @Transform(trim) @IsIn(['faible', 'moyen', 'eleve', 'critique']) severity?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(4) @IsIn(['faible', 'moyen', 'eleve', 'critique'], { each: true }) severities?: string[];
 }
 
 export class PreventionBudgetScopeDto {
@@ -46,8 +50,11 @@ export class PreventionBudgetScopeDto {
   @IsOptional() @IsDateString() from?: string;
   @IsOptional() @IsDateString() to?: string;
   @IsOptional() @Transform(trim) @IsUUID('4') categoryId?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) categoryIds?: string[];
   @IsOptional() @Transform(trim) @IsIn(['faible', 'moyen', 'eleve', 'critique']) severity?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(4) @IsIn(['faible', 'moyen', 'eleve', 'critique'], { each: true }) severities?: string[];
   @IsOptional() @Transform(trim) @IsUUID('4') missionId?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) missionIds?: string[];
   @IsOptional() @Transform(({ value }) => typeof value === 'string' ? value.split(',').filter(Boolean) : value)
   @IsArray() @ArrayMaxSize(50) @Matches(/^(?:[0-9a-f]{64}|unassigned)$/, { each: true }) clientKeys?: string[];
   @IsOptional() @Transform(trim) @IsString() @MaxLength(2000) adminPrompt?: string;
@@ -67,8 +74,11 @@ export class PreventionBudgetPreviewDto {
   @IsOptional() @IsDateString() from?: string;
   @IsOptional() @IsDateString() to?: string;
   @IsOptional() @Transform(trim) @IsUUID('4') categoryId?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) categoryIds?: string[];
   @IsOptional() @Transform(trim) @IsIn(['faible', 'moyen', 'eleve', 'critique']) severity?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(4) @IsIn(['faible', 'moyen', 'eleve', 'critique'], { each: true }) severities?: string[];
   @IsOptional() @Transform(trim) @IsUUID('4') missionId?: string;
+  @IsOptional() @Transform(csv) @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) missionIds?: string[];
   @IsOptional() @Transform(({ value }) => typeof value === 'string' ? value.split(',').filter(Boolean) : value)
   @IsArray() @ArrayMaxSize(50) @Matches(/^(?:[0-9a-f]{64}|unassigned)$/, { each: true }) clientKeys?: string[];
 }

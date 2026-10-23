@@ -130,6 +130,37 @@ test('a human validated phase remains distinct from the AI proposal', () => {
   assert.equal(source.analysisGroups[0].status, 'VALIDATED');
 });
 
+test('a human custom phase survives canonical extraction without changing the AI proposal', () => {
+  const customCode = 'CUSTOM_00000000-0000-4000-8000-000000000001';
+  const source = canonicalizePreventionSource({
+    ...baseInput,
+    entries: [{ id: 'photo-a', groupId: 'g-a', analysis: {
+      observation: 'Préparation de site', riskLevel: 'moyen', confidence: 80,
+    } }] as any,
+    assessments: { 'g-a': {
+      processingStatus: 'READY', phaseStatus: 'VALIDATED', proposedPhase: 'GROS_OEUVRE',
+      effectivePhase: customCode, confidence: 80, justification: 'Choix humain',
+      sourceKind: 'PHOTO', riskAssessments: {}, validatedBy: '10000000-0000-4000-8000-000000000009',
+      validatedAt: '2026-10-22T12:00:00.000Z', sourceHash: 'a'.repeat(64),
+    } },
+  });
+  assert.equal(source.analysisGroups[0].proposedPhase, 'GROS_OEUVRE');
+  assert.equal(source.analysisGroups[0].effectivePhase, customCode);
+  assert.equal(source.analysisGroups[0].status, 'VALIDATED');
+});
+
+test('an unvalidated source cannot present a custom effective phase', () => {
+  assert.throws(() => canonicalizePreventionSource({
+    ...baseInput,
+    entries: [{ id: 'photo-a', groupId: 'g-a', analysis: {
+      observation: 'Structure visible', riskLevel: 'moyen', confidence: 80,
+      preventionPhase: 'GROS_OEUVRE',
+      preventionPhaseEffective: 'CUSTOM_00000000-0000-4000-8000-000000000001',
+      preventionPhaseConfidence: 80, preventionPhaseJustification: 'Source non validée',
+    } }] as any,
+  }), /Unvalidated prevention phase/);
+});
+
 test('Prevention observation risk is independent of the SPS group risk', () => {
   const source = canonicalizePreventionSource({
     ...baseInput,

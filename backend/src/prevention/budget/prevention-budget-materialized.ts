@@ -21,10 +21,38 @@ type MaterializedBudgetSource = {
 
 const HUMAN_STATUSES = new Set(['VALIDE', 'ENGAGE', 'REALISE']);
 
-export function materializedActionScopeKey(organizationId: string, itemKey: string, missionId: string | null = null): string {
-  return createHash('sha256').update(missionId
+export type MaterializedActionScope = {
+  missionIds?: string[];
+  categoryIds?: string[];
+  severities?: string[];
+  periodMode?: string | null;
+  periodStart?: string | Date | null;
+  periodEnd?: string | Date | null;
+};
+
+function sortedScopeValues(values: unknown): string[] {
+  return [...new Set(Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && Boolean(value.trim())).map((value) => value.trim()) : [])].sort();
+}
+
+export function materializedActionScopeKey(
+  organizationId: string,
+  itemKey: string,
+  missionId: string | null = null,
+  scope?: MaterializedActionScope,
+): string {
+  if (!scope) return createHash('sha256').update(missionId
     ? `budget-target-action-mission-v1|${organizationId}|${missionId}|${itemKey}`
     : `budget-target-action-all-v1|${organizationId}|${itemKey}`).digest('hex');
+  const missionIds = sortedScopeValues([...(scope.missionIds ?? []), ...(missionId ? [missionId] : [])]);
+  const categoryIds = sortedScopeValues(scope.categoryIds);
+  const severities = sortedScopeValues(scope.severities);
+  const periodMode = scope.periodMode ?? 'ALL';
+  const periodStart = scope.periodStart instanceof Date ? scope.periodStart.toISOString().slice(0, 10) : String(scope.periodStart ?? '');
+  const periodEnd = scope.periodEnd instanceof Date ? scope.periodEnd.toISOString().slice(0, 10) : String(scope.periodEnd ?? '');
+  if (!categoryIds.length && !severities.length && periodMode === 'ALL' && !periodStart && !periodEnd && missionIds.length <= 1) {
+    return materializedActionScopeKey(organizationId, itemKey, missionIds[0] ?? null);
+  }
+  return createHash('sha256').update(`budget-target-action-scope-v2|${organizationId}|${missionIds.join(',')}|${categoryIds.join(',')}|${severities.join(',')}|${periodMode}|${periodStart}|${periodEnd}|${itemKey}`).digest('hex');
 }
 
 function cents(value: unknown): bigint {

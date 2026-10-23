@@ -16,6 +16,11 @@ import { PreventionPhaseValidationService } from './prevention-phase-validation.
 export class PreventionPhaseValidationController {
   constructor(private readonly service: PreventionPhaseValidationService) {}
 
+  @Get('phases')
+  catalog(@CurrentUser() user: User) {
+    return this.service.catalog(user);
+  }
+
   @Patch(':visitId/groups/:groupId/phase')
   @RequirePermission('visits', 'write')
   validate(

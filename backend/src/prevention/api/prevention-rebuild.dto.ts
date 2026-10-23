@@ -4,6 +4,8 @@ import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUUID, Matches, MaxLength
 export class PreventionRebuildScopeDto {
   @IsOptional() @IsUUID('4') missionId?: string;
   @IsOptional() @Transform(({ value }) => typeof value === 'string' ? value.split(',').filter(Boolean) : value)
+  @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) missionIds?: string[];
+  @IsOptional() @Transform(({ value }) => typeof value === 'string' ? value.split(',').filter(Boolean) : value)
   @IsArray() @ArrayMaxSize(50) @Matches(/^(?:[0-9a-f]{64}|unassigned)$/, { each: true }) clientKeys?: string[];
 }
 

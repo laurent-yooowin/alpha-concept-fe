@@ -65,11 +65,21 @@ export function preventionBudgetScopeKey(
   severity: string | null,
   clientKeys: string[],
   missionId: string | null = null,
+  categoryIds: string[] = [],
+  severities: string[] = [],
+  missionIds: string[] = [],
 ): string {
+  const uniqueCategories = [...new Set([...categoryIds, ...(categoryId ? [categoryId] : [])])].sort();
+  const uniqueSeverities = [...new Set([...severities, ...(severity ? [severity] : [])])].sort();
+  const normalizedCategories = uniqueCategories.join(',') || (categoryId ?? '');
+  const normalizedSeverities = uniqueSeverities.join(',') || (severity ?? '');
+  const normalizedMissions = [...new Set([...missionIds, ...(missionId ? [missionId] : [])])].sort();
+  const actualMulti = uniqueCategories.length > 1 || uniqueSeverities.length > 1 || normalizedMissions.length > 1;
   const signature = periodMode === 'ALL'
-    ? `|${organizationId}|ALL|${categoryId ?? ''}|${severity ?? ''}`
-    : `|${organizationId}|${period.start}|${period.end}|${categoryId ?? ''}|${severity ?? ''}`;
-  if (missionId) return createHash('sha256').update(`budget-scope-v3${signature}|${clientKeys.join(',')}|${missionId}`).digest('hex');
+    ? `|${organizationId}|ALL|${normalizedCategories}|${normalizedSeverities}`
+    : `|${organizationId}|${period.start}|${period.end}|${normalizedCategories}|${normalizedSeverities}`;
+  if (actualMulti) return createHash('sha256').update(`budget-scope-v4${signature}|${normalizedMissions.join(',')}|${clientKeys.join(',')}`).digest('hex');
+  if (normalizedMissions.length === 1) return createHash('sha256').update(`budget-scope-v3${signature}|${clientKeys.join(',')}|${normalizedMissions[0]}`).digest('hex');
   return clientKeys.length
     ? createHash('sha256').update(`budget-scope-v2${signature}|${clientKeys.join(',')}`).digest('hex')
     : createHash('sha256').update(`${periodMode === 'ALL' ? 'budget-scope-all-v1' : 'budget-scope-v1'}${signature}`).digest('hex');
@@ -87,15 +97,32 @@ class PreventionBudgetWindowClosedError extends Error {
   readonly code = 'PREVENTION_BUDGET_WINDOW_CLOSED';
 }
 
-function budgetSeverityFilter(value: string | null | undefined): { sql: string; args: unknown[] } {
-  if (!value) return { sql: '', args: [] };
-  if (value === 'faible' || value === 'moyen') return { sql: 'AND f.riskLevel=?', args: [value] };
-  if (value !== 'critique' && value !== 'eleve') throw new UnrecoverableError('Invalid budget severity scope');
+function budgetSeverityFilter(value: string | string[] | null | undefined): { sql: string; args: unknown[] } {
+  const values = [...new Set(Array.isArray(value) ? value : value ? [value] : [])];
+  if (!values.length) return { sql: '', args: [] };
+  const simple = values.filter((item) => item === 'faible' || item === 'moyen');
+  const clauses: string[] = [];
+  const args: unknown[] = [];
+  if (simple.length) { clauses.push('f.riskLevel IN (?)'); args.push(simple); }
+  if (values.some((item) => !['faible', 'moyen', 'eleve', 'critique'].includes(item))) throw new UnrecoverableError('Invalid budget severity scope');
   const score = `(SELECT MAX(ps.score) FROM prevention_priority_scores ps
     WHERE ps.organizationId=f.organizationId AND ps.patternKey=f.patternKey
       AND ps.missionType=f.missionType AND ps.categoryKey=COALESCE(f.categoryId,'UNCATEGORIZED')
       AND ps.findingType=f.findingType)`;
-  return { sql: `AND f.riskLevel='eleve' AND COALESCE(${score},0)${value === 'critique' ? '>=' : '<'}?`, args: [80] };
+  if (values.includes('critique')) { clauses.push(`(f.riskLevel='eleve' AND COALESCE(${score},0)>=?)`); args.push(80); }
+  if (values.includes('eleve')) { clauses.push(`(f.riskLevel='eleve' AND COALESCE(${score},0)<?)`); args.push(80); }
+  return { sql: clauses.length ? `AND (${clauses.join(' OR ')})` : '', args };
+}
+
+function storedStringArray(value: unknown): string[] {
+  if (value === null || value === undefined) return [];
+  let parsed: unknown;
+  try { parsed = typeof value === 'string' ? JSON.parse(value) : value; }
+  catch { throw new UnrecoverableError('Invalid stored Prevention budget scope'); }
+  if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string' || !item.trim())) {
+    throw new UnrecoverableError('Invalid stored Prevention budget scope');
+  }
+  return [...new Set(parsed.map((item: string) => item.trim()))];
 }
 
 export function budgetPeriodPredicate(periodMode: unknown, periodStart: unknown, periodEnd: unknown, alias = 'f'): { sql: string; args: unknown[] } {
@@ -694,7 +721,7 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
       // A human may have validated one action from the read-only merged view
       // after the previous global publication. Preserve that decision too.
       const actionLockCandidates: Array<any> = await manager.query(
-        `SELECT i.*,s.scenarioKey,s.missionId actionMissionId,s.createdAt scenarioCreatedAt FROM prevention_budget_items i
+        `SELECT i.*,s.scenarioKey,s.missionId actionMissionId,s.missionIds actionMissionIds,s.categoryId actionCategoryId,s.categoryIds actionCategoryIds,s.severity actionSeverity,s.severities actionSeverities,s.periodMode actionPeriodMode,s.periodStart actionPeriodStart,s.periodEnd actionPeriodEnd,s.createdAt scenarioCreatedAt FROM prevention_budget_items i
          JOIN prevention_budget_scenarios s ON s.organizationId=i.organizationId AND s.id=i.scenarioId
          WHERE i.organizationId=? AND s.status IN ('CALCULATED','VALIDATED')
            AND (i.lockedManual=1 OR i.status IN ('VALIDE','ENGAGE','REALISE'))
@@ -705,12 +732,40 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
       );
       if (actionLockCandidates.length > 10000) throw new UnrecoverableError('Too many human budget actions to consolidate safely');
       const annualKeys = new Set(rows.map((row) => String(row.itemKey)));
-      const actionLocks = actionLockCandidates.filter((item) =>
-        (item.actionMissionId ?? null) === filters.missionId &&
-        item.scenarioKey === materializedActionScopeKey(organizationId, item.itemKey, filters.missionId) &&
-        (!filters.clientKeys.length || filters.clientKeys.includes(String(item.clientKey))) &&
-        (!filters.categoryId || filters.categoryId === item.categoryId) &&
-        (!filters.severity || annualKeys.has(String(item.itemKey))));
+      // A global run has no user-selected dimensions. Keep tenant-scoped human
+      // decisions from narrower views, including locked historical actions
+      // whose analytical source has since disappeared. Filtered runs only
+      // inherit actions whose keys remain in their selected annual rows.
+      const unrestrictedGlobal = !filters.clientKeys.length && !filters.categoryIds.length && !filters.categoryId &&
+        !filters.severities.length && !filters.severity && !filters.missionIds.length && !filters.missionId;
+      const actionLocks = actionLockCandidates.filter((item) => {
+        const itemMissionIds = storedStringArray(item.actionMissionIds);
+        const itemCategoryIds = storedStringArray(item.actionCategoryIds);
+        const itemSeverities = storedStringArray(item.actionSeverities);
+        const missionMatch = (!filters.missionIds.length && !filters.missionId) ||
+          filters.missionIds.some((missionId) => missionId === String(item.actionMissionId ?? '') || itemMissionIds.includes(missionId)) ||
+          (filters.missionId === item.actionMissionId || itemMissionIds.includes(String(filters.missionId ?? '')));
+        const actionMissionIds = filters.missionIds.length ? filters.missionIds : (filters.missionId ? [filters.missionId] : []);
+        const actionScope = {
+          missionIds: actionMissionIds,
+          categoryIds: filters.categoryIds.length ? filters.categoryIds : (filters.categoryId ? [filters.categoryId] : []),
+          severities: filters.severities.length ? filters.severities : (filters.severity ? [filters.severity] : []),
+          periodMode: 'ALL', periodStart: null, periodEnd: null,
+        };
+        const actionScopeMatch = unrestrictedGlobal ||
+          item.scenarioKey === materializedActionScopeKey(organizationId, item.itemKey, null, actionScope) ||
+          (!filters.categoryIds.length && !filters.severities.length && !actionMissionIds.length && item.scenarioKey === materializedActionScopeKey(organizationId, item.itemKey, filters.missionId));
+        const categoryMatch = (!filters.categoryIds.length && !filters.categoryId) ||
+          filters.categoryIds.some((categoryId) => categoryId === String(item.actionCategoryId ?? '') || itemCategoryIds.includes(categoryId)) ||
+          (filters.categoryId === item.actionCategoryId || itemCategoryIds.includes(String(filters.categoryId ?? '')));
+        const severityMatch = (!filters.severities.length && !filters.severity) ||
+          filters.severities.some((severity) => itemSeverities.includes(severity) || severity === item.actionSeverity) ||
+          filters.severity === item.actionSeverity;
+        const allowHistoricalAction = !filters.categoryIds.length && !filters.categoryId &&
+          !filters.severities.length && !filters.severity && !filters.missionIds.length && !filters.missionId;
+        return missionMatch && actionScopeMatch && (!filters.clientKeys.length || filters.clientKeys.includes(String(item.clientKey))) &&
+          categoryMatch && severityMatch && (allowHistoricalAction || annualKeys.has(String(item.itemKey)));
+      });
       const actionLocksByKey = new Map<string, any>();
       for (const item of actionLocks) if (!actionLocksByKey.has(item.itemKey)) actionLocksByKey.set(item.itemKey, item);
       const previousLocked = previousItems.filter((item) => Boolean(item.lockedManual) || LOCKED_STATUSES.includes(item.status));
@@ -726,9 +781,9 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
       const currentSourceVersion = await loadPreventionBudgetSourceVersion(this.dataSource, organizationId);
       if (currentSourceVersion !== run.sourceVersion) throw new UnrecoverableError('Global budget source snapshot changed before publication');
       await manager.query(`INSERT INTO prevention_budget_scenarios
-        (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,missionId,categoryId,severity,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent,retainedBudgetHt,estimatedBudgetHt,validatedBudgetHt,contingencyAmountHt,totalBudgetHt)
-        VALUES (?,?,?,?,?,?,?, 'ALL',?,?,?,?, ?,NULL,'CALCULATED',?,?,?,?,?,?)`, [scenarioId, organizationId, run.scenarioKey, version, sourceVersion, null, null,
-        filters.missionId, filters.categoryId, filters.severity, JSON.stringify(filters.clientKeys ?? []), run.adminPrompt ?? null,
+        (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,missionId,missionIds,categoryId,categoryIds,severity,severities,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent,retainedBudgetHt,estimatedBudgetHt,validatedBudgetHt,contingencyAmountHt,totalBudgetHt)
+        VALUES (?,?,?,?,?,?,?, 'ALL',?,?,?,?,?,?,?,?,NULL,'CALCULATED',?,?,?,?,?,?)`, [scenarioId, organizationId, run.scenarioKey, version, sourceVersion, null, null,
+        filters.missionId, JSON.stringify(filters.missionIds ?? []), filters.categoryId, JSON.stringify(filters.categoryIds ?? []), filters.severity, JSON.stringify(filters.severities ?? []), JSON.stringify(filters.clientKeys ?? []), run.adminPrompt ?? null,
         totals.contingencyRatePercent, totals.retainedBudgetHt, totals.estimatedBudgetHt, totals.validatedBudgetHt, totals.contingencyAmountHt, totals.totalBudgetHt]);
       const previousSourceRows: Array<any> = previous ? await manager.query(`SELECT s.*,i.itemKey FROM prevention_budget_item_sources s JOIN prevention_budget_items i ON i.id=s.itemId AND i.organizationId=s.organizationId WHERE s.organizationId=? AND i.scenarioId=?`, [organizationId, previous.id]) : [];
       const actionSourceRows: Array<any> = actionLocks.length ? await manager.query(
@@ -953,14 +1008,17 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
        LEFT JOIN prevention_findings f ON f.organizationId=s.organizationId
          AND (s.periodMode='ALL' OR f.businessDate BETWEEN s.periodStart AND s.periodEnd)
          AND f.reportId=? AND f.findingType='RECOMMENDATION'
-         AND (s.missionId IS NULL OR f.missionId=s.missionId)
-         AND (s.categoryId IS NULL OR f.categoryId=s.categoryId)
-         AND (s.severity IS NULL OR s.severity=CASE
+         AND ((s.missionId IS NULL AND (s.missionIds IS NULL OR JSON_LENGTH(s.missionIds)=0)) OR f.missionId=s.missionId OR JSON_CONTAINS(s.missionIds, JSON_QUOTE(f.missionId)))
+         AND ((s.categoryId IS NULL AND (s.categoryIds IS NULL OR JSON_LENGTH(s.categoryIds)=0)) OR f.categoryId=s.categoryId OR JSON_CONTAINS(s.categoryIds, JSON_QUOTE(f.categoryId)))
+         AND ((s.severity IS NULL AND (s.severities IS NULL OR JSON_LENGTH(s.severities)=0)) OR s.severity=CASE
            WHEN f.riskLevel='eleve' AND COALESCE((SELECT MAX(ps.score) FROM prevention_priority_scores ps
              WHERE ps.organizationId=f.organizationId AND ps.patternKey=f.patternKey
                AND ps.missionType=f.missionType AND ps.categoryKey=COALESCE(f.categoryId,'UNCATEGORIZED')
                AND ps.findingType=f.findingType),0)>=80 THEN 'critique'
-           ELSE f.riskLevel END)
+           ELSE f.riskLevel END OR JSON_CONTAINS(s.severities, JSON_QUOTE(CASE
+             WHEN f.riskLevel='eleve' AND COALESCE((SELECT MAX(ps2.score) FROM prevention_priority_scores ps2
+               WHERE ps2.organizationId=f.organizationId AND ps2.patternKey=f.patternKey AND ps2.missionType=f.missionType
+                 AND ps2.categoryKey=COALESCE(f.categoryId,'UNCATEGORIZED') AND ps2.findingType=f.findingType),0)>=80 THEN 'critique' ELSE f.riskLevel END)))
        LEFT JOIN prevention_budget_items i ON i.organizationId=s.organizationId AND i.scenarioId=s.id
        LEFT JOIN prevention_budget_item_sources src ON src.organizationId=i.organizationId
          AND src.itemId=i.id AND src.reportId=?
@@ -1257,7 +1315,10 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
       const actionTypes = [...new Set(linkedFindings.map((finding) => finding.actionType))];
       if (actionTypes.length !== 1) throw new UnrecoverableError('Mixed budget action types cannot be recalculated as one item');
       const period = budgetPeriodPredicate(base.periodMode, base.periodStart, base.periodEnd);
-      const severity = budgetSeverityFilter(base.severity);
+      const missionIds = storedStringArray(base.missionIds); if (!missionIds.length && base.missionId) missionIds.push(String(base.missionId));
+      const categoryIds = storedStringArray(base.categoryIds); if (!categoryIds.length && base.categoryId) categoryIds.push(String(base.categoryId));
+      const severities = storedStringArray(base.severities); if (!severities.length && base.severity) severities.push(String(base.severity));
+      const severity = budgetSeverityFilter(severities);
       const candidates: Array<any> = await this.dataSource.query(
         `SELECT f.id,f.reportId,f.sourceGroupId,f.normalizedKey,f.patternKey,f.content,f.categoryId,f.actionType,f.actionMetric,f.riskLevel,
                 m.client,COALESCE(c.code,'UNCATEGORIZED') categoryKey
@@ -1266,12 +1327,12 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
          LEFT JOIN missions m ON m.id=f.missionId AND m.organizationId=f.organizationId
          WHERE f.organizationId=? AND f.findingType='RECOMMENDATION' AND f.actionType=?
            ${period.sql}
-           AND (? IS NULL OR f.missionId=?)
-           AND (? IS NULL OR f.categoryId=?)
+           ${missionIds.length ? 'AND f.missionId IN (?)' : ''}
+           ${categoryIds.length ? 'AND f.categoryId IN (?)' : ''}
            ${severity.sql}
          ORDER BY f.id LIMIT 5001`,
         [payload.organizationId, actionTypes[0], ...period.args,
-          base.missionId ?? null, base.missionId ?? null, base.categoryId ?? null, base.categoryId ?? null, ...severity.args],
+          ...(missionIds.length ? [missionIds] : []), ...(categoryIds.length ? [categoryIds] : []), ...severity.args],
       );
       if (candidates.length > 5000) throw new UnrecoverableError('Too many recommendations for a targeted budget recalculation');
       findings = candidates.filter((finding) => budgetClientActionKey(
@@ -1331,9 +1392,9 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
       const totals = summarizeBudgetRows(nextItems, String(lockedBase.contingencyRatePercent));
       const version = Number(lockedBase.version) + 1; const scenarioId = randomUUID();
       await manager.query(`INSERT INTO prevention_budget_scenarios
-        (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,missionId,categoryId,severity,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent,retainedBudgetHt,estimatedBudgetHt,validatedBudgetHt,contingencyAmountHt,totalBudgetHt)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'CALCULATED',?,?,?,?,?,?)`, [scenarioId, payload.organizationId, lockedBase.scenarioKey, version, payload.sourceVersion,
-        lockedBase.periodStart ?? null, lockedBase.periodEnd ?? null, lockedBase.periodMode ?? 'BOUNDED', lockedBase.missionId ?? null, lockedBase.categoryId ?? null, lockedBase.severity ?? null,
+        (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,missionId,missionIds,categoryId,categoryIds,severity,severities,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent,retainedBudgetHt,estimatedBudgetHt,validatedBudgetHt,contingencyAmountHt,totalBudgetHt)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'CALCULATED',?,?,?,?,?,?)`, [scenarioId, payload.organizationId, lockedBase.scenarioKey, version, payload.sourceVersion,
+        lockedBase.periodStart ?? null, lockedBase.periodEnd ?? null, lockedBase.periodMode ?? 'BOUNDED', lockedBase.missionId ?? null, JSON.stringify(storedStringArray(lockedBase.missionIds)), lockedBase.categoryId ?? null, JSON.stringify(storedStringArray(lockedBase.categoryIds)), lockedBase.severity ?? null, JSON.stringify(storedStringArray(lockedBase.severities)),
         JSON.stringify(storedBudgetClientKeys(lockedBase.clientKeys)), lockedBase.adminPrompt ?? null, lockedBase.adminPromptActorId ?? null,
         totals.contingencyRatePercent, totals.retainedBudgetHt, totals.estimatedBudgetHt, totals.validatedBudgetHt, totals.contingencyAmountHt, totals.totalBudgetHt]);
       const itemMap = new Map<string, string>();
@@ -1467,7 +1528,10 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
       [payload.organizationId, base.scenarioKey, payload.sourceVersion],
     );
     if (already) return already;
-    const severity = budgetSeverityFilter(base.severity);
+    const missionIds = storedStringArray(base.missionIds); if (!missionIds.length && base.missionId) missionIds.push(String(base.missionId));
+    const categoryIds = storedStringArray(base.categoryIds); if (!categoryIds.length && base.categoryId) categoryIds.push(String(base.categoryId));
+    const severities = storedStringArray(base.severities); if (!severities.length && base.severity) severities.push(String(base.severity));
+    const severity = budgetSeverityFilter(severities);
     const periodPredicate = budgetPeriodPredicate(base.periodMode, base.periodStart, base.periodEnd);
     const [latestSnapshot]: Array<any> = await this.dataSource.query(
       `SELECT * FROM prevention_budget_scenarios WHERE organizationId=? AND scenarioKey=? ORDER BY version DESC LIMIT 1`,
@@ -1481,11 +1545,11 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
        LEFT JOIN missions m ON m.id=f.missionId AND m.organizationId=f.organizationId
        WHERE f.organizationId=? AND f.findingType='RECOMMENDATION'
          ${periodPredicate.sql}
-         AND (? IS NULL OR f.missionId=?)
-         AND (? IS NULL OR f.categoryId=?)
+         ${missionIds.length ? 'AND f.missionId IN (?)' : ''}
+         ${categoryIds.length ? 'AND f.categoryId IN (?)' : ''}
          ${severity.sql}
        ORDER BY f.patternKey,f.id`,
-      [payload.organizationId, ...periodPredicate.args, base.missionId ?? null, base.missionId ?? null, base.categoryId ?? null, base.categoryId ?? null, ...severity.args],
+      [payload.organizationId, ...periodPredicate.args, ...(missionIds.length ? [missionIds] : []), ...(categoryIds.length ? [categoryIds] : []), ...severity.args],
     );
     const selectedClientKeys = new Set(storedBudgetClientKeys(base.clientKeys));
     const previous: Array<any> = latestSnapshot ? await this.dataSource.query(
@@ -1643,11 +1707,11 @@ export class PreventionBudgetService implements OnApplicationBootstrap, OnApplic
       const scenarioId = randomUUID();
       await manager.query(
         `INSERT INTO prevention_budget_scenarios
-          (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,missionId,categoryId,severity,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent,
+          (id,organizationId,scenarioKey,version,sourceVersion,periodStart,periodEnd,periodMode,missionId,missionIds,categoryId,categoryIds,severity,severities,clientKeys,adminPrompt,adminPromptActorId,status,contingencyRatePercent,
            retainedBudgetHt,estimatedBudgetHt,validatedBudgetHt,contingencyAmountHt,totalBudgetHt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'CALCULATED',?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'CALCULATED',?,?,?,?,?,?)`,
         [scenarioId, payload.organizationId, lockedBase.scenarioKey, nextVersion, payload.sourceVersion,
-          lockedBase.periodStart ?? null, lockedBase.periodEnd ?? null, lockedBase.periodMode ?? 'BOUNDED', lockedBase.missionId ?? null, lockedBase.categoryId ?? null, lockedBase.severity ?? null,
+          lockedBase.periodStart ?? null, lockedBase.periodEnd ?? null, lockedBase.periodMode ?? 'BOUNDED', lockedBase.missionId ?? null, JSON.stringify(storedStringArray(lockedBase.missionIds)), lockedBase.categoryId ?? null, JSON.stringify(storedStringArray(lockedBase.categoryIds)), lockedBase.severity ?? null, JSON.stringify(storedStringArray(lockedBase.severities)),
           JSON.stringify(storedBudgetClientKeys(lockedBase.clientKeys)), lockedBase.adminPrompt ?? null, lockedBase.adminPromptActorId ?? null,
           calculation.totals.contingencyRatePercent,
           calculation.totals.retainedBudgetHt, calculation.totals.estimatedBudgetHt,
@@ -1810,15 +1874,18 @@ function parseMetricEvidence(value: unknown): Array<{ quantity: string; unit: st
   return parsed && typeof parsed === 'object' && typeof parsed.quantity === 'string' && typeof parsed.unit === 'string' && typeof parsed.basis === 'string' && typeof parsed.confidence === 'number' ? [parsed as any] : [];
 }
 
-function parseGlobalFilters(value: unknown): { clientKeys: string[]; categoryId: string | null; severity: string | null; missionId: string | null; contingencyRatePercent?: string } {
+function parseGlobalFilters(value: unknown): { clientKeys: string[]; categoryId: string | null; categoryIds: string[]; severity: string | null; severities: string[]; missionId: string | null; missionIds: string[]; contingencyRatePercent?: string } {
   const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { clientKeys: [], categoryId: null, severity: null, missionId: null };
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { clientKeys: [], categoryId: null, categoryIds: [], severity: null, severities: [], missionId: null, missionIds: [] };
   const row = parsed as Record<string, unknown>;
   return {
     clientKeys: storedBudgetClientKeys(row.clientKeys),
     categoryId: typeof row.categoryId === 'string' ? row.categoryId : null,
+    categoryIds: storedStringArray(row.categoryIds),
     severity: typeof row.severity === 'string' ? row.severity : null,
+    severities: storedStringArray(row.severities),
     missionId: typeof row.missionId === 'string' ? row.missionId : null,
+    missionIds: storedStringArray(row.missionIds),
     contingencyRatePercent: typeof row.contingencyRatePercent === 'string' ? row.contingencyRatePercent : undefined,
   };
 }

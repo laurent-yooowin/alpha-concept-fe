@@ -123,11 +123,11 @@ test('global worker publishes one atomic ALL scenario with MAX lines and preserv
   ];
   const insertedItems: unknown[][] = [];
   const insertedSources: unknown[][] = [];
-  const actionLock = { ...annualRows[1], id: 'human-action-item', scenarioKey: materializedActionScopeKey(org, 'client-a|action-x'), totalHt: '77.00',
+  const scopedMissionId = '30000000-0000-4000-8000-000000000001';
+  const actionLock = { ...annualRows[1], id: 'human-action-item', actionMissionId: scopedMissionId, scenarioKey: materializedActionScopeKey(org, 'client-a|action-x', scopedMissionId), totalHt: '77.00',
     unitCostHt: '77.00', status: 'VALIDE', lockedManual: 1, priceSource: 'human', scenarioCreatedAt: '2026-09-01' };
   const disappearedActionLock = { ...actionLock, id: 'disappeared-action-item', itemKey: 'client-c|action-z',
     clientKey: 'client-c', clientLabel: 'C', scenarioKey: materializedActionScopeKey(org, 'client-c|action-z'), totalHt: '44.00', unitCostHt: '44.00' };
-  const scopedMissionId = '30000000-0000-4000-8000-000000000001';
   const otherMissionId = '30000000-0000-4000-8000-000000000002';
   const scopedLock = { ...actionLock, id: 'scoped-human-item', actionMissionId: scopedMissionId,
     scenarioKey: materializedActionScopeKey(org, 'client-a|action-x', scopedMissionId) };
@@ -451,8 +451,11 @@ test('worker materializes chantier, category and severity scope on recalculation
   assert.equal(insertArgs.length, 1);
   assert.equal(insertArgs[0][7], 'BOUNDED');
   assert.equal(insertArgs[0][8], base.missionId);
-  assert.equal(insertArgs[0][9], base.categoryId);
-  assert.equal(insertArgs[0][10], 'critique');
+  assert.deepEqual(JSON.parse(String(insertArgs[0][9])), []);
+  assert.equal(insertArgs[0][10], base.categoryId);
+  assert.deepEqual(JSON.parse(String(insertArgs[0][11])), []);
+  assert.equal(insertArgs[0][12], 'critique');
+  assert.deepEqual(JSON.parse(String(insertArgs[0][13])), []);
   assert.match(findingQueries[0].sql, /COALESCE\(\(SELECT MAX\(ps.score\)/);
   assert.equal(findingQueries[0].args.at(-1), 80);
 });
@@ -655,9 +658,9 @@ test('report changes target only budget scopes matching their mission, category 
   } };
   const targets = await service.captureReconcileTargetsForReport(org, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.deepEqual(targets, []);
-  assert.match(sql, /s\.missionId IS NULL OR f\.missionId=s\.missionId/);
-  assert.match(sql, /s\.categoryId IS NULL OR f\.categoryId=s\.categoryId/);
-  assert.match(sql, /s\.severity IS NULL OR s\.severity=CASE/);
+  assert.match(sql, /s\.missionId IS NULL[\s\S]*f\.missionId=s\.missionId/);
+  assert.match(sql, /s\.categoryId IS NULL[\s\S]*f\.categoryId=s\.categoryId/);
+  assert.match(sql, /s\.severity IS NULL[\s\S]*s\.severity=CASE/);
   assert.deepEqual(args, ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', org]);
 });
 

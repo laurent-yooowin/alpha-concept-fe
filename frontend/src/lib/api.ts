@@ -423,11 +423,14 @@ export interface PreventionQuery {
   to?: string;
   missionType?: 'CSPS' | 'AEU' | 'DIVERS';
   missionId?: string;
+  missionIds?: string[];
   chantierId?: string;
   clientKeys?: string[];
   categoryId?: string;
+  categoryIds?: string[];
   riskLevel?: 'faible' | 'moyen' | 'eleve';
   severity?: 'faible' | 'moyen' | 'eleve' | 'critique';
+  severities?: Array<'faible' | 'moyen' | 'eleve' | 'critique'>;
   status?: 'brouillon' | 'envoye' | 'valide' | 'refuse' | 'archive' | 'envoye_au_client' | 'annule';
   page?: number;
   limit?: number;
@@ -435,21 +438,20 @@ export interface PreventionQuery {
   sortOrder?: 'asc' | 'desc';
 }
 
-export type PreventionPhase =
-  | 'GROS_OEUVRE'
-  | 'STRUCTURE_CLOS_COUVERT'
-  | 'SECOND_OEUVRE'
-  | 'INSTALLATIONS_FINITIONS'
-  | 'INSTALLATION_ELECTRIQUE'
-  | 'FINITIONS_INTERIEURES'
-  | 'FINITIONS_EXTERIEURES';
+export type PreventionPhase = string;
+export type PreventionPhaseOption = { value: string; label: string; custom: boolean };
 
 type PreventionQueryParams = PreventionQuery;
 
 const preventionQuery = (query: PreventionQueryParams = {}) => {
   const params = new URLSearchParams();
-  Object.entries(query).forEach(([key, value]) => {
-    if (value !== undefined && value !== '') params.set(key, String(value));
+  const normalized = { ...query } as Record<string, unknown>;
+  if (Array.isArray(normalized.missionIds)) delete normalized.missionId;
+  if (Array.isArray(normalized.categoryIds)) delete normalized.categoryId;
+  if (Array.isArray(normalized.severities)) delete normalized.severity;
+  Object.entries(normalized).forEach(([key, value]) => {
+    if (value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) return;
+    params.set(key, Array.isArray(value) ? value.join(',') : String(value));
   });
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
@@ -460,24 +462,29 @@ export const preventionAPI = {
   findings: (query: PreventionQuery = {}) => apiRequest(`/prevention/findings${preventionQuery(query)}`),
   recommendations: (query: PreventionQuery = {}) => apiRequest(`/prevention/recommendations${preventionQuery(query)}`),
   categories: () => apiRequest('/prevention/categories'),
+  phaseCatalog: () => apiRequest('/prevention/visits/phases') as Promise<PreventionPhaseOption[]>,
   groupStatus: (visitId: string, groupId: string) => apiRequest(`/prevention/visits/${encodeURIComponent(visitId)}/groups/${encodeURIComponent(groupId)}/status`),
-  updateVisitGroupPhase: (visitId: string, groupId: string, phase: PreventionPhase) => apiRequest(`/prevention/visits/${encodeURIComponent(visitId)}/groups/${encodeURIComponent(groupId)}/phase`, {
+  updateVisitGroupPhase: (visitId: string, groupId: string, selection: { phase: string } | { customPhaseLabel: string }) => apiRequest(`/prevention/visits/${encodeURIComponent(visitId)}/groups/${encodeURIComponent(groupId)}/phase`, {
     method: 'PATCH',
-    body: JSON.stringify({ phase }),
+    body: JSON.stringify(selection),
   }),
   trends: (query: PreventionQuery = {}) => apiRequest(`/prevention/trends${preventionQuery(query)}`),
   references: (query: PreventionQuery = {}) => apiRequest(`/prevention/references${preventionQuery(query)}`),
-  rebuildPreview: (scope: { missionId?: string; clientKeys?: string[] } = {}) => apiRequest(`/prevention/rebuild/preview${preventionQuery(scope)}`),
-  rebuild: (previewToken?: string, scope: { missionId?: string; clientKeys?: string[] } = {}) => apiRequest('/prevention/rebuild', { method: 'POST', body: JSON.stringify({ previewToken, ...scope }) }),
+  rebuildPreview: (scope: Pick<PreventionQuery, 'missionId' | 'missionIds' | 'clientKeys'> = {}) => apiRequest(`/prevention/rebuild/preview${preventionQuery(scope)}`),
+  rebuild: (previewToken?: string, scope: Pick<PreventionQuery, 'missionId' | 'missionIds' | 'clientKeys'> = {}) => {
+    const normalizedScope = { ...scope };
+    if (Array.isArray(normalizedScope.missionIds)) normalizedScope.missionId = undefined;
+    return apiRequest('/prevention/rebuild', { method: 'POST', body: JSON.stringify({ previewToken, ...normalizedScope }) });
+  },
   job: (id: string) => apiRequest(`/prevention/jobs/${encodeURIComponent(id)}`),
   budgets: () => apiRequest('/prevention/budgets'),
   budgetClients: () => apiRequest('/prevention/budgets/clients'),
-  budgetScope: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity' | 'missionId'> & { clientKeys?: string[] }) => apiRequest(`/prevention/budgets/scope${preventionQuery(query)}`),
-  budgetMaterialized: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity' | 'missionId'> & { clientKeys?: string[] }) => apiRequest(`/prevention/budgets/materialized${preventionQuery(query)}`),
-  calculateBudgetScope: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity' | 'missionId'> & { clientKeys?: string[]; adminPrompt?: string; calculationMode?: 'CURRENT_YEAR' | 'GLOBAL_YEARLY' }) => apiRequest('/prevention/budgets/scope', { method: 'POST', body: JSON.stringify(query) }),
-  budgetPreview: (payload: { mode: 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY'; preset?: PreventionPreset; from?: string; to?: string; categoryId?: string; severity?: string; missionId?: string; clientKeys?: string[] }) => apiRequest('/prevention/budgets/preview', { method: 'POST', body: JSON.stringify(payload) }),
-  budgetCommand: (payload: { mode: 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY'; confirmationToken: string; preset?: PreventionPreset; from?: string; to?: string; categoryId?: string; severity?: string; missionId?: string; clientKeys?: string[]; adminPrompt?: string }) => apiRequest('/prevention/budgets/command', { method: 'POST', body: JSON.stringify(payload) }),
-  budget: (id: string, query: { clientKeys?: string[] } = {}) => apiRequest(`/prevention/budgets/${encodeURIComponent(id)}${preventionQuery(query)}`),
+  budgetScope: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'categoryIds' | 'severity' | 'severities' | 'missionId' | 'missionIds'> & { clientKeys?: string[] }) => apiRequest(`/prevention/budgets/scope${preventionQuery(query)}`),
+  budgetMaterialized: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'categoryIds' | 'severity' | 'severities' | 'missionId' | 'missionIds'> & { clientKeys?: string[] }) => apiRequest(`/prevention/budgets/materialized${preventionQuery(query)}`),
+  calculateBudgetScope: (query: Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'categoryIds' | 'severity' | 'severities' | 'missionId' | 'missionIds'> & { clientKeys?: string[]; adminPrompt?: string; calculationMode?: 'CURRENT_YEAR' | 'GLOBAL_YEARLY' }) => apiRequest('/prevention/budgets/scope', { method: 'POST', body: JSON.stringify(query) }),
+  budgetPreview: (payload: { mode: 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY'; preset?: PreventionPreset; from?: string; to?: string; categoryId?: string; categoryIds?: string[]; severity?: string; severities?: string[]; missionId?: string; missionIds?: string[]; clientKeys?: string[] }) => apiRequest('/prevention/budgets/preview', { method: 'POST', body: JSON.stringify(payload) }),
+  budgetCommand: (payload: { mode: 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY'; confirmationToken: string; preset?: PreventionPreset; from?: string; to?: string; categoryId?: string; categoryIds?: string[]; severity?: string; severities?: string[]; missionId?: string; missionIds?: string[]; clientKeys?: string[]; adminPrompt?: string }) => apiRequest('/prevention/budgets/command', { method: 'POST', body: JSON.stringify(payload) }),
+  budget: (id: string, query: Pick<PreventionQuery, 'missionId' | 'missionIds' | 'categoryId' | 'categoryIds' | 'severity' | 'severities'> & { clientKeys?: string[] } = {}) => apiRequest(`/prevention/budgets/${encodeURIComponent(id)}${preventionQuery(query)}`),
   createBudget: (payload: Record<string, unknown>) => apiRequest('/prevention/budgets', { method: 'POST', body: JSON.stringify(payload) }),
   updateBudget: (budgetId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/${encodeURIComponent(budgetId)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   updateBudgetItem: (budgetId: string, itemId: string, payload: Record<string, unknown>) => apiRequest(`/prevention/budgets/${encodeURIComponent(budgetId)}/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify(payload) }),

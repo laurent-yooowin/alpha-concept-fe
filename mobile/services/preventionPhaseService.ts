@@ -20,7 +20,8 @@ export const PREVENTION_PHASE_LABELS: Record<PreventionPhase, string> = {
   FINITIONS_EXTERIEURES: 'Finitions extérieures',
 };
 
-export type PreventionPhase = typeof PREVENTION_PHASES[number];
+export type PreventionPhase = string;
+export type PreventionPhaseOption = { value: string; label: string; custom: boolean };
 export type PreventionProcessingStatus = 'PENDING' | 'PROCESSING' | 'RETRY' | 'READY' | 'FAILED';
 export type PreventionPhaseStatus = 'PROPOSED' | 'VALIDATED';
 
@@ -38,6 +39,8 @@ export interface PreventionGroupPhaseStatus {
   phaseStatus: PreventionPhaseStatus;
   proposedPhase: PreventionPhase | null;
   effectivePhase: PreventionPhase | null;
+  proposedPhaseLabel?: string | null;
+  effectivePhaseLabel?: string | null;
   confidence: number | string | null;
   justification: string | null;
   attempts?: number;
@@ -48,22 +51,27 @@ export interface PreventionGroupPhaseStatus {
 interface PreventionPhaseValidationResult {
   status: 'VALIDATED';
   effectivePhase: PreventionPhase;
+  effectivePhaseLabel: string;
 }
 
 export const preventionPhaseService = {
+  getPhaseCatalog(): Promise<ApiResponse<PreventionPhaseOption[]>> {
+    return api.get('/prevention/visits/phases');
+  },
+
   getGroupStatus(visitId: string, groupId: string): Promise<ApiResponse<PreventionGroupPhaseStatus>> {
     return api.get(`/prevention/visits/${encodeURIComponent(visitId)}/groups/${encodeURIComponent(groupId)}/status`);
   },
 
-  updateGroupPhase(visitId: string, groupId: string, phase: PreventionPhase) {
-    return apiRequestPhase<PreventionPhaseValidationResult>(visitId, groupId, phase);
+  updateGroupPhase(visitId: string, groupId: string, selection: { phase: string } | { customPhaseLabel: string }) {
+    return apiRequestPhase<PreventionPhaseValidationResult>(visitId, groupId, selection);
   },
 };
 
-function apiRequestPhase<T>(visitId: string, groupId: string, phase: PreventionPhase) {
+function apiRequestPhase<T>(visitId: string, groupId: string, selection: { phase: string } | { customPhaseLabel: string }) {
   return apiRequestPatch<T>(
     `/prevention/visits/${encodeURIComponent(visitId)}/groups/${encodeURIComponent(groupId)}/phase`,
-    { phase },
+    selection,
   );
 }
 

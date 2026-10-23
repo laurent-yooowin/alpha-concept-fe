@@ -6,6 +6,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { missionsAPI, preventionAPI, PreventionPreset, PreventionQuery } from '../../lib/api';
 import BudgetPage from './BudgetPage';
 import ClientMultiSelect from './ClientMultiSelect';
+import MultiSelect from './MultiSelect';
+import SearchableSelect from './SearchableSelect';
+import { allPreventionFilters } from './preventionFilterState';
 import './PreventionPage.css';
 
 type PeriodData = { period?: { from: string | null; to: string | null; granularity: string }; source?: string };
@@ -30,7 +33,7 @@ type ListResponse = PeriodData & { items?: Finding[]; total?: number; page?: num
 type Reference = { reportId: string; title?: string; chantierTitle?: string; status?: string; businessDate: string; findingCount: number; reportFileUrl?: string | null; };
 type RegulatoryItem = { reference: string; citationCount: number; reportCount: number; domains?: string[]; riskLevels?: string[]; reports?: Array<{ id: string; title?: string }> };
 type Job = { id: string; status: string; scheduledFor?: string | null; availableAt?: string | null; reportCount?: number; findingCount?: number; immediateLimit?: number; executionMode?: string; progress?: { processedReports: number; scanComplete: boolean; failedJobs: number }; error?: string | null };
-type RebuildPreview = { reportCount?: number; findingCount?: number; immediateLimit?: number; executionMode?: string; scheduledFor?: string | null; previewToken?: string; selection?: { missionId?: string; clientKeys: string[] } };
+type RebuildPreview = { reportCount?: number; findingCount?: number; immediateLimit?: number; executionMode?: string; scheduledFor?: string | null; previewToken?: string; selection?: { missionId?: string; missionIds?: string[]; clientKeys: string[] } };
 type CategoryOption = { id: string; label: string; code?: string; color?: string | null };
 const REBUILD_POLL_INTERVAL_MS = 3_000;
 const REBUILD_POLL_MAX_ATTEMPTS = 300;
@@ -78,50 +81,35 @@ type ClientOption = { key: string; label: string };
 
 const normalizedClient = (value?: string | null) => (value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('fr-FR');
 
-function Filters({ value, onChange, categories, clients, missions }: { value: PreventionQuery; onChange: (next: PreventionQuery) => void; categories: CategoryOption[]; clients: ClientOption[]; missions: MissionOption[] }) {
+function Filters({ value, onChange, onClear, categories, clients, missions }: { value: PreventionQuery; onChange: (next: PreventionQuery) => void; onClear: () => void; categories: CategoryOption[]; clients: ClientOption[]; missions: MissionOption[] }) {
   const query = value.preset ? value : { ...value, preset: 'ALL' as PreventionPreset };
   const missionMatchesClients = (mission: MissionOption, keys: string[]) => !keys.length || keys.some((key) =>
     key === 'unassigned' ? !normalizedClient(mission.client)
       : normalizedClient(clients.find((client) => client.key === key)?.label) === normalizedClient(mission.client));
+  const selectedMissionIds = value.missionIds || (value.missionId ? [value.missionId] : []);
+  const selectedCategoryIds = value.categoryIds || (value.categoryId ? [value.categoryId] : []);
+  const selectedSeverities = value.severities || (value.severity ? [value.severity] : []);
   const availableMissions = value.clientKeys?.length
-    ? missions.filter((mission) => missionMatchesClients(mission, value.clientKeys || []))
+    ? missions.filter((mission) => selectedMissionIds.includes(mission.id) || missionMatchesClients(mission, value.clientKeys || []))
     : missions;
+  const missionOptions = availableMissions.map((mission) => ({ key: mission.id, label: mission.title || mission.name || mission.id }));
+  const categoryOptions = categories.map((category) => ({ key: category.id, label: category.label }));
+  const severityOptions = [{ key: 'critique', label: 'Critique' }, { key: 'eleve', label: 'Élevé' }, { key: 'moyen', label: 'Moyen' }, { key: 'faible', label: 'Faible' }] as const;
   return (
     <div className="rte-filterbar">
       <span className="rte-filter-title">Filtres</span>
+      <div className="rte-filter-field rte-filter-client-field"><span>Chantier</span><MultiSelect label="Chantiers" allLabel="Tous les chantiers" options={missionOptions} selectedKeys={selectedMissionIds} onChange={(keys) => onChange({ ...value, missionIds: keys, missionId: undefined })} /></div>
+      <div className="rte-filter-field rte-filter-client-field"><span>Entreprise</span><ClientMultiSelect label="Entreprises" allLabel="Toutes les entreprises" clients={clients} selectedKeys={value.clientKeys || []} onChange={(keys) => onChange({ ...value, clientKeys: keys })} /></div>
       <label className="rte-filter-field">Période
-        <select value={query.preset} onChange={(e) => onChange({ ...value, preset: e.target.value as PreventionPreset, from: undefined, to: undefined })}>
-          {presets.map((preset) => <option key={preset.value} value={preset.value}>{preset.label}</option>)}
-        </select>
+        <SearchableSelect label="Période" options={presets} value={query.preset || 'ALL'} onChange={(preset) => onChange({ ...value, preset, from: undefined, to: undefined })} />
       </label>
       {query.preset === 'CUSTOM' && <>
         <label className="rte-filter-field">Du<input type="date" value={value.from || ''} onChange={(e) => onChange({ ...value, from: e.target.value })} /></label>
         <label className="rte-filter-field">Au<input type="date" value={value.to || ''} onChange={(e) => onChange({ ...value, to: e.target.value })} /></label>
       </>}
-      <label className="rte-filter-field">Catégorie
-        <select value={value.categoryId || ''} onChange={(e) => onChange({ ...value, categoryId: e.target.value || undefined })}>
-          <option value="">Toutes les catégories</option>
-          {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
-        </select>
-      </label>
-      <label className="rte-filter-field">Gravité
-        <select value={value.severity || ''} onChange={(e) => onChange({ ...value, severity: (e.target.value || undefined) as PreventionQuery['severity'], riskLevel: undefined })}>
-          <option value="">Toutes les gravités</option><option value="critique">Critique</option><option value="eleve">Élevé</option><option value="moyen">Moyen</option><option value="faible">Faible</option>
-        </select>
-      </label>
-      <div className="rte-filter-field rte-filter-client-field">
-        <span>Client</span>
-        <ClientMultiSelect clients={clients} selectedKeys={value.clientKeys || []} onChange={(keys) => onChange({
-          ...value, clientKeys: keys,
-          missionId: missions.some((mission) => mission.id === value.missionId && missionMatchesClients(mission, keys)) ? value.missionId : undefined,
-        })} />
-      </div>
-      <label className="rte-filter-field">Chantier
-        <select value={value.missionId || ''} onChange={(e) => onChange({ ...value, missionId: e.target.value || undefined })}>
-          <option value="">Tous les chantiers</option>
-          {availableMissions.map((mission) => <option key={mission.id} value={mission.id}>{mission.title || mission.name || mission.id}</option>)}
-        </select>
-      </label>
+      <div className="rte-filter-field rte-filter-client-field"><span>Catégorie</span><MultiSelect label="Catégories" allLabel="Toutes les catégories" options={categoryOptions} selectedKeys={selectedCategoryIds} onChange={(keys) => onChange({ ...value, categoryIds: keys, categoryId: undefined })} /></div>
+      <div className="rte-filter-field rte-filter-client-field"><span>Gravité</span><MultiSelect label="Gravités" allLabel="Toutes les gravités" options={[...severityOptions]} selectedKeys={selectedSeverities} onChange={(keys) => onChange({ ...value, severities: keys as PreventionQuery['severities'], severity: undefined, riskLevel: undefined })} /></div>
+      <button type="button" className="rte-filter-reset" onClick={onClear}><X size={14} aria-hidden="true" />Effacer les filtres</button>
     </div>
   );
 }
@@ -148,10 +136,12 @@ export default function PreventionPage() {
       const saved = stored ? JSON.parse(stored) as PreventionQuery : {};
       return {
         preset: saved.preset || 'ALL', from: saved.from, to: saved.to,
-        categoryId: saved.categoryId, severity: saved.severity, missionId: saved.missionId,
+        categoryIds: Array.isArray(saved.categoryIds) ? saved.categoryIds : (saved.categoryId ? [saved.categoryId] : []),
+        severities: Array.isArray(saved.severities) ? saved.severities : (saved.severity ? [saved.severity] : []),
+        missionIds: Array.isArray(saved.missionIds) ? saved.missionIds : (saved.missionId ? [saved.missionId] : []),
         clientKeys: Array.isArray(saved.clientKeys) ? saved.clientKeys : [], page: 1,
       };
-    } catch { return { preset: 'ALL', page: 1 }; }
+    } catch { return allPreventionFilters(); }
   });
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [trends, setTrends] = useState<Trend | null>(null);
@@ -173,6 +163,8 @@ export default function PreventionPage() {
   const pollingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mounted = useRef(true);
   const rebuildGeneration = useRef(0);
+  const rebuildPreviewGeneration = useRef(0);
+  const rebuildPreviewInFlight = useRef(false);
   const rebuildStorageKey = `prevention.rebuild.job.${profile?.organizationId || slug}`;
 
   useEffect(() => {
@@ -188,8 +180,8 @@ export default function PreventionPage() {
     try {
       sessionStorage.setItem(filterStorageKey, JSON.stringify({
         preset: filters.preset, from: filters.from, to: filters.to,
-        categoryId: filters.categoryId, severity: filters.severity,
-        missionId: filters.missionId, clientKeys: filters.clientKeys,
+        categoryId: filters.categoryId, categoryIds: filters.categoryIds, severity: filters.severity, severities: filters.severities,
+        missionId: filters.missionId, missionIds: filters.missionIds, clientKeys: filters.clientKeys,
       }));
     } catch { /* session storage can be unavailable */ }
   }, [filterStorageKey, filters]);
@@ -271,17 +263,29 @@ export default function PreventionPage() {
 
   const startRebuild = async (confirmed = false, confirmedToken?: string, confirmedSelection?: RebuildPreview['selection']) => {
     if (!confirmed) {
+      const previewGeneration = ++rebuildPreviewGeneration.current;
+      rebuildPreviewInFlight.current = true;
       setRebuildLoading(true); setError(null);
       try {
-        const selection = { missionId: filters.missionId, clientKeys: [...(filters.clientKeys || [])] };
-        setRebuildPreview({ ...(await preventionAPI.rebuildPreview(selection) as RebuildPreview), selection });
+        const missionIds = [...(filters.missionIds || (filters.missionId ? [filters.missionId] : []))];
+        const selection = { missionId: missionIds.length ? undefined : filters.missionId, missionIds, clientKeys: [...(filters.clientKeys || [])] };
+        const preview = await preventionAPI.rebuildPreview(selection) as RebuildPreview;
+        if (mounted.current && previewGeneration === rebuildPreviewGeneration.current) setRebuildPreview({ ...preview, selection });
       }
-      catch (reason) { setError(reason instanceof Error ? reason.message : 'Impossible de mesurer le périmètre de reconstruction.'); }
-      finally { setRebuildLoading(false); }
+      catch (reason) {
+        if (mounted.current && previewGeneration === rebuildPreviewGeneration.current) setError(reason instanceof Error ? reason.message : 'Impossible de mesurer le périmètre de reconstruction.');
+      }
+      finally {
+        if (mounted.current && previewGeneration === rebuildPreviewGeneration.current) {
+          rebuildPreviewInFlight.current = false;
+          setRebuildLoading(false);
+        }
+      }
       return;
     }
     if (pollingTimer.current) clearTimeout(pollingTimer.current);
     const generation = ++rebuildGeneration.current;
+    const requestedPreviewGeneration = rebuildPreviewGeneration.current;
     const selection = confirmedSelection || rebuildPreview?.selection;
     setRebuildLoading(true); setError(null);
     try {
@@ -304,6 +308,7 @@ export default function PreventionPage() {
     } catch (reason) {
       if (!mounted.current || generation !== rebuildGeneration.current) return;
       setRebuildLoading(false);
+      if (requestedPreviewGeneration !== rebuildPreviewGeneration.current) return;
       const typed = reason as Error & { status?: number };
       const refreshed = (typed as Error & { payload?: { preview?: RebuildPreview } }).payload?.preview;
       if (typed.status === 409 && refreshed) { setRebuildPreview({ ...refreshed, selection }); setError('Le volume ou le créneau a changé. Vérifiez la prévisualisation avant de confirmer.'); return; }
@@ -313,12 +318,26 @@ export default function PreventionPage() {
 
   const chartData = useMemo(() => (trends?.items || []).map((item) => ({ ...item, observationCount: item.observationCount ?? item.findingCount, label: formatDate(item.bucket) })), [trends]);
   const updateFilters = useCallback((next: PreventionQuery) => setFilters({ ...next, page: 1 }), []);
+  const clearFilters = useCallback(() => {
+    const cleared = allPreventionFilters();
+    requestId.current += 1;
+    rebuildPreviewGeneration.current += 1;
+    if (rebuildPreviewInFlight.current) {
+      rebuildPreviewInFlight.current = false;
+      setRebuildLoading(false);
+    }
+    setRebuildPreview(null);
+    setError(null);
+    setLoading(true);
+    try { sessionStorage.setItem(filterStorageKey, JSON.stringify(cleared)); } catch { /* session storage can be unavailable */ }
+    setFilters(cleared);
+  }, [filterStorageKey]);
   const customPeriodIncomplete = filters.preset === 'CUSTOM' && (!filters.from || !filters.to);
   const periodWarningKey = `${section}:${filters.from || ''}:${filters.to || ''}`;
   if (authLoading || !profile || profile.role !== 'ROLE_ADMIN' || !profile.organizationId || !organization) return <StateMessage loading />;
   if ((organization.preventionEnabled ?? profile.preventionEnabled) !== true) return null;
 
-  const title = navItems.find((item) => item.path === section)?.label || 'Prévention';
+  const title = navItems.find((item) => item.path === section)?.label || 'Synthèse';
   const presetLabel = presets.find((preset) => preset.value === filters.preset)?.label || 'Période sélectionnée';
   const ActiveIcon = navItems.find((item) => item.path === section)?.icon || BarChart3;
   const analysisBadge = section === 'dashboard'
@@ -334,7 +353,7 @@ export default function PreventionPage() {
   return <div className="rte-workspace">
     <div className="rte-main">
       <header className="rte-topbar">
-        <div><h1 className="rte-topbar-title">Prévention des Risques SPS</h1><p className="rte-topbar-sub">{organization.name} · Analyse consolidée des rapports et recommandations de prévention</p></div>
+        <div><h1 className="rte-topbar-title">Synthèse</h1><p className="rte-topbar-sub">{organization.name} · Analyse consolidée des rapports et recommandations de prévention</p></div>
         <div className="rte-topbar-actions">
           <span className="rte-badge orange">{analysisBadge}</span>
           <span className="rte-badge navy">{presetLabel}</span>
@@ -342,10 +361,10 @@ export default function PreventionPage() {
         </div>
       </header>
       <nav className="rte-tabs" aria-label="Sections Prévention">{navItems.map((item) => { const Icon = item.icon; return <Link key={item.path} to={`${base}/prevention/${item.path}`} className={`rte-tab ${section === item.path ? 'active' : ''}`}><Icon size={15} />{item.label}</Link>; })}</nav>
-      <Filters value={filters} onChange={updateFilters} categories={categories} clients={clients} missions={missions} />
+      <Filters value={filters} onChange={updateFilters} onClear={clearFilters} categories={categories} clients={clients} missions={missions} />
       <main className="rte-content">
         {section !== 'budget' && <div className="rte-section-title"><ActiveIcon size={18} /><span>{title}</span></div>}
-        {section === 'budget' ? <div className="rte-budget">{customPeriodIncomplete ? dismissedPeriodWarning !== periodWarningKey && <div role="alert" className="rte-alert"><span className="flex-1">Sélectionnez une date de début et une date de fin pour afficher le budget.</span><button type="button" className="rte-alert-close" onClick={() => setDismissedPeriodWarning(periodWarningKey)} aria-label="Fermer l’alerte"><X size={16} /></button></div> : <BudgetPage missions={missions} base={base} filters={filters} clientKeys={filters.clientKeys || []} clients={clients} />}</div> : <>
+        {section === 'budget' ? <div className="rte-budget">{customPeriodIncomplete ? dismissedPeriodWarning !== periodWarningKey && <div role="alert" className="rte-alert"><span className="flex-1">Sélectionnez une date de début et une date de fin pour afficher le budget.</span><button type="button" className="rte-alert-close" onClick={() => setDismissedPeriodWarning(periodWarningKey)} aria-label="Fermer l’alerte"><X size={16} /></button></div> : <BudgetPage missions={missions} base={base} filters={filters} clientKeys={filters.clientKeys || []} clients={clients} categories={categories} />}</div> : <>
           {customPeriodIncomplete && dismissedPeriodWarning !== periodWarningKey && <div role="alert" className="rte-alert"><span className="flex-1">Sélectionnez une date de début et une date de fin pour lancer la recherche.</span><button type="button" className="rte-alert-close" onClick={() => setDismissedPeriodWarning(periodWarningKey)} aria-label="Fermer l’alerte"><X size={16} /></button></div>}
           {job && dismissedJobId !== job.id && <div role="status" className="rte-job flex items-start gap-2"><CheckCircle2 className="shrink-0" size={15} /><span className="flex-1">Reconstruction {job.status.toLowerCase()} — {job.progress?.processedReports ?? 0} rapport(s) traité(s){job.executionMode === 'SCHEDULED' && (job.scheduledFor || job.availableAt) ? ` · prochaine fenêtre ${formatScheduled(job.scheduledFor || job.availableAt)}` : ''}{job.error ? ` — ${job.error}` : ''}</span><button type="button" className="rte-alert-close" onClick={() => setDismissedJobId(job.id)} aria-label="Fermer l’alerte"><X size={16} /></button></div>}
           <StateMessage loading={customPeriodIncomplete ? false : loading} error={error} onClose={() => setError(null)} />
@@ -358,7 +377,7 @@ export default function PreventionPage() {
     {rebuildPreview && <div role="dialog" aria-modal="true" aria-labelledby="rebuild-preview-title" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-2xl">
         <h2 id="rebuild-preview-title" className="text-base font-extrabold text-[#1e3a5f]">Prévisualiser la reconstruction</h2>
-        <p className="mt-2 text-sm text-slate-600">Cette opération reconstruit les rapports de <strong>{organization.name}</strong>{rebuildPreview.selection?.missionId ? ` pour le chantier ${missions.find((mission) => mission.id === rebuildPreview.selection?.missionId)?.title || 'sélectionné'}` : ''}{rebuildPreview.selection?.clientKeys.length ? ` et les ${rebuildPreview.selection.clientKeys.length} client(s) sélectionné(s)` : ''}. La période, la catégorie et la gravité affichées ({presetLabel}) ne limitent pas la reconstruction et resteront inchangées.</p>
+        <p className="mt-2 text-sm text-slate-600">Cette opération reconstruit les rapports de <strong>{organization.name}</strong>{rebuildPreview.selection?.missionIds?.length ? ` pour ${rebuildPreview.selection.missionIds.length} chantier(s) sélectionné(s)` : rebuildPreview.selection?.missionId ? ' pour le chantier sélectionné' : ''}{rebuildPreview.selection?.clientKeys.length ? ` et les ${rebuildPreview.selection.clientKeys.length} entreprise(s) sélectionnée(s)` : ''}. La période, la catégorie et la gravité affichées ({presetLabel}) ne limitent pas la reconstruction et resteront inchangées.</p>
         <p className="mt-2 text-xs text-slate-500">Aucun job n'est lancé avant confirmation.</p>
         <dl className="mt-4 grid grid-cols-2 gap-2 text-xs"><div className="rounded-lg bg-slate-50 p-3"><dt className="text-slate-500">Rapports</dt><dd className="mt-1 text-lg font-bold text-[#1e3a5f]">{rebuildPreview.reportCount ?? '—'}</dd></div><div className="rounded-lg bg-slate-50 p-3"><dt className="text-slate-500">Constats</dt><dd className="mt-1 text-lg font-bold text-[#1e3a5f]">{rebuildPreview.findingCount ?? '—'}</dd></div></dl>
         <p className="mt-3 text-xs text-slate-600">Plafond immédiat : <strong>{rebuildPreview.immediateLimit ?? '—'}</strong> · <strong>{rebuildIsScheduled ? 'Programmation nocturne' : 'Lancement immédiat'}</strong>{rebuildPreview.scheduledFor ? ` · ${formatScheduled(rebuildPreview.scheduledFor)}` : ''}</p>

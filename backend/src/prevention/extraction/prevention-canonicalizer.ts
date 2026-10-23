@@ -10,7 +10,9 @@ import {
 } from './prevention-extraction.types';
 import {
   isPreventionConstructionPhase,
+  isPreventionEffectivePhase,
   PreventionConstructionPhase,
+  PreventionEffectivePhase,
   PreventionPhaseSource,
 } from '../prevention-phase';
 import { CanonicalPreventionAnalysisGroup } from './prevention-extraction.types';
@@ -164,7 +166,7 @@ function phaseSource(value: unknown): PreventionPhaseSource | null {
 
 function phaseMetadata(analysis: AnalysisLike): {
   proposedPhase: PreventionConstructionPhase;
-  effectivePhase: PreventionConstructionPhase;
+  effectivePhase: PreventionEffectivePhase;
   status: 'PROPOSED' | 'VALIDATED';
   confidence: number;
   justification: string;
@@ -200,8 +202,11 @@ function phaseMetadata(analysis: AnalysisLike): {
     throw new PreventionSourceValidationError('Prevention construction phase status is invalid');
   }
   const rawEffectivePhase = analysis.preventionPhaseEffective ?? value;
-  if (!isPreventionConstructionPhase(rawEffectivePhase)) {
+  if (!isPreventionEffectivePhase(rawEffectivePhase)) {
     throw new PreventionSourceValidationError('Prevention effective construction phase is invalid');
+  }
+  if (status === 'PROPOSED' && rawEffectivePhase !== value) {
+    throw new PreventionSourceValidationError('Unvalidated prevention phase cannot override the AI proposal');
   }
   const validatedBy = typeof analysis.preventionPhaseValidatedBy === 'string'
     ? analysis.preventionPhaseValidatedBy.trim().slice(0, 36)

@@ -15,6 +15,7 @@ import { Visit } from '../../visits/visit.entity';
 import {
   PREVENTION_CONSTRUCTION_PHASES,
   PreventionConstructionPhase,
+  PreventionEffectivePhase,
   PreventionPhaseSource,
   PreventionPhaseStatus,
 } from '../prevention-phase';
@@ -46,7 +47,7 @@ export class PreventionAnalysisGroup {
   @Column({ type: 'varchar', length: 100 }) sourceGroupId: string;
   @Column({ type: 'enum', enum: ['PHOTO', 'DIRECTIVE', 'MIXED'] }) sourceKind: PreventionPhaseSource;
   @Column({ type: 'enum', enum: [...PREVENTION_CONSTRUCTION_PHASES] }) proposedPhase: PreventionConstructionPhase;
-  @Column({ type: 'enum', enum: [...PREVENTION_CONSTRUCTION_PHASES] }) effectivePhase: PreventionConstructionPhase;
+  @Column({ type: 'varchar', length: 43 }) effectivePhase: PreventionEffectivePhase;
   @Column({ type: 'enum', enum: ['PROPOSED', 'VALIDATED'], default: 'PROPOSED' }) status: PreventionPhaseStatus;
   @Column({ type: 'decimal', precision: 5, scale: 2 }) confidence: string;
   @Column({ type: 'varchar', length: 1000 }) justification: string;

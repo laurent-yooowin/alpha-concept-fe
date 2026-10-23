@@ -81,16 +81,19 @@ export class PreventionRebuildQueueService implements OnApplicationShutdown {
     let clientKeys: string[];
     try { clientKeys = parseBudgetClientKeys(scope.clientKeys); }
     catch { throw new BadRequestException('Sélection de clients invalide'); }
-    if (!clientKeys.length && !scope.missionId) return { digest: null, missionIds: null };
+    // The signed preview must be independent of UI selection order. Keep the
+    // scalar compatibility field in the same canonical set before hashing.
+    const requestedMissionIds = [...new Set([...(scope.missionIds ?? []), ...(scope.missionId ? [scope.missionId] : [])])].sort();
+    if (!clientKeys.length && !requestedMissionIds.length) return { digest: null, missionIds: null };
     const rows: Array<{ id: string; client: string | null }> = await this.dataSource.query(
       'SELECT id,client FROM missions WHERE organizationId=? ORDER BY id LIMIT 10001', [organizationId]);
     if (rows.length > 10000) throw new BadRequestException('Liste des chantiers trop volumineuse');
     const known = new Set(rows.map((row) => budgetClientIdentity(row.client).key));
     if (clientKeys.some((key) => !known.has(key))) throw new BadRequestException('Client introuvable dans l’organisation');
-    if (scope.missionId && !rows.some((row) => row.id === scope.missionId)) throw new BadRequestException('Chantier introuvable dans l’organisation');
-    const missionIds = rows.filter((row) => (!scope.missionId || row.id === scope.missionId) &&
+    if (requestedMissionIds.some((id) => !rows.some((row) => row.id === id))) throw new BadRequestException('Chantier introuvable dans l’organisation');
+    const missionIds = rows.filter((row) => (!requestedMissionIds.length || requestedMissionIds.includes(row.id)) &&
       (!clientKeys.length || clientKeys.includes(budgetClientIdentity(row.client).key))).map((row) => row.id);
-    return { digest: createHash('sha256').update(JSON.stringify([scope.missionId ?? null, clientKeys, missionIds])).digest('hex'), missionIds };
+    return { digest: createHash('sha256').update(JSON.stringify([requestedMissionIds, clientKeys, missionIds])).digest('hex'), missionIds };
   }
 
   async preview(organizationId: string, scope: PreventionRebuildScopeDto = {}): Promise<PreventionRebuildPreview> {

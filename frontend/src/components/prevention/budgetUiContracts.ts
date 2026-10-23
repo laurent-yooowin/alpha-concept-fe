@@ -1,8 +1,10 @@
 import type { PreventionQuery } from '../../lib/api';
 
-export type BudgetClientSelection = Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'severity' | 'missionId'> & {
+export type BudgetClientSelection = Pick<PreventionQuery, 'preset' | 'from' | 'to' | 'categoryId' | 'categoryIds' | 'severity' | 'severities' | 'missionId' | 'missionIds'> & {
   clientKeys?: string[];
 };
+
+const selectedValues = <T extends string>(values: T[] | undefined, legacy?: T): T[] => Array.isArray(values) ? [...values] : legacy ? [legacy] : [];
 
 export type BudgetExecutionMode = 'FILTERED' | 'CURRENT_YEAR' | 'GLOBAL_YEARLY';
 
@@ -43,9 +45,14 @@ export function budgetModeAfterPeriodChange(preset: string, currentMode: BudgetE
 
 /** A calculation starts from the displayed filters but never mutates them. */
 export function budgetExecutionSnapshot(selection: BudgetClientSelection) {
+  const categoryIds = selectedValues(selection.categoryIds, selection.categoryId);
+  const severities = selectedValues(selection.severities, selection.severity);
+  const missionIds = selectedValues(selection.missionIds, selection.missionId);
   return {
     preset: selection.preset || 'ALL', from: selection.from, to: selection.to,
-    categoryId: selection.categoryId, severity: selection.severity, missionId: selection.missionId,
+    categoryId: Array.isArray(selection.categoryIds) ? undefined : selection.categoryId, categoryIds,
+    severity: Array.isArray(selection.severities) ? undefined : selection.severity, severities,
+    missionId: Array.isArray(selection.missionIds) ? undefined : selection.missionId, missionIds,
     clientKeys: [...(selection.clientKeys || [])],
   };
 }
@@ -60,7 +67,11 @@ export function budgetExecutionPeriod(mode: BudgetExecutionMode, selection: Budg
 
 /** Query used by the read-only scope lookup when the client multiselect changes. */
 export function budgetScopeSelectionQuery(selection: BudgetClientSelection) {
-  return { ...selection, clientKeys: [...(selection.clientKeys || [])] };
+  const query = { ...selection, clientKeys: [...(selection.clientKeys || [])] } as BudgetClientSelection;
+  if (Array.isArray(selection.categoryIds)) query.categoryId = undefined;
+  if (Array.isArray(selection.severities)) query.severity = undefined;
+  if (Array.isArray(selection.missionIds)) query.missionId = undefined;
+  return query;
 }
 
 /** Global comparison must never inherit active display filters. */
@@ -72,7 +83,9 @@ export function budgetGlobalSelectionQuery() {
 export function budgetSelectionKey(selection: BudgetClientSelection): string {
   return JSON.stringify([
     selection.preset || '', selection.from || '', selection.to || '',
-    selection.categoryId || '', selection.severity || '', selection.missionId || '',
+    selectedValues(selection.categoryIds, selection.categoryId).sort(),
+    selectedValues(selection.severities, selection.severity).sort(),
+    selectedValues(selection.missionIds, selection.missionId).sort(),
     [...(selection.clientKeys || [])].sort(),
   ]);
 }
@@ -95,6 +108,63 @@ export function budgetMaterializedTarget(item: { originScenarioId?: string; orig
     throw new Error('Le poste a changé ; rechargez les résultats budgétaires.');
   }
   return { scenarioId: item.originScenarioId, itemId: item.originItemId, expectedVersion: Number(item.originVersion) };
+}
+
+type MaterializedScope = {
+  preset?: string;
+  from?: string;
+  to?: string;
+  missionId?: string;
+  missionIds?: string[];
+  categoryId?: string;
+  categoryIds?: string[];
+  severity?: string;
+  severities?: string[];
+  clientKeys?: string[];
+};
+
+/** A materialized row may only be edited when its persisted origin scope is
+ * exactly the displayed scope. Missing origin metadata is intentionally
+ * rejected for a narrowed selection to avoid writing into a wider scenario. */
+export function budgetMaterializedScopeMatches(item: {
+  originMissionId?: string | null; originMissionIds?: string[] | string | null;
+  originCategoryId?: string | null; originCategoryIds?: string[] | string | null;
+  originSeverity?: string | null; originSeverities?: string[] | string | null;
+  originClientKeys?: string[] | string | null; originPeriodMode?: string | null;
+  originPeriodStart?: string | null; originPeriodEnd?: string | null;
+}, selection: MaterializedScope): boolean {
+  const parse = (value: string[] | string | null | undefined): string[] | null => {
+    if (value == null || value === '') return [];
+    if (Array.isArray(value)) return value.map(String).filter(Boolean).sort();
+    const raw = value.trim();
+    if (!raw) return [];
+    if (raw.startsWith('[')) {
+      try {
+        const decoded = JSON.parse(raw);
+        return Array.isArray(decoded) ? decoded.map(String).filter(Boolean).sort() : null;
+      } catch { return null; }
+    }
+    return [raw];
+  };
+  const current = (values: string[] | undefined, legacy?: string) => selectedValues(values, legacy).map(String).filter(Boolean).sort();
+  const same = (left: string[], right: string[]) => left.length === right.length && left.every((value, index) => value === right[index]);
+  const selectedMissions = current(selection.missionIds, selection.missionId);
+  const selectedCategories = current(selection.categoryIds, selection.categoryId);
+  const selectedSeverities = current(selection.severities, selection.severity);
+  const originMissions = parse(item.originMissionIds); if (originMissions === null) return false; if (!originMissions.length && item.originMissionId) originMissions.push(String(item.originMissionId));
+  const originCategories = parse(item.originCategoryIds); if (originCategories === null) return false; if (!originCategories.length && item.originCategoryId) originCategories.push(String(item.originCategoryId));
+  const originSeverities = parse(item.originSeverities); if (originSeverities === null) return false; if (!originSeverities.length && item.originSeverity) originSeverities.push(String(item.originSeverity));
+  if (!same(selectedMissions, originMissions) || !same(selectedCategories, originCategories) || !same(selectedSeverities, originSeverities)) return false;
+  const selectedClients = current(selection.clientKeys);
+  const originClients = parse(item.originClientKeys); if (originClients === null) return false;
+  if (!same(selectedClients, originClients)) return false;
+  const bounded = selection.preset && selection.preset !== 'ALL';
+  if (item.originPeriodMode == null) return !bounded && !selection.from && !selection.to;
+  if (String(item.originPeriodMode).toUpperCase() === 'ALL') return !bounded && !selection.from && !selection.to;
+  if (!selection.from || !selection.to) return false;
+  return Boolean(item.originPeriodStart && item.originPeriodEnd && selection.from && selection.to
+    && item.originPeriodStart.slice(0, 10) === selection.from.slice(0, 10)
+    && item.originPeriodEnd.slice(0, 10) === selection.to.slice(0, 10));
 }
 
 /** Keep report identifiers internal; distinguish identical titles by their
@@ -153,7 +223,15 @@ export function budgetRefreshScenarioId(job: { scenarioId?: string; targetScenar
 }
 
 export function budgetCommandPayload(mode: BudgetExecutionMode, selection: BudgetClientSelection, confirmationToken: string) {
-  return { mode, confirmationToken, ...budgetExecutionPeriod(mode, selection), categoryId: selection.categoryId, severity: selection.severity, missionId: selection.missionId, clientKeys: selection.clientKeys };
+  const hasCategoryArray = Array.isArray(selection.categoryIds);
+  const hasSeverityArray = Array.isArray(selection.severities);
+  const hasMissionArray = Array.isArray(selection.missionIds);
+  return {
+    mode, confirmationToken, ...budgetExecutionPeriod(mode, selection), categoryId: hasCategoryArray ? undefined : selection.categoryId,
+    ...(selection.categoryIds?.length ? { categoryIds: [...selection.categoryIds] } : {}),
+    severity: hasSeverityArray ? undefined : selection.severity, ...(selection.severities?.length ? { severities: [...selection.severities] } : {}),
+    missionId: hasMissionArray ? undefined : selection.missionId, ...(selection.missionIds?.length ? { missionIds: [...selection.missionIds] } : {}), clientKeys: selection.clientKeys,
+  };
 }
 
 export function budgetConfirmationAfterConflict(current: { mode: BudgetExecutionMode; globalArmed: boolean } | null, preview: unknown) {

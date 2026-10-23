@@ -327,17 +327,18 @@ test('an unchanged READY group is not sent to the LLM again', async () => {
   assert.equal(resumed.writes.length, 0);
 });
 
-test('a confirmed full recovery restages an unchanged READY group once without clearing human overrides', async () => {
+test('a confirmed full recovery retains a custom human phase and overrides', async () => {
   const entries = [{ id: 'photo-1', groupId: 'group-1', analysis: { observation: ['Danger'], recommendation: ['Protéger'] } }];
   const sourceHash = preventionGroupSourceHash('group-1', entries);
-  const existing = { id: 'job-a', sourceHash, processingStatus: 'READY', phaseStatus: 'VALIDATED', effectivePhase: 'GROS_OEUVRE', recoveryRunId: null };
+  const customPhase = 'CUSTOM_00000000-0000-4000-8000-000000000001';
+  const existing = { id: 'job-a', sourceHash, processingStatus: 'READY', phaseStatus: 'VALIDATED', effectivePhase: customPhase, recoveryRunId: null };
   const first = service(existing);
   assert.deepEqual(await (first.processor as any).upsertGroup(organizationId, visitId, missionId, 'group-1', entries,
     false, false, recoveryRunId), { status: 'PENDING', changed: true });
   assert.match(first.writes[0].sql, /recoveryRunId=\?/);
   assert.doesNotMatch(first.writes[0].sql, /recommendationOverrides=NULL/);
   assert.equal(first.writes[0].parameters.includes(recoveryRunId), true);
-  assert.equal(first.writes[0].parameters.includes('GROS_OEUVRE'), true);
+  assert.equal(first.writes[0].parameters.includes(customPhase), true);
 
   const repeated = service({ ...existing, recoveryRunId, processingStatus: 'READY' });
   assert.deepEqual(await (repeated.processor as any).upsertGroup(organizationId, visitId, missionId, 'group-1', entries,
@@ -359,14 +360,15 @@ test('full recovery counts every eligible visit group, including existing READY 
   assert.equal(await processor.countEligibleGroups(organizationId, 10), 2);
 });
 
-test('full recovery persists new AI proposals while retaining a human-validated phase and overrides', async () => {
+test('full recovery persists new AI proposals while retaining a custom human phase and overrides', async () => {
   const entries = [{ groupId: 'group-1', analysis: { observation: ['Danger'], recommendation: ['Protéger'] } }];
   const sourceHash = preventionGroupSourceHash('group-1', entries);
+  const customPhase = 'CUSTOM_00000000-0000-4000-8000-000000000001';
   const writes: Array<{ sql: string; args: unknown[] }> = [];
   const processor = new PreventionGroupProcessingService({ transaction: async (callback: (manager: any) => Promise<unknown>) => callback({
     query: async (sql: string, args: unknown[] = []) => {
       if (sql.includes('SELECT photos FROM visits')) return [{ photos: entries }];
-      if (sql.includes('SELECT id,phaseStatus')) return [{ id: 'job-a', phaseStatus: 'VALIDATED', effectivePhase: 'GROS_OEUVRE',
+      if (sql.includes('SELECT id,phaseStatus')) return [{ id: 'job-a', phaseStatus: 'VALIDATED', effectivePhase: customPhase,
         validatedBy: 'human-user', validatedAt: '2026-10-01', recoveryRunId }];
       if (sql.includes('SELECT id FROM reports')) return [];
       writes.push({ sql, args });
@@ -379,7 +381,7 @@ test('full recovery persists new AI proposals while retaining a human-validated 
   assert.equal(writes.length, 1);
   assert.doesNotMatch(writes[0].sql, /recommendationOverrides=NULL/);
   assert.equal(writes[0].args[1], 'SECOND_OEUVRE');
-  assert.equal(writes[0].args[2], 'GROS_OEUVRE');
+  assert.equal(writes[0].args[2], customPhase);
 });
 
 test('an explicit SPS reanalysis retries an unchanged FAILED Prevention group', async () => {

@@ -46,9 +46,12 @@ import {
   PREVENTION_PROCESSING_LABELS,
   PreventionGroupPhaseStatus,
   PreventionPhase,
+  PreventionPhaseOption,
 } from '@/services/preventionPhaseService';
+import { filterPhaseOptions, phaseSearchMatches } from '@/services/preventionPhaseSearch';
 
 const { width, height } = Dimensions.get('window');
+const CUSTOM_PHASE_OPTION = '__CUSTOM_PHASE__';
 
 const goToOrgLogin = async () => {
   const slug = await getStoredOrganizationSlug();
@@ -243,11 +246,26 @@ function VisiteScreenContent() {
   const [preventionPhaseExpanded, setPreventionPhaseExpanded] = useState(false);
   const [showPhaseConfirmation, setShowPhaseConfirmation] = useState(false);
   const [selectedPreventionPhase, setSelectedPreventionPhase] = useState<PreventionPhase | null>(null);
+  const [customPreventionPhaseLabel, setCustomPreventionPhaseLabel] = useState('');
+  const [preventionPhaseSearch, setPreventionPhaseSearch] = useState('');
+  const [preventionPhaseDropdownOpen, setPreventionPhaseDropdownOpen] = useState(false);
+  const [preventionPhaseOptions, setPreventionPhaseOptions] = useState<PreventionPhaseOption[]>(
+    PREVENTION_PHASES.map(value => ({ value, label: PREVENTION_PHASE_LABELS[value], custom: false })),
+  );
+  const visiblePreventionPhaseOptions = filterPhaseOptions(preventionPhaseOptions, preventionPhaseSearch, selectedPreventionPhase);
+  const matchingPreventionPhaseOptions = filterPhaseOptions(preventionPhaseOptions, preventionPhaseSearch);
+  const customPhaseMatchesSearch = phaseSearchMatches('Autre phase…', preventionPhaseSearch);
   const phaseOfferRef = useRef('');
   const phaseScopeRef = useRef('');
   const phaseScope = `${user?.organizationId || ''}:${user?.id || ''}:${existingVisitId || ''}:${selectedGroupId || ''}`;
   phaseScopeRef.current = phaseScope;
   useEffect(() => { setPreventionPhaseSaving(false); }, [phaseScope]);
+  useEffect(() => {
+    if (!showPhaseConfirmation) {
+      setPreventionPhaseSearch('');
+      setPreventionPhaseDropdownOpen(false);
+    }
+  }, [showPhaseConfirmation]);
   const canValidatePreventionPhase = ['ROLE_USER', 'ROLE_ADMIN', 'USER', 'ADMIN', 'user', 'admin'].includes(String(user?.role || ''));
 
   // Group report editing states
@@ -382,19 +400,41 @@ function VisiteScreenContent() {
     return () => { cancelled = true; };
   }, [showGroupDetail, selectedGroupId, existingVisitId, reportGroups, phaseScope, preventionPhaseRefresh, canValidatePreventionPhase]);
 
-  const preventionPhaseLabel = (phase: PreventionPhase | null) => phase
-    ? PREVENTION_PHASE_LABELS[phase]
-    : 'En attente';
+  useEffect(() => {
+    if (!showPhaseConfirmation) return;
+    let cancelled = false;
+    setCustomPreventionPhaseLabel('');
+    preventionPhaseService.getPhaseCatalog().then(response => {
+      if (cancelled) return;
+      if (response.data) setPreventionPhaseOptions(response.data);
+      else setPreventionPhaseError(response.error || 'Catalogue des phases indisponible.');
+    }).catch(() => {
+      if (!cancelled) setPreventionPhaseError('Catalogue des phases indisponible.');
+    });
+    return () => { cancelled = true; };
+  }, [showPhaseConfirmation, phaseScope]);
+
+  const preventionPhaseLabel = (phase: PreventionPhase | null, label?: string | null) => label ||
+    (phase ? PREVENTION_PHASE_LABELS[phase] || 'Phase indisponible' : 'En attente');
   const savePreventionPhase = async (phase: PreventionPhase) => {
     if (!existingVisitId || !selectedGroupId || !canValidatePreventionPhase || preventionPhaseSaving) return;
+    const customLabel = customPreventionPhaseLabel.trim().replace(/\s+/g, ' ');
+    if (phase === CUSTOM_PHASE_OPTION && (customLabel.length < 3 || customLabel.length > 80 ||
+      /[\u0000-\u001f\u007f<>]/.test(customLabel))) {
+      setPreventionPhaseError('Saisissez une phase de 3 à 80 caractères sans caractères interdits.');
+      return;
+    }
     const requestScope = phaseScope;
     setPreventionPhaseSaving(true);
     setPreventionPhaseError(null);
     try {
-      const response = await preventionPhaseService.updateGroupPhase(existingVisitId, selectedGroupId, phase);
+      const response = await preventionPhaseService.updateGroupPhase(existingVisitId, selectedGroupId,
+        phase === CUSTOM_PHASE_OPTION ? { customPhaseLabel: customLabel } : { phase });
       if (phaseScopeRef.current !== requestScope) return;
-      if (response.data) {
-        setPreventionPhaseStatus(current => current ? { ...current, phaseStatus: 'VALIDATED', effectivePhase: phase } : current);
+      const validated = response.data;
+      if (validated) {
+        setPreventionPhaseStatus(current => current ? { ...current, phaseStatus: 'VALIDATED',
+          effectivePhase: validated.effectivePhase, effectivePhaseLabel: validated.effectivePhaseLabel } : current);
         setShowPhaseConfirmation(false);
         const refreshed = await preventionPhaseService.getGroupStatus(existingVisitId, selectedGroupId);
         if (phaseScopeRef.current !== requestScope) return;
@@ -4701,7 +4741,9 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
                                   <Text style={{ color: '#E0F2FE', fontSize: 12, fontFamily: 'Inter-Bold', marginTop: 6 }}>
                                     {preventionPhaseStatus.processingStatus === 'READY'
                                       ? preventionPhaseLabel(preventionPhaseStatus.phaseStatus === 'VALIDATED'
-                                        ? preventionPhaseStatus.effectivePhase : preventionPhaseStatus.proposedPhase)
+                                        ? preventionPhaseStatus.effectivePhase : preventionPhaseStatus.proposedPhase,
+                                        preventionPhaseStatus.phaseStatus === 'VALIDATED'
+                                          ? preventionPhaseStatus.effectivePhaseLabel : preventionPhaseStatus.proposedPhaseLabel)
                                       : PREVENTION_PROCESSING_LABELS[preventionPhaseStatus.processingStatus]}
                                   </Text>
                                 </View>
@@ -5297,27 +5339,64 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
 
       {/* Optional Prevention confirmation, separate from the SPS group detail. */}
       <Modal visible={showGroupDetail && showPhaseConfirmation} animationType="fade" transparent onRequestClose={() => setShowPhaseConfirmation(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={{ flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15, 23, 42, 0.7)' }}>
-          <View style={{ borderRadius: 16, padding: 20, backgroundColor: '#FFFFFF' }}>
+          <View style={{ borderRadius: 16, padding: 20, backgroundColor: '#FFFFFF', maxHeight: '90%' }}>
             <Text style={{ color: '#1E293B', fontSize: 17, fontFamily: 'Inter-Bold' }}>Confirmer la phase du chantier ?</Text>
             <Text style={{ color: '#475569', fontSize: 13, marginTop: 8 }}>
               Proposition Prévention facultative. Vous pouvez la confirmer, la modifier ou revenir plus tard.
             </Text>
-            <ScrollView style={{ maxHeight: 320, marginTop: 12 }}>
-              {PREVENTION_PHASES.map(phase => (
+            <Text style={{ color: '#475569', fontSize: 13, marginTop: 16, marginBottom: 8 }}>Phase</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Choisir une phase"
+              accessibilityState={{ expanded: preventionPhaseDropdownOpen }}
+              onPress={() => setPreventionPhaseDropdownOpen(open => !open)}
+              style={{ minHeight: 42, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, paddingHorizontal: 12,
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FFFFFF' }}>
+              <Text numberOfLines={1} style={{ color: '#1E293B', fontSize: 13, flex: 1 }}>
+                {selectedPreventionPhase === CUSTOM_PHASE_OPTION ? 'Autre phase…'
+                  : preventionPhaseOptions.find(phase => phase.value === selectedPreventionPhase)?.label || 'Choisissez une phase'}
+              </Text>
+              <Text style={{ color: '#64748B', marginLeft: 8 }}>▾</Text>
+            </TouchableOpacity>
+            {preventionPhaseDropdownOpen && <View style={{ marginTop: 4, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8,
+              backgroundColor: '#FFFFFF', padding: 8, flexShrink: 1 }}>
+              <TextInput value={preventionPhaseSearch} onChangeText={setPreventionPhaseSearch}
+                accessibilityLabel="Rechercher une phase" placeholder="Rechercher une phase…" placeholderTextColor="#64748B"
+                style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 10, color: '#1E293B' }} />
+              <ScrollView style={{ maxHeight: 260, marginTop: 8, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
+              {visiblePreventionPhaseOptions.map(phase => (
                 <TouchableOpacity
-                  key={phase}
+                  key={phase.value}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: selectedPreventionPhase === phase }}
-                  onPress={() => setSelectedPreventionPhase(phase)}
+                  accessibilityState={{ selected: selectedPreventionPhase === phase.value }}
+                  onPress={() => { setSelectedPreventionPhase(phase.value); setPreventionPhaseDropdownOpen(false); setPreventionPhaseSearch(''); }}
                   style={{ padding: 11, marginBottom: 6, borderRadius: 8, borderWidth: 1,
-                    borderColor: selectedPreventionPhase === phase ? '#2563EB' : '#CBD5E1',
-                    backgroundColor: selectedPreventionPhase === phase ? '#EFF6FF' : '#FFFFFF' }}
+                    borderColor: selectedPreventionPhase === phase.value ? '#2563EB' : '#CBD5E1',
+                    backgroundColor: selectedPreventionPhase === phase.value ? '#EFF6FF' : '#FFFFFF' }}
                 >
-                  <Text style={{ color: '#1E293B', fontSize: 13 }}>{PREVENTION_PHASE_LABELS[phase]}</Text>
+                  <Text style={{ color: '#1E293B', fontSize: 13 }}>{phase.label}</Text>
                 </TouchableOpacity>
               ))}
-            </ScrollView>
+              {preventionPhaseSearch && !matchingPreventionPhaseOptions.length && !customPhaseMatchesSearch &&
+                <Text style={{ color: '#64748B', fontSize: 12, marginBottom: 8 }}>Aucun résultat correspondant. Le choix actuel reste disponible.</Text>}
+              {(customPhaseMatchesSearch || selectedPreventionPhase === CUSTOM_PHASE_OPTION) && <TouchableOpacity accessibilityRole="radio"
+                accessibilityState={{ selected: selectedPreventionPhase === CUSTOM_PHASE_OPTION }}
+                onPress={() => { setSelectedPreventionPhase(CUSTOM_PHASE_OPTION); setPreventionPhaseDropdownOpen(false); setPreventionPhaseSearch(''); }}
+                style={{ padding: 11, marginBottom: 6, borderRadius: 8, borderWidth: 1,
+                  borderColor: selectedPreventionPhase === CUSTOM_PHASE_OPTION ? '#2563EB' : '#CBD5E1',
+                  backgroundColor: selectedPreventionPhase === CUSTOM_PHASE_OPTION ? '#EFF6FF' : '#FFFFFF' }}>
+                <Text style={{ color: '#1E293B', fontSize: 13 }}>Autre phase…</Text>
+              </TouchableOpacity>}
+              </ScrollView>
+            </View>}
+            {selectedPreventionPhase === CUSTOM_PHASE_OPTION && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={{ color: '#475569', fontSize: 12, marginBottom: 6 }}>Cette phase sera disponible pour toutes les organisations.</Text>
+                <TextInput value={customPreventionPhaseLabel} onChangeText={setCustomPreventionPhaseLabel}
+                  maxLength={80} placeholder="Nom de la nouvelle phase" placeholderTextColor="#64748B"
+                  style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 10, color: '#1E293B' }} />
+              </View>
+            )}
             {preventionPhaseError && <Text style={{ color: '#B91C1C', fontSize: 12, marginTop: 8 }}>{preventionPhaseError}</Text>}
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
               <TouchableOpacity disabled={preventionPhaseSaving} onPress={() => setShowPhaseConfirmation(false)} style={{ flex: 1, padding: 11, alignItems: 'center', borderRadius: 8, borderWidth: 1, borderColor: '#CBD5E1' }}>
@@ -5329,6 +5408,7 @@ Date: ${new Date().toLocaleDateString('fr-FR')}`;
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Image Zoom Modal */}

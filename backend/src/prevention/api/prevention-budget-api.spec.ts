@@ -69,6 +69,19 @@ test('budget DTOs bound periods, prices and optimistic versions', () => {
     .some((error) => error.property === 'confirmationToken'));
 });
 
+test('budget scope DTO accepts multiselect dimensions and rejects oversized selections', () => {
+  const scope = plainToInstance(PreventionBudgetScopeDto, {
+    preset: 'ALL',
+    missionIds: '10000000-0000-4000-8000-000000000001,10000000-0000-4000-8000-000000000002',
+    categoryIds: ['20000000-0000-4000-8000-000000000001'],
+    severities: 'moyen,critique',
+  });
+  assert.equal(validateSync(scope).length, 0);
+  assert.deepEqual(scope.severities, ['moyen', 'critique']);
+  const tooMany = plainToInstance(PreventionBudgetScopeDto, { preset: 'ALL', severities: ['faible', 'moyen', 'eleve', 'critique', 'faible'] });
+  assert.ok(validateSync(tooMany).some((error) => error.property === 'severities'));
+});
+
 test('budget listing selects one materialized row per scenario key and exposes pending drafts separately', async () => {
   const calls: string[] = [];
   const db = { query: async (sql: string) => {
@@ -134,7 +147,7 @@ test('a read-only budget scope lookup never enqueues or creates a scenario', asy
   const result = await service.scope({ role: UserRole.ADMIN, organizationId: 'org-a' } as any,
     { preset: 'CURRENT_YEAR', severity: 'eleve' } as PreventionBudgetScopeDto);
   assert.equal(result.totalReports, 10);
-  assert.ok(queries.some((sql) => sql.includes('FROM reports r') && sql.includes('JOIN visits v') && sql.includes('v.organizationId=r.organizationId')));
+  assert.ok(queries.some((sql) => sql.includes('FROM reports r') && sql.includes('JOIN prevention_findings f') && sql.includes('f.findingType=\'RECOMMENDATION\'')));
   assert.equal(result.scenario, null);
   assert.ok(queries.every((sql) => sql.startsWith('SELECT')));
 });
@@ -163,7 +176,7 @@ test('budget calculation creates a tenant-scoped filtered draft and enqueues onl
     if (sql.includes('COUNT(DISTINCT r.id)')) return [{ totalReports: 10 }];
     if (sql.startsWith('INSERT IGNORE INTO prevention_budget_scenarios')) {
       created = { id: args?.[0], organizationId, scenarioKey: args?.[2], version: 1, sourceVersion: args?.[3],
-        periodStart: args?.[4], periodEnd: args?.[5], missionId: args?.[6], categoryId: args?.[7], severity: args?.[8], status: 'DRAFT',
+        periodStart: args?.[4], periodEnd: args?.[5], missionId: args?.[6], missionIds: args?.[7], categoryId: args?.[8], categoryIds: args?.[9], severity: args?.[10], severities: args?.[11], clientKeys: args?.[12], status: 'DRAFT',
         contingencyRatePercent: '0.00', retainedBudgetHt: '0.00', estimatedBudgetHt: '0.00', validatedBudgetHt: '0.00', contingencyAmountHt: '0.00', totalBudgetHt: '0.00' };
       return [];
     }
@@ -183,9 +196,9 @@ test('budget calculation creates a tenant-scoped filtered draft and enqueues onl
   assert.equal(enqueuedScenario, result.scenario?.id);
   assert.equal(result.scenario?.severity, 'moyen');
   assert.equal(result.totalReports, 10);
-  assert.equal(calls.find((call) => call.sql.startsWith('INSERT IGNORE'))?.args?.[8], 'moyen');
-  assert.equal(calls.find((call) => call.sql.startsWith('INSERT IGNORE'))?.args?.[11], null);
-  assert.equal(calls.find((call) => call.sql.startsWith('INSERT IGNORE'))?.args?.[12], 'BOUNDED');
+  assert.equal(calls.find((call) => call.sql.startsWith('INSERT IGNORE'))?.args?.[10], 'moyen');
+  assert.equal(calls.find((call) => call.sql.startsWith('INSERT IGNORE'))?.args?.[14], null);
+  assert.equal(calls.find((call) => call.sql.startsWith('INSERT IGNORE'))?.args?.[15], 'BOUNDED');
 });
 
 test('client choices and budget scope are tenant-bound and selected clients persist on the draft', async () => {
@@ -198,7 +211,7 @@ test('client choices and budget scope are tenant-bound and selected clients pers
     if (sql.includes('COUNT(DISTINCT r.id)')) return [{ totalReports: 4 }];
     if (sql.startsWith('INSERT IGNORE INTO prevention_budget_scenarios')) {
       draft = { id: args?.[0], scenarioKey: args?.[2], version: 1, status: 'DRAFT',
-        periodStart: args?.[4], periodEnd: args?.[5], clientKeys: args?.[9], adminPrompt: args?.[10] };
+        periodStart: args?.[4], periodEnd: args?.[5], clientKeys: args?.[12], adminPrompt: args?.[13] };
       return [];
     }
     if (sql.includes('FROM prevention_budget_scenarios')) return draft ? [draft] : [];
@@ -252,7 +265,7 @@ test('materialized ALL results read latest tenant rows without enqueue and dedup
   const queries: string[] = [];
   const db = { query: async (sql: string, args?: unknown[]) => {
     queries.push(sql);
-    if (sql.includes('SELECT i.*,s.scenarioKey,s.missionId originMissionId,s.version originVersion,s.createdAt scenarioCreatedAt')) { assert.equal(args?.[0], 'org-a'); return rows; }
+    if (sql.includes('s.missionId originMissionId') && sql.includes('FROM prevention_budget_items i')) { assert.equal(args?.[0], 'org-a'); return rows; }
     if (sql.includes('COUNT(DISTINCT r.id) totalReports')) return [{ totalReports: 15 }];
     if (sql.includes('FROM prevention_budget_item_sources src')) return [
       { itemId: 'item-a', sourceKind: 'RECOMMENDATION', sourceKey: 'f1', reportId: 'report-1', reportTitle: 'R1' },
@@ -280,7 +293,7 @@ test('materialized API omits a fully superseded unpriced action without changing
   const queries: string[] = [];
   const db = { query: async (sql: string) => {
     queries.push(sql);
-    if (sql.includes('SELECT i.*,s.scenarioKey,s.missionId originMissionId,s.version originVersion,s.createdAt scenarioCreatedAt')) return rows;
+    if (sql.includes('s.missionId originMissionId') && sql.includes('FROM prevention_budget_items i')) return rows;
     if (sql.includes('COUNT(DISTINCT r.id) totalReports')) return [{ totalReports: 1 }];
     if (sql.includes('FROM prevention_budget_item_sources src')) return [
       { itemId: 'old', sourceKind: 'RECOMMENDATION', sourceKey: 'finding-1', findingId: 'F1', reportId: 'R1' },
@@ -312,7 +325,7 @@ test('prompted materialized line creates a tenant-bound ALL action scope before 
   let latestOriginVersion = 4;
   const manager = { query: async (sql: string, args: unknown[] = []) => {
     if (sql.startsWith('SELECT id FROM organizations')) { assert.deepEqual(args, ['org-a']); return [{ id: 'org-a' }]; }
-    if (sql.includes('SELECT i.*,s.scenarioKey,s.missionId originMissionId,s.version originVersion')) { assert.deepEqual(args, ['org-a', originScenarioId, originItemId]); return [origin]; }
+    if (sql.includes('s.missionId originMissionId') && sql.includes('WHERE i.organizationId=? AND i.scenarioId=? AND i.id=?')) { assert.deepEqual(args, ['org-a', originScenarioId, originItemId]); return [origin]; }
     if (sql.includes('SELECT * FROM prevention_budget_scenarios WHERE id=? AND organizationId=? LIMIT 1')) return [{ id: originScenarioId, scenarioKey: 'old-scope', version: 4 }];
     if (sql.includes('FROM prevention_budget_scenarios') && sql.includes('FOR UPDATE')) {
       assert.deepEqual(args, ['org-a', 'old-scope']);
@@ -359,10 +372,29 @@ test('prompted materialized line creates a tenant-bound ALL action scope before 
   assert.equal(writes[0].args[2], materializedActionScopeKey('org-a', itemKey, (origin as any).originMissionId));
   assert.equal(writes[0].args.at(-1), (origin as any).originMissionId);
   assert.equal(writes.length, 3);
+  (origin as any).originMissionId = null;
+  (origin as any).originMissionIds = ['30000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000002'];
+  (origin as any).originCategoryIds = ['category-a', 'category-b'];
+  (origin as any).originSeverities = ['faible', 'critique'];
+  (origin as any).originPeriodMode = 'BOUNDED';
+  (origin as any).originPeriodStart = '2026-01-01';
+  (origin as any).originPeriodEnd = '2026-12-31';
+  writes.length = 0;
+  await service.recalculateMaterializedItem(user, originScenarioId, originItemId,
+    { expectedVersion: 4, adminPrompt: 'Recalculer ce périmètre multi-critères.' });
+  assert.match(writes[0].sql, /action-bootstrap-v2/);
+  assert.equal((writes[0].sql.match(/\?/g) ?? []).length, writes[0].args.length);
+  assert.equal(writes[0].args[2], materializedActionScopeKey('org-a', itemKey, null, {
+    missionIds: (origin as any).originMissionIds,
+    categoryIds: (origin as any).originCategoryIds,
+    severities: (origin as any).originSeverities,
+    periodMode: 'BOUNDED', periodStart: '2026-01-01', periodEnd: '2026-12-31',
+  }));
+  assert.equal(writes.length, 4);
   latestOriginVersion = 5;
   await assert.rejects(() => service.recalculateMaterializedItem(user, originScenarioId, originItemId,
     { expectedVersion: 4, adminPrompt: 'Même action après publication concurrente.' }), ConflictException);
-  assert.equal(writes.length, 3);
+  assert.equal(writes.length, 4);
 });
 
 test('filtered budget detail returns filtered lines and recomputed totals', async () => {
@@ -594,6 +626,21 @@ test('ALL has a stable unbounded identity and cannot reuse a bounded key', () =>
   );
 });
 
+test('budget scope keys canonicalize multi-select arrays while retaining scalar keys', () => {
+  const period = { start: '2026-01-01', end: '2026-12-31' };
+  const scalar = preventionBudgetScopeKey('org-a', 'BOUNDED', period, 'cat-a', 'eleve', [], 'mission-a');
+  const equivalent = preventionBudgetScopeKey('org-a', 'BOUNDED', period, 'cat-a', 'eleve', [], 'mission-a', ['cat-a'], ['eleve'], ['mission-a']);
+  const arrayOnly = preventionBudgetScopeKey('org-a', 'BOUNDED', period, null, null, [], null, ['cat-a'], ['eleve'], ['mission-a']);
+  const multi = preventionBudgetScopeKey('org-a', 'BOUNDED', period, null, null, [], null, ['cat-a', 'cat-b'], ['eleve', 'critique'], ['mission-a', 'mission-b']);
+  const reordered = preventionBudgetScopeKey('org-a', 'BOUNDED', period, null, null, [], null, ['cat-b', 'cat-a'], ['critique', 'eleve'], ['mission-b', 'mission-a']);
+  const multiWithLegacy = preventionBudgetScopeKey('org-a', 'BOUNDED', period, 'cat-a', 'eleve', [], 'mission-a', ['cat-a', 'cat-b'], ['eleve', 'critique'], ['mission-a', 'mission-b']);
+  assert.equal(equivalent, scalar);
+  assert.equal(arrayOnly, scalar);
+  assert.equal(reordered, multi);
+  assert.equal(multiWithLegacy, multi);
+  assert.notEqual(multi, scalar);
+});
+
 test('global preview is tenant scoped, unbounded and exposes volume thresholds without a date predicate', async () => {
   const sqls: string[] = [];
   const db = { query: async (sql: string) => {
@@ -634,9 +681,44 @@ test('filtered preview keeps bounded dates and selected client/category/severity
   assert.deepEqual(result.period, { start: '2026-02-01', end: '2026-02-28' });
   const findingSql = sqls.find((sql) => sql.includes('FROM prevention_findings f')) ?? '';
   assert.match(findingSql, /f\.businessDate>=\?/);
-  assert.match(findingSql, /f\.categoryId=\?/);
+  assert.match(findingSql, /f\.categoryId(?:=\?| IN \(\?\))/);
   assert.match(findingSql, /LOWER\(TRIM\(m\.client\)\)/);
   assert.match(findingSql, /riskLevel='eleve'/);
+});
+
+test('budget scope and materialized report denominators use the exact recommendation filters', async () => {
+  const selected = budgetClientIdentity('EDF').key;
+  const categoryId = '30000000-0000-4000-8000-300000000001';
+  const missionId = '40000000-0000-4000-8000-400000000001';
+  const countQueries: string[] = [];
+  const db = { query: async (sql: string) => {
+    if (sql.startsWith('SELECT client FROM missions')) return [{ client: 'EDF' }];
+    if (sql.includes('FROM prevention_categories')) return [{ id: categoryId }];
+    if (sql.includes('FROM missions WHERE organizationId=? AND id IN')) return [{ id: missionId }];
+    if (sql.includes('COUNT(DISTINCT r.id)')) { countQueries.push(sql); return [{ totalReports: 2 }]; }
+    if (sql.includes('FROM prevention_budget_items i')) return [];
+    if (sql.includes('FROM prevention_budget_scenarios')) return [];
+    return [];
+  } };
+  const service = new PreventionBudgetApiService(db as any, {} as any);
+  const user = { role: UserRole.ADMIN, organizationId: 'org-a' } as any;
+  const filters = {
+    preset: 'CUSTOM', from: '2026-02-01', to: '2026-02-28', clientKeys: [selected],
+    categoryIds: [categoryId], severities: ['critique'], missionIds: [missionId],
+  } as any;
+  const scoped = await service.scope(user, filters);
+  const materialized = await service.materialized(user, filters);
+  assert.equal(scoped.totalReports, 2);
+  assert.equal(materialized.totalReports, 2);
+  assert.equal(countQueries.length, 2);
+  for (const sql of countQueries) {
+    assert.match(sql, /f\.findingType='RECOMMENDATION'/);
+    assert.match(sql, /f\.businessDate>=\?/);
+    assert.match(sql, /f\.categoryId IN \(\?\)/);
+    assert.match(sql, /f\.missionId IN \(\?\)/);
+    assert.match(sql, /riskLevel='eleve'/);
+    assert.match(sql, /LOWER\(TRIM\(m\.client\)\)/);
+  }
 });
 
 test('GLOBAL_YEARLY command reuses one active run and persists a durable deferred job', async () => {

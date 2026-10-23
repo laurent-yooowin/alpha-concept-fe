@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { mailingListAPI, visitsAPI, missionsAPI, reportsAPI } from '../lib/api';
 import { filesService } from '../services/filesService';
 import { uploadService } from '../services/uploadService';
-import { AIAnalysis, PREVENTION_PHASES, PreventionPhase } from '../services/aiService';
+import { AIAnalysis, PreventionPhase } from '../services/aiService';
 import { generatePdfService } from '../services/generatePdfService';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -15,7 +15,7 @@ import Swal from 'sweetalert2';
 import PhotoReportEditor from './PhotoReportEditor';
 import MissionReportModal from './MissionReportModal';
 import CustomPromptSelector from './CustomPromptSelector';
-import { GroupPreventionStatus, offerGroupPhaseConfirmation } from './prevention/offerGroupPhaseConfirmation';
+import { GroupPreventionStatus, groupPreventionPhaseLabel, offerGroupPhaseConfirmation } from './prevention/offerGroupPhaseConfirmation';
 import ReanalysisConfigModal from './ReanalysisConfigModal';
 import AppliedCustomPromptsReadOnly from './AppliedCustomPromptsReadOnly';
 import { groupPromptIdsFromEntries } from './appliedCustomPrompts';
@@ -1159,7 +1159,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <span className="rounded-md border border-blue-300 bg-white px-3 py-2 text-sm">
-                  {PREVENTION_PHASES.find((phase) => phase.value === tempGroupPhase)?.label || 'Phase en attente de traitement Prévention'}
+                  {selectedGroupId ? groupPreventionPhaseLabel(expandedGroupPhases[selectedGroupId]) : 'Phase en attente de traitement Prévention'}
                 </span>
                 <span className="text-xs text-slate-600">Confiance : {tempGroupPhaseConfidence}%</span>
               </div>
@@ -1596,7 +1596,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
                       {expandedGroupPhases[group.groupId] && (
                         <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-3 text-s">
                           <span className="font-semibold text-[#1e3a5f]">🧱 Phase de chantier — Prévention : </span>
-                          {PREVENTION_PHASES.find((phase) => phase.value === expandedGroupPhases[group.groupId].effectivePhase)?.label || 'En attente'}
+                          {groupPreventionPhaseLabel(expandedGroupPhases[group.groupId])}
                           <span className="ml-2 text-slate-600">({expandedGroupPhases[group.groupId].phaseStatus === 'VALIDATED' ? 'validée' : 'proposée par l’IA'})</span>
                         </div>
                       )}

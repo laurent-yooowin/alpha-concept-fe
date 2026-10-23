@@ -6,6 +6,7 @@ import {
   budgetGoverningReportEstimates,
   budgetItemEstimateDisplay,
   budgetMaterializedTarget,
+  budgetMaterializedScopeMatches,
   budgetReportLabel,
   budgetPublicExplanation,
   budgetRefreshScenarioId,
@@ -40,6 +41,82 @@ test('budget execution keeps bounded filters but makes ALL choices explicit', ()
     preset: 'CUSTOM', from: '2025-01-01', to: '2025-12-31',
   });
   assert.throws(() => budgetExecutionPeriod('FILTERED', { preset: 'ALL' }));
+});
+
+test('multiselect scope never falls back to all when an incompatible mission remains selected', () => {
+  const query = budgetScopeSelectionQuery({
+    preset: 'ALL', missionIds: ['mission-without-selected-enterprise'], missionId: 'stale-legacy-mission', clientKeys: ['enterprise-a'],
+  });
+  assert.deepEqual(query.missionIds, ['mission-without-selected-enterprise']);
+  assert.equal(query.missionId, undefined);
+});
+
+test('budget command drops stale scalar filters when arrays are present', () => {
+  const payload = budgetCommandPayload('FILTERED', {
+    preset: 'CUSTOM', from: '2026-01-01', to: '2026-12-31',
+    missionId: 'stale-mission', missionIds: ['mission-a'], categoryId: 'stale-category', categoryIds: ['category-a'],
+    severity: 'faible', severities: ['critique'], clientKeys: [],
+  }, 'token');
+  assert.equal(payload.missionId, undefined);
+  assert.equal(payload.categoryId, undefined);
+  assert.equal(payload.severity, undefined);
+  assert.deepEqual(payload.missionIds, ['mission-a']);
+  assert.deepEqual(payload.categoryIds, ['category-a']);
+  assert.deepEqual(payload.severities, ['critique']);
+});
+
+test('an empty multiselection remains authoritative over stale scalar filters', () => {
+  const selection = {
+    preset: 'CUSTOM', from: '2026-01-01', to: '2026-12-31',
+    missionId: 'stale-mission', missionIds: [], categoryId: 'stale-category', categoryIds: [],
+    severity: 'eleve', severities: [], clientKeys: [],
+  };
+  const scoped = budgetScopeSelectionQuery(selection);
+  const execution = budgetExecutionSnapshot(selection);
+  const command = budgetCommandPayload('FILTERED', selection, 'token');
+  for (const result of [scoped, execution, command]) {
+    assert.equal(result.missionId, undefined);
+    assert.equal(result.categoryId, undefined);
+    assert.equal(result.severity, undefined);
+  }
+  assert.deepEqual(execution.missionIds, []);
+  assert.deepEqual(execution.categoryIds, []);
+  assert.deepEqual(execution.severities, []);
+  assert.equal(budgetSelectionKey(selection), budgetSelectionKey({ preset: 'CUSTOM', from: selection.from, to: selection.to }));
+  assert.equal(budgetMaterializedScopeMatches({ originPeriodMode: 'ALL' }, { preset: 'ALL', missionId: 'stale-mission', missionIds: [] }), true);
+});
+
+test('materialized writes require the exact persisted multi-filter origin scope', () => {
+  const origin = {
+    originMissionIds: ['mission-a', 'mission-b'],
+    originCategoryIds: ['category-a'],
+    originSeverities: ['eleve'],
+    originClientKeys: ['enterprise-a'],
+    originPeriodMode: 'BOUNDED', originPeriodStart: '2026-01-01', originPeriodEnd: '2026-12-31',
+  };
+  assert.equal(budgetMaterializedScopeMatches(origin, {
+    preset: 'CUSTOM', from: '2026-01-01', to: '2026-12-31', missionIds: ['mission-b', 'mission-a'],
+    categoryIds: ['category-a'], severities: ['eleve'], clientKeys: ['enterprise-a'],
+  }), true);
+  assert.equal(budgetMaterializedScopeMatches(origin, {
+    preset: 'CUSTOM', from: '2026-01-01', to: '2026-12-31', missionIds: ['mission-a'],
+    categoryIds: ['category-a'], severities: ['eleve'], clientKeys: ['enterprise-a'],
+  }), false);
+  assert.equal(budgetMaterializedScopeMatches(origin, {
+    preset: 'CUSTOM', from: '2026-01-01', to: '2026-12-31', missionIds: ['mission-a', 'mission-b'],
+    categoryIds: [], severities: ['eleve'], clientKeys: ['enterprise-a'],
+  }), false);
+});
+
+test('materialized scope parsing fails closed for JSON strings and bounded presets', () => {
+  const jsonOrigin = {
+    originMissionIds: '["mission-a"]', originCategoryIds: '["category-a"]', originSeverities: '["eleve"]',
+    originClientKeys: '["enterprise-a"]', originPeriodMode: 'BOUNDED', originPeriodStart: '2026-01-01', originPeriodEnd: '2026-12-31',
+  };
+  const exact = { preset: 'CUSTOM', from: '2026-01-01', to: '2026-12-31', missionIds: ['mission-a'], categoryIds: ['category-a'], severities: ['eleve'], clientKeys: ['enterprise-a'] };
+  assert.equal(budgetMaterializedScopeMatches(jsonOrigin, exact), true);
+  assert.equal(budgetMaterializedScopeMatches({ ...jsonOrigin, originMissionIds: '[malformed' }, exact), false);
+  assert.equal(budgetMaterializedScopeMatches(jsonOrigin, { ...exact, preset: 'CURRENT_YEAR', from: undefined, to: undefined }), false);
 });
 
 test('selecting ALL never silently resets an explicit global calculation mode', () => {

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } f
 import { DataSource } from 'typeorm';
 import { Queue, UnrecoverableError } from 'bullmq';
 import { createHash, randomUUID } from 'crypto';
-import { isPreventionConstructionPhase } from '../prevention-phase';
+import { isPreventionConstructionPhase, isPreventionEffectivePhase } from '../prevention-phase';
 import { PREVENTION_GROUP_QUEUE } from '../queue/prevention-queue.constants';
 import { PreventionGroupLlmTimeoutError, PreventionOnlyAiService, PreventionOnlyInput, PreventionOnlyResult } from '../ai/prevention-only-ai.service';
 import { PreventionExtractionService } from '../extraction/prevention-extraction.service';
@@ -686,7 +686,7 @@ export class PreventionGroupProcessingService implements OnModuleInit, OnModuleD
   }
 
   async markValidated(organizationId: string, visitId: string, sourceGroupId: string, phase: string, userId: string, validatedAt: Date, queryable: { query(sql: string, parameters?: any[]): Promise<any[]> } = this.db): Promise<void> {
-    if (!isPreventionConstructionPhase(phase)) return;
+    if (!isPreventionEffectivePhase(phase)) return;
     await queryable.query(
       `UPDATE prevention_group_processing_jobs SET phaseStatus='VALIDATED',effectivePhase=?,validatedBy=?,validatedAt=?
        WHERE organizationId=? AND visitId=? AND sourceGroupId=?`,
