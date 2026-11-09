@@ -50,7 +50,15 @@ export class DashboardService {
     const totalReports = await reportQuery.getCount();
     const submittedReports = await reportQuery
       .clone()
-      .andWhere('report.status != :draft', { draft: ReportStatus.DRAFT })
+      .andWhere('report.status NOT IN (:...excluded)', { excluded: [ReportStatus.DRAFT, ReportStatus.CANCELLED] })
+      .getCount();
+    const draftReports = await reportQuery
+      .clone()
+      .andWhere('report.status = :draft', { draft: ReportStatus.DRAFT })
+      .getCount();
+    const cancelledReports = await reportQuery
+      .clone()
+      .andWhere('report.status = :cancelled', { cancelled: ReportStatus.CANCELLED })
       .getCount();
     const validatedReports = await reportQuery
       .clone()
@@ -58,7 +66,7 @@ export class DashboardService {
       .getCount();
     const sentReports = await reportQuery
       .clone()
-      .andWhere('report.status = :sent', { sent: ReportStatus.SENT })
+      .andWhere('report.status = :sent', { sent: ReportStatus.SENT_TO_CLIENT })
       .getCount();
 
     const coordinatorsQb = this.userRepository
@@ -78,7 +86,7 @@ export class DashboardService {
       user,
     );
     const avgRow = await avgQb.getRawOne();
-    const avgProcessingTime = avgRow?.avgDays ? parseFloat(avgRow.avgDays) : 0;
+    const avgProcessingTime = avgRow?.avgDays == null ? null : Number(avgRow.avgDays);
 
     return {
       totalMissions,
@@ -86,10 +94,13 @@ export class DashboardService {
       completedMissions,
       totalReports,
       submittedReports,
+      draftReports,
+      cancelledReports,
       validatedReports,
       sentReports,
       totalCoordinators,
-      avgProcessingTime: Math.round(avgProcessingTime * 10) / 10,
+      avgProcessingTime: avgProcessingTime == null || !Number.isFinite(avgProcessingTime)
+        ? null : Math.round(avgProcessingTime * 10) / 10,
     };
   }
 
@@ -99,7 +110,8 @@ export class DashboardService {
         .createQueryBuilder('mission')
         .select("DATE_FORMAT(mission.date, '%b %Y')", 'month')
         .addSelect('COUNT(*)', 'count')
-        .where('mission.date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)'),
+        .where("mission.date >= DATE_FORMAT(DATE_SUB(UTC_DATE(), INTERVAL 5 MONTH), '%Y-%m-01')")
+        .andWhere("mission.date < DATE_FORMAT(DATE_ADD(UTC_DATE(), INTERVAL 1 MONTH), '%Y-%m-01')"),
       'mission',
       user,
     )

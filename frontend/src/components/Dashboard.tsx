@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { dashboardAPI } from '../lib/api';
+import { missionStatusLabel } from '../lib/missionPresentation';
 import { useAuth } from '../contexts/AuthContext';
 import {
   BarChart3,
@@ -18,10 +19,12 @@ interface Stats {
   completedMissions: number;
   totalReports: number;
   submittedReports: number;
+  draftReports: number;
+  cancelledReports: number;
   validatedReports: number;
   sentReports: number;
   totalCoordinators: number;
-  avgProcessingTime: number;
+  avgProcessingTime: number | null;
 }
 
 interface MonthlyMission {
@@ -47,10 +50,12 @@ export default function Dashboard() {
     completedMissions: 0,
     totalReports: 0,
     submittedReports: 0,
+    draftReports: 0,
+    cancelledReports: 0,
     validatedReports: 0,
     sentReports: 0,
     totalCoordinators: 0,
-    avgProcessingTime: 0,
+    avgProcessingTime: null,
   });
   const [monthlyMissions, setMonthlyMissions] = useState < MonthlyMission[] > ([]);
   const [coordinatorStats, setCoordinatorStats] = useState < CoordinatorStat[] > ([]);
@@ -85,22 +90,11 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      en_attente: 'En attente',
-      planifiee: 'Affectée',
-      en_cours: 'En cours',
-      terminee: 'Terminée',
-      refusee: 'Refusée',
-      annulee: 'Annulée',
-    };
-    return labels[status] || status;
-  };
-
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       en_attente: 'bg-slate-100 text-slate-700',
       planifiee: 'bg-blue-100 text-blue-700',
+      assignee: 'bg-indigo-100 text-indigo-700',
       en_cours: 'bg-amber-100 text-amber-700',
       terminee: 'bg-green-100 text-green-700',
       refusee: 'bg-red-100 text-red-700',
@@ -128,10 +122,10 @@ export default function Dashboard() {
             </div>
             <TrendingUp className="w-5 h-5 text-green-600" />
           </div>
-          <p className="text-sm font-medium text-slate-600 mb-1">Chantiers totals</p>
+          <p className="text-sm font-medium text-slate-600 mb-1">Chantiers au total</p>
           <p className="text-3xl font-bold text-slate-900">{stats.totalMissions}</p>
           <p className="text-sm text-slate-500 mt-2">
-            {stats.pendingMissions} en attente
+            {stats.pendingMissions} actifs
           </p>
         </div>
 
@@ -154,10 +148,10 @@ export default function Dashboard() {
               <FileText className="w-6 h-6 text-amber-600" />
             </div>
           </div>
-          <p className="text-sm font-medium text-slate-600 mb-1">Rapports soumis</p>
-          <p className="text-3xl font-bold text-slate-900">{stats.submittedReports}</p>
+          <p className="text-sm font-medium text-slate-600 mb-1">Rapports envoyés au client</p>
+          <p className="text-3xl font-bold text-slate-900">{stats.sentReports}</p>
           <p className="text-sm text-slate-500 mt-2">
-            {stats.validatedReports} validés
+            {stats.draftReports} brouillon(s) · {stats.cancelledReports} annulé(s)
           </p>
         </div>
 
@@ -168,8 +162,8 @@ export default function Dashboard() {
             </div>
           </div>
           <p className="text-sm font-medium text-slate-600 mb-1">Temps moyen de traitement</p>
-          <p className="text-3xl font-bold text-slate-900">{stats.avgProcessingTime}</p>
-          <p className="text-sm text-slate-500 mt-2">jours</p>
+          <p className="text-3xl font-bold text-slate-900">{stats.avgProcessingTime == null ? 'n/d' : stats.avgProcessingTime}</p>
+          <p className="text-sm text-slate-500 mt-2">{stats.avgProcessingTime == null ? 'Aucun rapport validé' : 'jours'}</p>
         </div>
       </div>
 
@@ -179,7 +173,7 @@ export default function Dashboard() {
             <div className="p-2 bg-slate-100 rounded-lg">
               <BarChart3 className="w-5 h-5 text-slate-700" />
             </div>
-            <h2 className="text-lg font-bold text-slate-900">Chantiers par mois</h2>
+            <h2 className="text-lg font-bold text-slate-900">Chantiers par mois — six derniers mois</h2>
           </div>
 
           {monthlyMissions.length > 0 ? (
@@ -220,7 +214,7 @@ export default function Dashboard() {
                 <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
-                      {getStatusLabel(item.status)}
+                      {missionStatusLabel(item.status)}
                     </span>
                   </div>
                   <span className="text-lg font-bold text-slate-900">{item.count}</span>
@@ -282,8 +276,8 @@ export default function Dashboard() {
             <p className="text-sm text-slate-600 mt-1">Total</p>
           </div>
           <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <p className="text-2xl font-bold text-blue-900">{stats.submittedReports}</p>
-            <p className="text-sm text-blue-600 mt-1">Soumis</p>
+            <p className="text-2xl font-bold text-blue-900">{stats.draftReports}</p>
+            <p className="text-sm text-blue-600 mt-1">Brouillons</p>
           </div>
           <div className="text-center p-4 bg-green-50 rounded-lg">
             <p className="text-2xl font-bold text-green-900">{stats.validatedReports}</p>
@@ -291,7 +285,7 @@ export default function Dashboard() {
           </div>
           <div className="text-center p-4 bg-emerald-50 rounded-lg">
             <p className="text-2xl font-bold text-emerald-900">{stats.sentReports}</p>
-            <p className="text-sm text-emerald-600 mt-1">Envoyés</p>
+            <p className="text-sm text-emerald-600 mt-1">Envoyés au client</p>
           </div>
         </div>
       </div>

@@ -13,6 +13,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { VisitService } from '../visits/visit.service';
 import { ReportService } from '../reports/report.service';
 import { ReportStatus, isReportLocked } from '../reports/report.entity';
+import { importedMissionAddress } from './mission-address';
 
 @Injectable()
 export class MissionService {
@@ -67,12 +68,13 @@ export class MissionService {
       await Promise.all(missions.map(async (mission) => {
         const missionId = mission.id;
         const userId = user.id;
-        const assignment = await this.assignmentRepository.findOne({
-          where: { missionId },
-        });
-        if (assignment) {
-          mission.assigned = true;
-        }
+        const assignment = mission.organizationId
+          ? await this.assignmentRepository.findOne({
+            where: { missionId, organizationId: mission.organizationId },
+          })
+          : null;
+        // The persisted flag can predate an assignment removal; the relation is authoritative for display.
+        mission.assigned = Boolean(assignment);
         const visits = await this.visitService.findByMission(mission.id, user);
         if (visits && visits.length > 0) {
           visits.sort((a, b) => b.visitDate.getTime() - a.visitDate.getTime());
@@ -452,6 +454,7 @@ export class MissionService {
 
       try {
         const normalizedRow: any = {};
+        const postalCodeKey = Object.keys(row).find(key => key.toLowerCase().trim() === 'code postal');
         Object.keys(row).forEach(key => {
           const normalizedKey = key.toLowerCase().trim();
           const filtredKeys = allColumns.filter(col => normalizedKey == col.fileKey.toLowerCase().trim());
@@ -473,8 +476,7 @@ export class MissionService {
               normalizedRow['contactFirstName'] = contactFirstName;
               normalizedRow['contactLastName'] = contactLastName;
             } else if (filtredKey == "address" && row[key] && row[key].toString().trim() != "") {
-              const address = row[key] + ' ' + row['Code postal'];
-              normalizedRow['address'] = address;
+              normalizedRow['address'] = importedMissionAddress(row[key], postalCodeKey ? row[postalCodeKey] : null);
             } else if (filtredKey == "type" && row[key] && row[key].toString().trim() != "") {
               const val = row[key].toString().trim().toUpperCase();
               if (val != "CSPS" && val != "AEU" && val != "DIVERS") {

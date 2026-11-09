@@ -22,6 +22,7 @@ import { groupPromptIdsFromEntries } from './appliedCustomPrompts';
 import { changedReportGroups } from './reportEdits';
 import { isFinalReportStatus } from './reportFinalStatus';
 import { formatReportDate } from './reportDatePresentation';
+import { cleanMissionAddress } from '../lib/missionPresentation';
 
 // ─── TYPES ───────────────────────────────────────
 interface PhotoAnalysis {
@@ -224,7 +225,7 @@ export default function VisitManagement() {
   const getSuggestedVisitPdfFileName = () => generatePdfService.getSuggestedReportFilename({
     reportType: 'vc',
     client: selectedVisit?.mission?.client,
-    address: selectedVisit?.mission?.address,
+    address: cleanMissionAddress(selectedVisit?.mission?.address),
     project: selectedVisit?.mission?.title || visitReport?.title,
     date: selectedVisit?.visitDate || visitReport?.createdAt,
   });
@@ -893,7 +894,7 @@ Veuillez trouver ci-joint le rapport de visite suivant:
 
 Chantier: ${selectedVisit.mission?.title || ''}
 Date de visite: ${new Date(selectedVisit.createdAt || selectedVisit.visitDate || '').toLocaleDateString('fr-FR')}
-Adresse chantier: ${selectedVisit.mission?.address || ''}
+Adresse chantier: ${cleanMissionAddress(selectedVisit.mission?.address) || 'Non renseignée'}
 Nombre de photos: ${selectedVisit.photos?.length || 0}
 
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
@@ -1459,7 +1460,7 @@ ${currentUser ? `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName}
             className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-s font-medium text-slate-700 hover:bg-slate-50">← Retour</button>
           <div className="flex-1">
             <h2 className="text-xl font-bold text-slate-900">{selectedVisit.mission?.title || 'Visite'}</h2>
-            <p className="text-s text-slate-500">{selectedVisit.mission?.client} — {selectedVisit.mission?.address}</p>
+            <p className="text-s text-slate-500">{selectedVisit.mission?.client} — {cleanMissionAddress(selectedVisit.mission?.address) || 'Adresse non renseignée'}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             {/* Upload photos */}

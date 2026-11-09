@@ -7,6 +7,7 @@ import { MailService } from '../mail/mail.service';
 import { User } from '../user/user.entity';
 import { createHash } from 'crypto';
 import { formatReportDate, withoutLegacyGeneratedFooterDate, withoutLegacyGeneratedHeaderDate } from './report-date-presentation';
+import { cleanLegacyMissionAddress } from '../missions/mission-address';
 
 export const REPORT_PDF_TEMPLATE_VERSION = 'backend-v6-chantier-label';
 
@@ -42,7 +43,7 @@ export class ReportPdfTemplateService {
     const reportType = rawType.includes('reunion') ? 'reunion' : 'vc';
 
     const explicitCity = String(mission.city || '').trim();
-    const address = String(mission.address || '').trim();
+    const address = cleanLegacyMissionAddress(mission.address);
     const addressParts = address.split(',').map((part) => part.trim()).filter(Boolean);
     let citySource = explicitCity;
     if (!citySource && addressParts.length > 1) {

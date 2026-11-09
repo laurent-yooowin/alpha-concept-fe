@@ -1,23 +1,26 @@
 import { useState, useEffect } from 'react';
 import { missionsAPI, usersAPI } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
-import { UserPlus, Send, X, MapPin, Calendar, CheckCircle, Clock, Search } from 'lucide-react';
+import { UserPlus, X, MapPin, Calendar, CheckCircle, Clock, Search } from 'lucide-react';
+import { cleanMissionAddress, formatMissionDate, missionAttributionLabel, missionStatusLabel } from '../lib/missionPresentation';
 
 interface Mission {
   id: string;
   title: string;
   client: string;
   address: string;
-  date: string;
+  date: string | null;
   time: string;
   type: string;
   status: string;
   userId: string;
+  assigned?: boolean;
   refClient: string;
   refBusiness: string;
   user?: {
     firstName: string;
     lastName: string;
+    role?: string;
   };
   description?: string | null;
 }
@@ -100,23 +103,12 @@ export default function MissionDispatch() {
         return 'bg-slate-100 text-slate-700 border-slate-200';
       case 'assignee':
         return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'en_cours':
+        return 'bg-amber-100 text-amber-700 border-amber-200';
       // case 'refusee':
       //   return 'bg-red-100 text-red-700 border-red-200';
       default:
         return 'bg-slate-100 text-slate-700 border-slate-200';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'planifiee':
-        return 'Planifiée';
-      case 'assignee':
-        return 'Assignée';
-      // case 'refusee':
-      //   return 'Refusée';
-      default:
-        return status;
     }
   };
 
@@ -162,7 +154,7 @@ export default function MissionDispatch() {
       <div className="mb-3">
         <h1 className="text-3xl font-bold text-slate-900">Attribution des chantiers</h1>
         <p className="text-slate-600 mt-1">
-          {missions.length} chantier(s) en attente d'attribution
+          {missions.length} chantier(s) · gestion des assignations
         </p>
       </div>
       <div className="flex-1 relative mb-2">
@@ -190,7 +182,7 @@ export default function MissionDispatch() {
                 </h3>
                 <div className="flex items-center gap-1 text-sm text-slate-600">
                   <MapPin className="w-4 h-4" />
-                  {mission.address}
+                  {cleanMissionAddress(mission.address) || 'Adresse non renseignée'}
                 </div>
               </div>
               <span
@@ -198,7 +190,7 @@ export default function MissionDispatch() {
                   mission.status
                 )}`}
               >
-                {getStatusLabel(mission.status)}
+                {missionStatusLabel(mission.status)}
               </span>
             </div>
 
@@ -209,7 +201,7 @@ export default function MissionDispatch() {
               </div>
               <div className="flex items-center gap-2 text-sm text-slate-700">
                 <Calendar className="w-4 h-4" />
-                {new Date(mission.date).toLocaleDateString('fr-FR')}
+                {formatMissionDate(mission.date)}
                 <Clock className="w-4 h-4 ml-2" />
                 {mission.time}
               </div>
@@ -225,23 +217,15 @@ export default function MissionDispatch() {
                   </span>
                 </div>
               )}
+              <p className="text-xs text-slate-500">{missionAttributionLabel(mission, currentUser)}</p>
             </div>
 
             <button
               onClick={() => openAssignModal(mission)}
               className="w-full flex items-center justify-center gap-2 bg-prosps-blue text-white px-4 py-3 rounded-lg hover:bg-prosps-blue-dark transition-colors font-medium"
             >
-              {mission.userId ? (
-                <>
-                  <UserPlus className="w-4 h-4" />
-                  Réaffecter
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  Affecter
-                </>
-              )}
+              <UserPlus className="w-4 h-4" />
+              Assigner un coordonnateur
             </button>
           </div>
         ))}
@@ -249,7 +233,7 @@ export default function MissionDispatch() {
         {missions.length === 0 && (
           <div className="col-span-full text-center py-12">
             <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-4" />
-            <p className="text-slate-600">Aucun chantier en attente d'attribution</p>
+            <p className="text-slate-600">Aucun chantier disponible</p>
           </div>
         )}
       </div>
@@ -258,7 +242,7 @@ export default function MissionDispatch() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-2xl w-full">
             <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-slate-900">Affecter le chantier</h2>
+              <h2 className="text-2xl font-bold text-slate-900">Assigner le chantier</h2>
               <button
                 onClick={() => {
                   setShowAssignModal(false);
@@ -278,12 +262,12 @@ export default function MissionDispatch() {
                 <div className="space-y-1 text-sm text-slate-600">
                   <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4" />
-                    {selectedMission.address}
+                    {cleanMissionAddress(selectedMission.address) || 'Adresse non renseignée'}
                   </div>
                   <div>Client: {selectedMission.client}</div>
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4" />
-                    {new Date(selectedMission.date).toLocaleDateString('fr-FR')} à {selectedMission.time}
+                    {formatMissionDate(selectedMission.date)} à {selectedMission.time}
                   </div>
                   <div>Type: <span className="capitalize">{selectedMission.type}</span></div>
                 </div>

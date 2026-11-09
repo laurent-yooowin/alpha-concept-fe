@@ -10,6 +10,7 @@ import PhotoReportEditor from './PhotoReportEditor';
 import { changedReportGroups, ReportPhotoEditSource, ChangedReportGroup } from './reportEdits';
 import { isFinalReportStatus } from './reportFinalStatus';
 import { formatReportDate, withoutLegacyGeneratedFooterDate, withoutLegacyGeneratedHeaderDate } from './reportDatePresentation';
+import { cleanMissionAddress } from '../lib/missionPresentation';
 
 interface Report {
   id: string;
@@ -93,7 +94,7 @@ export default function ReportManagement() {
   const getSuggestedPdfFileName = (report: Report) => generatePdfService.getSuggestedReportFilename({
     reportType: 'vc',
     client: report.client,
-    address: report.address,
+    address: cleanMissionAddress(report.address),
     project: report.mission || report.title,
     date: report.visit?.visitDate || report.visit?.createdAt || report.createdAt,
   });
@@ -153,7 +154,7 @@ export default function ReportManagement() {
       const mission: any = report.mission;
       if (mission) {
         report.title = mission.title;
-        report.address = mission.address;
+        report.address = cleanMissionAddress(mission.address);
         report.client = mission.client;
         report.mission = mission.title;
         report.missionId = mission.id;
@@ -205,7 +206,7 @@ export default function ReportManagement() {
           'Chantier': mission?.title || '',
           'Client': mission?.client || '',
           'Référence Client': mission?.refClient || '',
-          'Adresse': mission?.address || '',
+          'Adresse': cleanMissionAddress(mission?.address),
           'Date': mission?.date ? new Date(mission.date).toLocaleDateString('fr-FR') : '',
           'Heure': mission?.time || '',
           'Type': mission?.type || '',
@@ -426,7 +427,7 @@ Veuillez trouver ci-joint le rapport de visite suivant:
 Chantier: ${selectedReport?.mission}
 Date d'attribution: ${selectedReport.missionDate} ${selectedReport.missionTime && selectedReport.missionTime.trim() != '' ? ' à ' + selectedReport.missionTime : ''}
 Date de visite: ${new Date(selectedReport?.visit?.createdAt || '').toLocaleDateString('fr-FR')}
-Adresse chantier: ${selectedReport.address} 
+Adresse chantier: ${cleanMissionAddress(selectedReport.address) || 'Non renseignée'}
 Nombre de photos: ${selectedReport?.visit?.photos?.length}
 
 Le rapport complet avec les photos est disponible en pièce jointe PDF.
@@ -663,7 +664,7 @@ ${currentUser && `Coordonnateur: ${currentUser.firstName} ${currentUser.lastName
                       <p className="font-medium text-slate-900">{report.title}</p>
                       <div className="flex items-center gap-1 text-sm text-slate-600 mt-1">
                         <MapPin className="w-3.5 h-3.5" />
-                        {report.address}
+                        {cleanMissionAddress(report.address) || 'Adresse non renseignée'}
                       </div>
                     </div>
                   </td>

@@ -5,6 +5,17 @@ import { ReportPdfTemplateService } from './report-pdf-template.service';
 import { UploadedAssetType } from '../upload/uploaded-asset.entity';
 import { formatReportDate, withoutLegacyGeneratedFooterDate, withoutLegacyGeneratedHeaderDate } from './report-date-presentation';
 
+test('default PDF filename ignores the legacy undefined postal-code suffix', () => {
+  const service = new ReportPdfTemplateService({} as any, {} as any);
+  const fileName = (service as any).buildDefaultFileName({
+    createdAt: new Date('2026-10-14T10:00:00.000Z'),
+    mission: { title: 'Chantier', client: 'Client', address: '75001 Paris undefined' },
+    visit: { visitDate: new Date('2026-10-14T10:00:00.000Z') },
+  });
+  assert.match(fileName, /paris/);
+  assert.doesNotMatch(fileName, /undefined/);
+});
+
 test('report dates keep chantier, visit and report creation distinct in the PDF', async () => {
   const service = new ReportPdfTemplateService({} as any, {} as any);
   const html = await service.render({

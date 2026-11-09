@@ -117,3 +117,19 @@ test('mission list exposes the same linked status to the coordinator', async () 
   assert.equal(missions[0].visits[0].report.id, summary.id);
   assert.equal(missions[0].visits[0].report.status, 'envoye_au_client');
 });
+
+test('mission list derives assignment from a tenant-scoped relation instead of a stale flag', async () => {
+  for (const hasAssignment of [false, true]) {
+    const service = Object.create(MissionService.prototype) as MissionService;
+    (service as any).missionRepository = { find: async () => [
+      { id: missionId, organizationId, userId: 'coordinator', assigned: !hasAssignment },
+    ] };
+    (service as any).assignmentRepository = { findOne: async ({ where }: any) => {
+      assert.deepEqual(where, { missionId, organizationId });
+      return hasAssignment ? { id: 'assignment-a' } : null;
+    } };
+    (service as any).visitService = { findByMission: async () => [] };
+    const missions = await service.findAll(user);
+    assert.equal(missions[0].assigned, hasAssignment);
+  }
+});
