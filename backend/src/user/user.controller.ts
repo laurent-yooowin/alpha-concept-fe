@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards, Query, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { UserService } from './user.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AllowPendingLegalValidation } from '../auth/organization-access';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequirePermission } from '../common/decorators/permissions.decorator';
 import { User, UserRole } from './user.entity';
@@ -13,8 +14,24 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Get('profile')
+  @AllowPendingLegalValidation()
   getProfile(@CurrentUser() user: User) {
-    return user;
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      phone: user.phone,
+      address: user.address,
+      company: user.company,
+      experience: user.experience,
+      isActive: user.isActive,
+      organizationId: user.organizationId,
+      permissions: user.permissions,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 
   @Get()

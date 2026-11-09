@@ -7,6 +7,7 @@ import { User, UserRole } from '../user/user.entity';
 import { RegisterDto } from './auth.dto';
 import { MailService } from '../mail/mail.service';
 import { Organization } from '../organizations/organization.entity';
+import { assertOrganizationAccess } from './organization-access';
 
 export interface LoginDto {
   email: string;
@@ -104,6 +105,8 @@ export class AuthService {
         'Veuillez vous connecter via le portail de votre organisation',
       );
     }
+
+    assertOrganizationAccess(user, userOrganization);
 
     const payload = {
       sub: user.id,

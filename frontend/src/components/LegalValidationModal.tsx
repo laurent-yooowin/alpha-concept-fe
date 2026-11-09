@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { FileText, Loader2, Save } from 'lucide-react';
+import { FileText, Loader2, LogOut, Save } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { currentOrgAPI } from '../lib/api';
 import LegalDocumentEditor from './LegalDocumentEditor';
 
-export default function LegalValidationModal() {
+export default function LegalValidationModal({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const { profile, organization, refreshProfile } = useAuth();
   const [cguContent, setCguContent] = useState(organization?.cguContent || '');
   const [privacyContent, setPrivacyContent] = useState(organization?.privacyContent || '');
@@ -60,15 +60,20 @@ export default function LegalValidationModal() {
               {organization?.name} doit valider ces documents avant de continuer.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!canSubmit}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-prosps-blue text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Valider
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={onSignOut} className="inline-flex items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:text-slate-900">
+              <LogOut className="w-4 h-4" /> Déconnexion
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSubmit}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-prosps-blue text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Valider
+            </button>
+          </div>
         </div>
 
         <div className="p-6 space-y-6">

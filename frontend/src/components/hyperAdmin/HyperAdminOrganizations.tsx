@@ -621,7 +621,9 @@ export default function HyperAdminOrganizations() {
             </div>
           ))}
           {filteredOrgs.length === 0 && (
-            <div className="col-span-full text-center text-slate-400 py-12">Aucune organisation. Créez la première.</div>
+            <div className="col-span-full text-center text-slate-400 py-12">
+              {orgs.length === 0 ? 'Aucune organisation. Créez la première.' : 'Aucune organisation ne correspond aux filtres.'}
+            </div>
           )}
         </div>
       )}

@@ -71,6 +71,10 @@ export default function Layout() {
     return null;
   }
 
+  if (isAdmin && organization?.legalValidationStatus === 'en_cours') {
+    return <div className="min-h-screen bg-slate-100"><LegalValidationModal onSignOut={handleSignOut} /></div>;
+  }
+
   return (
     <div className="min-h-screen relative">
       <div
@@ -158,7 +162,6 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
-      <LegalValidationModal />
     </div>
   );
 }

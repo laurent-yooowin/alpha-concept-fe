@@ -1,5 +1,6 @@
 import { Body, Controller, ForbiddenException, Get, NotFoundException, Patch, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AllowPendingLegalValidation } from '../auth/organization-access';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User, UserRole } from '../user/user.entity';
 import { OrganizationService } from './organization.service';
@@ -39,6 +40,7 @@ export class CurrentOrganizationController {
   }
 
   @Get('current')
+  @AllowPendingLegalValidation()
   async getCurrent(@CurrentUser() user: User) {
     if (!user?.organizationId) return null;
     return this.serializeCurrentOrganization(user.organizationId);
@@ -61,6 +63,7 @@ export class CurrentOrganizationController {
   }
 
   @Patch('current/legal-validation')
+  @AllowPendingLegalValidation()
   async validateLegalDocuments(
     @CurrentUser() user: User,
     @Body() dto: ValidateLegalDocumentsDto,

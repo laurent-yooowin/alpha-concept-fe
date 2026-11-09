@@ -51,14 +51,14 @@ const MISSION_STATUS_LABELS: Record<string, { label: string; color: string }> = 
   archivee: { label: 'Archivée', color: 'bg-slate-200 text-slate-600' },
 };
 
-const REPORT_STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  brouillon: { label: 'Brouillon', color: 'bg-slate-100 text-slate-700' },
-  envoye: { label: 'Envoyé', color: 'bg-blue-100 text-blue-700' },
-  valide: { label: 'Validé', color: 'bg-emerald-100 text-emerald-700' },
-  refuse: { label: 'Refusé', color: 'bg-rose-100 text-rose-700' },
-  archive: { label: 'Archivé', color: 'bg-slate-200 text-slate-600' },
-  envoye_au_client: { label: 'Envoyé client', color: 'bg-violet-100 text-violet-700' },
-  annule: { label: 'Annulé', color: 'bg-rose-100 text-rose-700' },
+const REPORT_STATUS_LABELS: Record<string, { label: string; color: string; chartColor: string }> = {
+  brouillon: { label: 'Brouillon', color: 'bg-slate-100 text-slate-700', chartColor: '#64748b' },
+  envoye: { label: 'Envoyé', color: 'bg-blue-100 text-blue-700', chartColor: '#2563eb' },
+  valide: { label: 'Validé', color: 'bg-emerald-100 text-emerald-700', chartColor: '#059669' },
+  refuse: { label: 'Refusé', color: 'bg-rose-100 text-rose-700', chartColor: '#e11d48' },
+  archive: { label: 'Archivé', color: 'bg-slate-200 text-slate-600', chartColor: '#334155' },
+  envoye_au_client: { label: 'Envoyé client', color: 'bg-violet-100 text-violet-700', chartColor: '#7c3aed' },
+  annule: { label: 'Annulé', color: 'bg-rose-100 text-rose-700', chartColor: '#ea580c' },
 };
 
 const StatusBreakdown = ({
@@ -120,6 +120,7 @@ export default function HyperAdminDashboard() {
   }));
   const reportPieData = Object.entries(reportStatusTotals).map(([k, v]) => ({
     name: REPORT_STATUS_LABELS[k]?.label || k, value: v,
+    chartColor: REPORT_STATUS_LABELS[k]?.chartColor || '#94a3b8',
   }));
 
   const perOrgBarData = data.perOrganization.map((r) => ({
@@ -177,8 +178,8 @@ export default function HyperAdminDashboard() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={reportPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={80} label>
-                  {reportPieData.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[(i + 2) % PIE_COLORS.length]} />
+                  {reportPieData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.chartColor} />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -247,7 +248,7 @@ export default function HyperAdminDashboard() {
                 <tr key={row.organization.id} className="hover:bg-slate-50">
                   <td className="px-6 py-3">
                     <div className="font-medium text-slate-900">{row.organization.name}</div>
-                    <div className="text-xs text-slate-400">/login/{row.organization.slug}</div>
+                    <div className="text-xs text-slate-400">/{row.organization.slug}/login</div>
                   </td>
                   <td className="px-4 py-3 text-right">{row.admins}</td>
                   <td className="px-4 py-3 text-right">{row.coordinators}</td>
