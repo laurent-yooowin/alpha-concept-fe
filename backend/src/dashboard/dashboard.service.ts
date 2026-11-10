@@ -84,7 +84,8 @@ export class DashboardService {
       ? ''
       : 'AND mission.organizationId = ?' + (user.role === UserRole.USER ? ' AND mission.userId = ?' : '');
     const avgRows = await this.missionRepository.query(
-      `SELECT AVG(firstSend.daysToFirstSend) AS avgDays
+      `SELECT AVG(firstSend.daysToFirstSend) AS avgDays,
+              COUNT(*) AS missionCount
        FROM (
          SELECT mission.id,
                 TIMESTAMPDIFF(SECOND, mission.createdAt, MIN(report.sentToClientAt)) / 86400 AS daysToFirstSend
@@ -105,6 +106,7 @@ export class DashboardService {
     );
     const avgRow = avgRows[0];
     const avgProcessingTime = avgRow?.avgDays == null ? null : Number(avgRow.avgDays);
+    const avgProcessingMissionCount = Number(avgRow?.missionCount ?? 0);
 
     return {
       totalMissions,
@@ -119,6 +121,8 @@ export class DashboardService {
       totalCoordinators,
       avgProcessingTime: avgProcessingTime == null || !Number.isFinite(avgProcessingTime)
         ? null : Math.round(avgProcessingTime * 10) / 10,
+      avgProcessingMissionCount: Number.isSafeInteger(avgProcessingMissionCount)
+        ? avgProcessingMissionCount : 0,
     };
   }
 

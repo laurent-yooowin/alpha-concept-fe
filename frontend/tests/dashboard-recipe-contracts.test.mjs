@@ -10,9 +10,10 @@ test('report summary shows cancelled instead of the obsolete validated card', ()
   assert.doesNotMatch(dashboard, /stats\.validatedReports|>Validés<|Aucun rapport validé/);
 });
 
-test('processing time describes chantier creation to first client send', () => {
+test('processing time shows the eligible chantier count from the same average', () => {
   assert.match(dashboard, /Temps moyen de traitement/);
-  assert.match(dashboard, /création du chantier → premier envoi client/);
+  assert.match(dashboard, /stats\.avgProcessingMissionCount/);
+  assert.match(dashboard, /avec rapport envoyé/);
   assert.match(dashboard, /Aucun chantier avec rapport envoyé daté/);
   assert.match(dashboard, /item\.status === 'terminee' \? 'Terminés' : missionStatusLabel\(item\.status\)/);
 });

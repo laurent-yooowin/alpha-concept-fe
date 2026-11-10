@@ -44,7 +44,7 @@ class QueryStub {
 test('dashboard excludes cancelled reports from submitted and counts client-sent reports', async () => {
   const missionRepo = {
     createQueryBuilder: () => new QueryStub('mission'),
-    query: async () => [{ avgDays: null }],
+    query: async () => [{ avgDays: null, missionCount: '0' }],
   };
   const reportRepo = { createQueryBuilder: () => new QueryStub('report') };
   const userRepo = { createQueryBuilder: () => new QueryStub('mission') };
@@ -56,6 +56,7 @@ test('dashboard excludes cancelled reports from submitted and counts client-sent
   assert.equal(stats.draftReports, 57);
   assert.equal(stats.cancelledReports, 5);
   assert.equal(stats.avgProcessingTime, null);
+  assert.equal(stats.avgProcessingMissionCount, 0);
 });
 
 test('processing time averages one first client send per authorized mission, not per report', async () => {
@@ -64,7 +65,7 @@ test('processing time averages one first client send per authorized mission, not
     createQueryBuilder: () => new QueryStub('mission'),
     query: async (sql: string, params: unknown[]) => {
       calls.push({ sql, params });
-      return [{ avgDays: '2.45' }];
+      return [{ avgDays: '2.45', missionCount: '8' }];
     },
   };
   const service = new DashboardService(
@@ -74,9 +75,11 @@ test('processing time averages one first client send per authorized mission, not
   );
   const stats = await service.getStats({ id: 'coord-a', organizationId: 'org-a', role: UserRole.USER } as any);
   assert.equal(stats.avgProcessingTime, 2.5);
+  assert.equal(stats.avgProcessingMissionCount, 8);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].params, ['envoye_au_client', 'org-a', 'coord-a']);
   assert.match(calls[0].sql, /AVG\(firstSend\.daysToFirstSend\)/);
+  assert.match(calls[0].sql, /COUNT\(\*\) AS missionCount/);
   assert.match(calls[0].sql, /MIN\(report\.sentToClientAt\)/);
   assert.match(calls[0].sql, /GROUP BY mission\.id, mission\.createdAt/);
   assert.match(calls[0].sql, /TIMESTAMPDIFF\(SECOND, mission\.createdAt, MIN\(report\.sentToClientAt\)\)/);
@@ -98,7 +101,7 @@ test('admin processing time scopes by organization even for admin-authored repor
       createQueryBuilder: () => new QueryStub('mission'),
       query: async (_sql: string, params: unknown[]) => {
         parameters = params;
-        return [{ avgDays: null }];
+        return [{ avgDays: null, missionCount: '0' }];
       },
     } as any,
     { createQueryBuilder: () => new QueryStub('report') } as any,
@@ -107,6 +110,7 @@ test('admin processing time scopes by organization even for admin-authored repor
   const stats = await service.getStats({ id: 'admin-b', organizationId: 'org-b', role: UserRole.ADMIN } as any);
   assert.deepEqual(parameters, ['envoye_au_client', 'org-b']);
   assert.equal(stats.avgProcessingTime, null);
+  assert.equal(stats.avgProcessingMissionCount, 0);
 });
 
 test('status breakdown includes completed missions at zero without changing other counts', async () => {

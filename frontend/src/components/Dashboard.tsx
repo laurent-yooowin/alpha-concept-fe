@@ -24,6 +24,7 @@ interface Stats {
   sentReports: number;
   totalCoordinators: number;
   avgProcessingTime: number | null;
+  avgProcessingMissionCount: number;
 }
 
 interface MonthlyMission {
@@ -54,6 +55,7 @@ export default function Dashboard() {
     sentReports: 0,
     totalCoordinators: 0,
     avgProcessingTime: null,
+    avgProcessingMissionCount: 0,
   });
   const [monthlyMissions, setMonthlyMissions] = useState < MonthlyMission[] > ([]);
   const [coordinatorStats, setCoordinatorStats] = useState < CoordinatorStat[] > ([]);
@@ -161,7 +163,7 @@ export default function Dashboard() {
           </div>
           <p className="text-sm font-medium text-slate-600 mb-1">Temps moyen de traitement</p>
           <p className="text-3xl font-bold text-slate-900">{stats.avgProcessingTime == null ? 'n/d' : stats.avgProcessingTime}</p>
-          <p className="text-sm text-slate-500 mt-2">{stats.avgProcessingTime == null ? 'Aucun chantier avec rapport envoyé daté' : 'jours · création du chantier → premier envoi client'}</p>
+          <p className="text-sm text-slate-500 mt-2">{stats.avgProcessingTime == null ? 'Aucun chantier avec rapport envoyé daté' : `jours · ${stats.avgProcessingMissionCount} chantier${stats.avgProcessingMissionCount > 1 ? 's' : ''} avec rapport envoyé`}</p>
         </div>
       </div>
 
