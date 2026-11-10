@@ -21,7 +21,6 @@ interface Stats {
   submittedReports: number;
   draftReports: number;
   cancelledReports: number;
-  validatedReports: number;
   sentReports: number;
   totalCoordinators: number;
   avgProcessingTime: number | null;
@@ -52,7 +51,6 @@ export default function Dashboard() {
     submittedReports: 0,
     draftReports: 0,
     cancelledReports: 0,
-    validatedReports: 0,
     sentReports: 0,
     totalCoordinators: 0,
     avgProcessingTime: null,
@@ -163,7 +161,7 @@ export default function Dashboard() {
           </div>
           <p className="text-sm font-medium text-slate-600 mb-1">Temps moyen de traitement</p>
           <p className="text-3xl font-bold text-slate-900">{stats.avgProcessingTime == null ? 'n/d' : stats.avgProcessingTime}</p>
-          <p className="text-sm text-slate-500 mt-2">{stats.avgProcessingTime == null ? 'Aucun rapport validé' : 'jours'}</p>
+          <p className="text-sm text-slate-500 mt-2">{stats.avgProcessingTime == null ? 'Aucun chantier avec rapport envoyé daté' : 'jours · création du chantier → premier envoi client'}</p>
         </div>
       </div>
 
@@ -214,7 +212,7 @@ export default function Dashboard() {
                 <div key={index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(item.status)}`}>
-                      {missionStatusLabel(item.status)}
+                      {item.status === 'terminee' ? 'Terminés' : missionStatusLabel(item.status)}
                     </span>
                   </div>
                   <span className="text-lg font-bold text-slate-900">{item.count}</span>
@@ -279,9 +277,9 @@ export default function Dashboard() {
             <p className="text-2xl font-bold text-blue-900">{stats.draftReports}</p>
             <p className="text-sm text-blue-600 mt-1">Brouillons</p>
           </div>
-          <div className="text-center p-4 bg-green-50 rounded-lg">
-            <p className="text-2xl font-bold text-green-900">{stats.validatedReports}</p>
-            <p className="text-sm text-green-600 mt-1">Validés</p>
+          <div className="text-center p-4 bg-red-50 rounded-lg">
+            <p className="text-2xl font-bold text-red-900">{stats.cancelledReports}</p>
+            <p className="text-sm text-red-600 mt-1">Annulés</p>
           </div>
           <div className="text-center p-4 bg-emerald-50 rounded-lg">
             <p className="text-2xl font-bold text-emerald-900">{stats.sentReports}</p>

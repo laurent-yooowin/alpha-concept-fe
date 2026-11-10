@@ -38,11 +38,14 @@ class QueryStub {
     return 83;
   }
   async getRawOne() { return { avgDays: null }; }
-  async getRawMany() { return []; }
+  async getRawMany(): Promise<Array<{ status: string; count: string }>> { return []; }
 }
 
 test('dashboard excludes cancelled reports from submitted and counts client-sent reports', async () => {
-  const missionRepo = { createQueryBuilder: () => new QueryStub('mission') };
+  const missionRepo = {
+    createQueryBuilder: () => new QueryStub('mission'),
+    query: async () => [{ avgDays: null }],
+  };
   const reportRepo = { createQueryBuilder: () => new QueryStub('report') };
   const userRepo = { createQueryBuilder: () => new QueryStub('mission') };
   const service = new DashboardService(missionRepo as any, reportRepo as any, userRepo as any);
@@ -53,6 +56,79 @@ test('dashboard excludes cancelled reports from submitted and counts client-sent
   assert.equal(stats.draftReports, 57);
   assert.equal(stats.cancelledReports, 5);
   assert.equal(stats.avgProcessingTime, null);
+});
+
+test('processing time averages one first client send per authorized mission, not per report', async () => {
+  const calls: Array<{ sql: string; params: unknown[] }> = [];
+  const missionRepo = {
+    createQueryBuilder: () => new QueryStub('mission'),
+    query: async (sql: string, params: unknown[]) => {
+      calls.push({ sql, params });
+      return [{ avgDays: '2.45' }];
+    },
+  };
+  const service = new DashboardService(
+    missionRepo as any,
+    { createQueryBuilder: () => new QueryStub('report') } as any,
+    { createQueryBuilder: () => new QueryStub('mission') } as any,
+  );
+  const stats = await service.getStats({ id: 'coord-a', organizationId: 'org-a', role: UserRole.USER } as any);
+  assert.equal(stats.avgProcessingTime, 2.5);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].params, ['envoye_au_client', 'org-a', 'coord-a']);
+  assert.match(calls[0].sql, /AVG\(firstSend\.daysToFirstSend\)/);
+  assert.match(calls[0].sql, /MIN\(report\.sentToClientAt\)/);
+  assert.match(calls[0].sql, /GROUP BY mission\.id, mission\.createdAt/);
+  assert.match(calls[0].sql, /TIMESTAMPDIFF\(SECOND, mission\.createdAt, MIN\(report\.sentToClientAt\)\)/);
+  assert.match(calls[0].sql, /visit\.missionId = mission\.id/);
+  assert.match(calls[0].sql, /visit\.organizationId = mission\.organizationId/);
+  assert.match(calls[0].sql, /report\.visitId = visit\.id/);
+  assert.match(calls[0].sql, /report\.missionId = mission\.id/);
+  assert.match(calls[0].sql, /report\.sentToClientAt IS NOT NULL/);
+  assert.match(calls[0].sql, /report\.sentToClientAt >= mission\.createdAt/);
+  assert.match(calls[0].sql, /mission\.organizationId = \?/);
+  assert.match(calls[0].sql, /mission\.userId = \?/);
+  assert.doesNotMatch(calls[0].sql, /report\.updatedAt|report\.createdAt/);
+});
+
+test('admin processing time scopes by organization even for admin-authored reports', async () => {
+  let parameters: unknown[] = [];
+  const service = new DashboardService(
+    {
+      createQueryBuilder: () => new QueryStub('mission'),
+      query: async (_sql: string, params: unknown[]) => {
+        parameters = params;
+        return [{ avgDays: null }];
+      },
+    } as any,
+    { createQueryBuilder: () => new QueryStub('report') } as any,
+    { createQueryBuilder: () => new QueryStub('mission') } as any,
+  );
+  const stats = await service.getStats({ id: 'admin-b', organizationId: 'org-b', role: UserRole.ADMIN } as any);
+  assert.deepEqual(parameters, ['envoye_au_client', 'org-b']);
+  assert.equal(stats.avgProcessingTime, null);
+});
+
+test('status breakdown includes completed missions at zero without changing other counts', async () => {
+  class StatusQueryStub extends QueryStub {
+    constructor(private readonly rows: Array<{ status: string; count: string }>) { super('mission'); }
+    async getRawMany() { return this.rows; }
+  }
+  let rows = [{ status: 'planifiee', count: '3' }];
+  const service = new DashboardService(
+    { createQueryBuilder: () => new StatusQueryStub(rows) } as any,
+    {} as any,
+    {} as any,
+  );
+  const user = { id: 'admin', organizationId: 'org-a', role: UserRole.ADMIN } as any;
+  assert.deepEqual(
+    await service.getStatusBreakdown(user),
+    [{ status: 'planifiee', count: 3 }, { status: 'terminee', count: 0 }],
+  );
+  rows = [{ status: 'planifiee', count: '3' }, { status: 'terminee', count: '2' }];
+  assert.deepEqual(await service.getStatusBreakdown(user), [
+    { status: 'planifiee', count: 3 }, { status: 'terminee', count: 2 },
+  ]);
 });
 
 test('monthly mission query excludes future months and reports only the six current calendar months', async () => {

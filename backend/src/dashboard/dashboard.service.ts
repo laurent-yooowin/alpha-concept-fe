@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Mission } from '../missions/mission.entity';
+import { MissionStatus } from '../missions/mission.dto';
 import { Report, ReportStatus } from '../reports/report.entity';
 import { User, UserRole } from '../user/user.entity';
 
@@ -77,15 +78,32 @@ export class DashboardService {
     }
     const totalCoordinators = await coordinatorsQb.getCount();
 
-    const avgQb = this.applyScope(
-      this.reportRepository
-        .createQueryBuilder('report')
-        .select('AVG(DATEDIFF(report.updatedAt, report.createdAt))', 'avgDays')
-        .where('report.status = :validated', { validated: ReportStatus.VALIDATED }),
-      'report',
-      user,
+    // Measure once per authorized mission, from its creation to its first valid client send.
+    // The visit is the tenant authority for legacy reports with stale organization metadata.
+    const missionScope = user.role === UserRole.HYPER_ADMIN
+      ? ''
+      : 'AND mission.organizationId = ?' + (user.role === UserRole.USER ? ' AND mission.userId = ?' : '');
+    const avgRows = await this.missionRepository.query(
+      `SELECT AVG(firstSend.daysToFirstSend) AS avgDays
+       FROM (
+         SELECT mission.id,
+                TIMESTAMPDIFF(SECOND, mission.createdAt, MIN(report.sentToClientAt)) / 86400 AS daysToFirstSend
+         FROM missions mission
+         JOIN visits visit ON visit.missionId = mission.id
+                          AND visit.organizationId = mission.organizationId
+         JOIN reports report ON report.visitId = visit.id
+                            AND report.missionId = mission.id
+         WHERE report.status = ?
+           AND report.sentToClientAt IS NOT NULL
+           AND report.sentToClientAt >= mission.createdAt
+           ${missionScope}
+         GROUP BY mission.id, mission.createdAt
+       ) firstSend`,
+      [ReportStatus.SENT_TO_CLIENT,
+        ...(user.role === UserRole.HYPER_ADMIN ? [] : [user.organizationId]),
+        ...(user.role === UserRole.USER ? [user.id] : [])],
     );
-    const avgRow = await avgQb.getRawOne();
+    const avgRow = avgRows[0];
     const avgProcessingTime = avgRow?.avgDays == null ? null : Number(avgRow.avgDays);
 
     return {
@@ -154,6 +172,10 @@ export class DashboardService {
     ).groupBy('mission.status');
 
     const results = await qb.getRawMany();
-    return results.map((r) => ({ status: r.status, count: parseInt(r.count) }));
+    const breakdown = results.map((r) => ({ status: r.status, count: parseInt(r.count) }));
+    if (!breakdown.some((item) => item.status === MissionStatus.TERMINATED)) {
+      breakdown.push({ status: MissionStatus.TERMINATED, count: 0 });
+    }
+    return breakdown;
   }
 }
