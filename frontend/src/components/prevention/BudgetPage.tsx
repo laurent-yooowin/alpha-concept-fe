@@ -526,11 +526,29 @@ export default function BudgetPage({ missions, base, filters, clientKeys, client
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <h2 className="flex items-center gap-2 text-[17px] font-extrabold text-[#1e3a5f]"><WalletCards className="text-[#e87722]" size={18} />Budget estimatif sécurité</h2>
-        <div className="mt-1 flex items-start justify-between gap-3">
-          <p className="text-xs font-semibold text-[#1e3a5f]">Période {materializedView ? 'consultée' : selected ? 'calculée' : 'demandée'} : {filters.preset === 'ALL' ? 'Toute la période' : `${periodDate(periodStart)} → ${periodDate(periodEnd)}`} · {reportCount}/{totalReports} rapport(s) · {findingCount} recommandation(s) · {estimatedCount} estimation(s) IA{unpricedCount > 0 ? ` · ${unpricedCount} poste(s) à chiffrer` : ''}</p>
-          <InfoTooltip label="Détails du périmètre et de la couverture budgétaire">
-            <span className="block font-semibold text-[#1e3a5f]">Période {materializedView ? 'consultée' : selected ? 'calculée' : 'demandée'} : {filters.preset === 'ALL' ? 'Toute la période' : `${periodDate(periodStart)} → ${periodDate(periodEnd)}`} · {categoryFilterLabel} · {severityFilterLabel} · {selectedMissionIds.length ? `${selectedMissionIds.length} chantier(s)` : 'Tous les chantiers'} · {clientKeys.length ? `${clientKeys.length} entreprise(s)` : 'Toutes les entreprises'}</span>
-            <span className="mt-2 block">{reportCount} rapport(s) concernés parmi {totalReports} rapport(s) avec recommandations budgétisables · {findingCount} recommandation(s) · {estimatedCount} estimation(s) IA · {unpricedCount} poste(s) à chiffrer. Les rapports sans recommandation exploitable ne sont pas comptés. La barre représente la couverture des rapports, pas le montant.</span>
+        <div className="mt-1 text-xs font-semibold text-[#1e3a5f]">
+          Période {materializedView ? 'consultée' : selected ? 'calculée' : 'demandée'} : {filters.preset === 'ALL' ? 'Toute la période' : `${periodDate(periodStart)} → ${periodDate(periodEnd)}`} · {reportCount}/{totalReports} rapport(s) · {findingCount} recommandation(s) · {estimatedCount} estimation(s) IA{unpricedCount > 0 ? ` · ${unpricedCount} poste(s) à chiffrer` : ''}
+          <InfoTooltip label="Détails du périmètre et de la couverture budgétaire" title="Périmètre et couverture du budget">
+            <section>
+              <h3 className="font-semibold text-[#1e3a5f]">Périmètre {materializedView ? 'consulté' : selected ? 'calculé' : 'demandé'}</h3>
+              <ul className="mt-2 list-disc space-y-1.5 pl-5">
+                <li>Période : {filters.preset === 'ALL' ? 'Toute la période' : `${periodDate(periodStart)} → ${periodDate(periodEnd)}`}</li>
+                <li>Catégories : {categoryFilterLabel}</li>
+                <li>Gravités : {severityFilterLabel}</li>
+                <li>Chantiers : {selectedMissionIds.length ? `${selectedMissionIds.length} chantier(s)` : 'Tous les chantiers'}</li>
+                <li>Entreprises : {clientKeys.length ? `${clientKeys.length} entreprise(s)` : 'Toutes les entreprises'}</li>
+              </ul>
+            </section>
+            <section>
+              <h3 className="font-semibold text-[#1e3a5f]">Données prises en compte</h3>
+              <ul className="mt-2 list-disc space-y-1.5 pl-5">
+                <li>{reportCount} rapport(s) concernés parmi {totalReports} rapport(s) avec recommandations budgétisables</li>
+                <li>{findingCount} recommandation(s)</li>
+                <li>{estimatedCount} estimation(s) IA</li>
+                <li>{unpricedCount} poste(s) à chiffrer</li>
+              </ul>
+            </section>
+            <p className="border-t border-slate-100 pt-3 text-slate-600">Les rapports sans recommandation exploitable ne sont pas comptés. La barre représente la couverture des rapports, pas le montant.</p>
           </InfoTooltip>
         </div>
       </div>
