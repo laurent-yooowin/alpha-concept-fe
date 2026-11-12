@@ -7,12 +7,11 @@ import { User } from '../user/user.entity';
 import { Mission } from '../missions/mission.entity';
 import { Visit } from '../visits/visit.entity';
 import { Report } from '../reports/report.entity';
-import { Client } from '../clients/client.entity';
 import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Organization, User, Mission, Visit, Report, Client]),
+    TypeOrmModule.forFeature([Organization, User, Mission, Visit, Report]),
     UserModule,
   ],
   controllers: [HyperAdminController],

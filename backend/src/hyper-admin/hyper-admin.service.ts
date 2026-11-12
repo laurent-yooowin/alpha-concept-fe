@@ -6,7 +6,6 @@ import { User, UserRole } from '../user/user.entity';
 import { Mission } from '../missions/mission.entity';
 import { Visit } from '../visits/visit.entity';
 import { Report } from '../reports/report.entity';
-import { Client } from '../clients/client.entity';
 import { UserService } from '../user/user.service';
 
 export interface CreateOrgUserDto {
@@ -41,9 +40,17 @@ export class HyperAdminService {
     @InjectRepository(Mission) private missionRepo: Repository<Mission>,
     @InjectRepository(Visit) private visitRepo: Repository<Visit>,
     @InjectRepository(Report) private reportRepo: Repository<Report>,
-    @InjectRepository(Client) private clientRepo: Repository<Client>,
     private readonly userService: UserService,
   ) {}
+
+  private async missionClientCount(organizationId: string): Promise<number> {
+    const [row] = await this.missionRepo.query(
+      `SELECT COUNT(DISTINCT LOWER(NULLIF(TRIM(client), ''))) AS clientCount
+       FROM missions WHERE organizationId=?`,
+      [organizationId],
+    );
+    return Number(row?.clientCount ?? 0);
+  }
 
   async globalDashboard() {
     const orgs = await this.orgRepo.find({ order: { createdAt: 'DESC' } });
@@ -82,7 +89,7 @@ export class HyperAdminService {
           this.missionRepo.count({ where: { organizationId: org.id } }),
           this.visitRepo.count({ where: { organizationId: org.id } }),
           this.reportRepo.count({ where: { organizationId: org.id } }),
-          this.clientRepo.count({ where: { organizationId: org.id } }),
+          this.missionClientCount(org.id),
           groupCounts(this.missionRepo, org.id, 'status'),
           groupCounts(this.reportRepo, org.id, 'status'),
         ]);
@@ -107,7 +114,7 @@ export class HyperAdminService {
         missions: await this.missionRepo.count(),
         visits: await this.visitRepo.count(),
         reports: await this.reportRepo.count(),
-        clients: await this.clientRepo.count(),
+        clients: perOrg.reduce((total, org) => total + org.clients, 0),
       },
       perOrganization: perOrg,
     };
